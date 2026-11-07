@@ -773,7 +773,7 @@ mod PhysicsSuite do
 
   fn rising(ys : List(Float), slack : Float) : Bool do
     match ys do
-    Cons(a, Cons(b, rest)) -> a <= b +. slack && rising(Cons(b, rest), slack)
+    Cons(a, Cons(b, rest)) -> if a <= b +. slack do rising(Cons(b, rest), slack) else false end
     Cons(_, Nil) -> true
     Nil -> true
     end

@@ -210,7 +210,10 @@ mod Skee.Physics do
 
   -- How a step on the board ended: go on, leave the loop as Swift's `break`
   -- does, or the shot is over.
-  type BoardTurn = KeepGoing(ShotSim, BoardBall) | StopHere(ShotSim, BoardBall) | ShotOver(ShotResult)
+  type BoardTurn =
+    KeepGoing(ShotSim, BoardBall)
+    | StopHere(ShotSim, BoardBall)
+    | ShotOver(ShotResult)
 
   pfn is_bean(b : BallKind) : Bool needs () do
     match b do
