@@ -55,6 +55,12 @@ golden-synth:
 	cd tools/golden_synth && swift build $(SWIFT_FLAGS) --product golden-synth --scratch-path $(CURDIR)/tools/golden_synth/.build
 	tools/golden_synth/.build/release/golden-synth $(CURDIR)
 
+# The scene goldens need SkeeScene (SceneKit), so they have a package of their
+# own; its .build stays under tools/golden_scene.
+golden-scene:
+	cd tools/golden_scene && swift build -c release --product golden-scene --scratch-path $(CURDIR)/tools/golden_scene/.build
+	tools/golden_scene/.build/release/golden-scene $(CURDIR)
+
 golden-%:
 	cd $(GOLDEN_DIR) && swift build $(SWIFT_FLAGS) --product golden-$*
 	$(GOLDEN_DIR)/.build/release/golden-$* $(CURDIR)

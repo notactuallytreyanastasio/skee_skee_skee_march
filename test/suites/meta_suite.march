@@ -35,23 +35,38 @@ mod MetaSuite do
     if c >= 97 do c - 87 else c - 48 end
   end
 
+  fn hex_byte(h : String, i : Int) : Int do
+    nibble(string_byte_at(h, i)) * 16 + nibble(string_byte_at(h, i + 1))
+  end
+
+  -- The continuation bytes of a UTF-8 sequence folded into its codepoint.
+  fn utf8_tail(h : String, i : Int, left : Int, code : Int) : Int do
+    if left == 0 do code else utf8_tail(h, i + 2, left - 1, code * 64 + hex_byte(h, i) % 64) end
+  end
+
   fn unhex_go(h : String, i : Int, acc : List(String)) : String do
     if i >= string_byte_length(h) do
       String.join(List.reverse(acc), "")
     else
       do
-        let code = nibble(string_byte_at(h, i)) * 16 + nibble(string_byte_at(h, i + 1))
+        let lead = hex_byte(h, i)
+        let (left, first) =
+          if lead < 128 do
+            (0, lead)
+          else
+            if lead < 224 do (1, lead % 32) else if lead < 240 do (2, lead % 16) else (3, lead % 8) end end
+          end
         let ch =
-          match String.from_codepoint(code) do
+          match String.from_codepoint(utf8_tail(h, i + 2, left, first)) do
           Some(c) -> c
           None -> panic("bad golden byte")
           end
-        unhex_go(h, i + 2, Cons(ch, acc))
+        unhex_go(h, i + 2 + 2 * left, Cons(ch, acc))
       end
     end
   end
 
-  -- ASCII only: the golden save strings are.
+  -- Golden text is Swift's UTF-8, two hex digits a byte.
   fn unhex(h : String) : String do
     if h == "-" do "" else unhex_go(h, 0, []) end
   end
@@ -733,6 +748,51 @@ mod MetaSuite do
     end
   end
 
+  fn out_of_range(r : Result(a, Skee.Save.SaveError)) : Bool do
+    match r do
+    Err(SaveOutOfRange(_)) -> true
+    Err(_) -> false
+    Ok(_) -> false
+    end
+  end
+
+  fn decodes(r : Result(a, Skee.Save.SaveError)) : Bool do
+    match r do
+    Ok(_) -> true
+    Err(_) -> false
+    end
+  end
+
+  -- The documented deviations (Skee.Save's header): a whole number past
+  -- 2^53-1 that Swift reads is refused as out of range, and the hex strings
+  -- this port writes, which Swift refuses, are read. Each row is red if March
+  -- ever agrees with Swift, so the documentation has to change with the code.
+  fn wide_row(row : List(String)) : Outcome do
+    match row do
+    [target, label, json, status] -> do
+      let text = unhex(json)
+      let (refused_wide, read) =
+        if target == "wallet" do
+          do
+            let r = Skee.Save.decode_wallet(text)
+            (out_of_range(r), decodes(r))
+          end
+        else
+          do
+            let r = Skee.Save.decode_run(k(), text)
+            (out_of_range(r), decodes(r))
+          end
+        end
+      if status == "ok" do
+        expect(refused_wide, label ++ ": Swift reads it, March must refuse it as out of range")
+      else
+        expect(read, label ++ ": Swift refuses it, March reads its own write format")
+      end
+    end
+    _ -> Mismatch("bad wide row")
+    end
+  end
+
   fn save_golden_cases() : List(Case) do
     [
       case("TipStore text Swift's decoder reads or refuses", fn () -> all(List.map(rows("tipsraw"), tipsraw_row))),
@@ -740,6 +800,7 @@ mod MetaSuite do
       case("Wallet encoded as Swift's JSONEncoder writes it", fn () -> wallet_bytes()),
       case("WalletStore.load falls back to Wallet()", fn () -> load_wallet_defaults()),
       case("run files decoded and replayed as GameModel does", fn () -> all(List.map(rows("runfile"), run_row))),
+      case("deviations from Swift's decoder stay as documented", fn () -> all(List.map(rows("wide"), wide_row))),
       case("TipStore drops names it does not know", fn () -> all(List.map(rows("tipstore"), tipstore_row)))
     ]
   end
@@ -1389,6 +1450,18 @@ mod MetaSuite do
     all([expect_int(read(text), 12000, "12000 actions"), expect_int(read(spaced), 12000, "with space between"), expect_int(read(String.replace_all(text, "]", ",]")), 12000, "with trailing commas")])
   end
 
+  fn byte_order_mark() : Outcome do
+    let bom = Option.unwrap_or(String.from_codepoint(65279), "")
+    let body = "{\"balance\":5,\"lifetime\":9,\"owned\":[]}"
+    let read = Skee.Save.decode_wallet(bom ++ body)
+    let balance =
+      match read do
+      Ok(w) -> Skee.Units.winnings_int(w.balance)
+      Err(_) -> -1
+      end
+    all([expect_int(balance, 5, "one mark"), expect(!decodes(Skee.Save.decode_wallet(bom ++ bom ++ body)), "two marks"), expect(!decodes(Skee.Save.decode_wallet(" " ++ bom ++ body)), "a mark after a space"), expect(decodes(Skee.Save.decode_tips(bom ++ "[]")), "tips"), expect(decodes(Skee.Save.decode_flag(bom ++ "true")), "a flag")])
+  end
+
   fn typed_errors() : Outcome do
     all([expect(err_is(Skee.Save.decode_wallet("{\"lifetime\":9,\"owned\":[]}"), SaveMissing("balance")), "missing"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":1,\"lifetime\":9,\"owned\":[\"kazoo\",\"spaceship\"]}"), SaveUnknownName("owned[1]", "spaceship")), "unknown prize"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":1e300,\"lifetime\":9,\"owned\":[]}"), SaveOutOfRange("balance")), "too big for JS"), expect(err_is(Skee.Save.decode_run(k(), "{\"seed\":1,\"actions\":[{\"pull\":{\"_0\":2}}]}"), SaveUnknownName("actions[0].pull._0", "2")), "bad bet"), expect(err_is(Skee.Save.decode_run(k(), "{\"seed\":1,\"actions\":[{\"throwBall\":{\"_0\":{\"power\":\"7ff0000000000000\",\"aim\":0}}}]}"), SaveOutOfRange("actions[0].throwBall._0.power")), "an infinite float")])
   end
@@ -1440,6 +1513,7 @@ mod MetaSuite do
       case("deep nesting is refused before parsing", fn () -> deep_nesting_is_refused()),
       case("long saves read without growing the stack", fn () -> long_saves_read()),
       case("errors say what and where", fn () -> typed_errors()),
+      case("one leading byte order mark is skipped, as Swift skips it", fn () -> byte_order_mark()),
       case("resume only in the run's room; a new game checks in", fn () -> resume_cases()),
       case("a finished run pays the shelf, a pull feeds the meters", fn () -> bank_cases())
     ]

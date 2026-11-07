@@ -46,13 +46,15 @@ foundation: ask before changing it.
 | meta | `lib/skee/guide.march`, `walkthrough.march`, `save.march` | `Meta/Guide.swift`, `Meta/Walkthrough.swift`, Wallet's decoder, GameModel's `TipStore`/`WalletStore`/`RunStore` and tip bookkeeping | `golden-meta` | `make test-meta` |
 | synth | `lib/skee/synth.march` | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
+| scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
 
 `Input/Stroke.swift` is ported as `Skee.Stroke` (`lib/skee/stroke.march`), tested by
 the physics suite. Not ported yet: `Meta/Host`, `HostGuard`, `ScriptedHost`,
-`Walkthrough`, `Guide`, the rest of `Haggle`, and Wallet's decoder for old saves.
+and the rest of `Haggle`. (`Walkthrough`, `Guide` and Wallet's decoder are the
+meta piece's.)
 
 ### The additive rule for `lib/skee/types.march`
 
@@ -121,7 +123,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make build` | The browser build, `.march/build/debug/skee.mjs` |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -279,6 +281,76 @@ chains operations, round after each one.
   (7% of real time); native 27, 251, 292 us. `render(44100)` with 48 voices:
   115 ms on node, 221 ms native.
 
+### Skee.Scene: SceneKit as Canvas 2D
+
+The browser has no SceneKit, so the alley is a pure pipeline and the shell only
+paints. Per frame:
+
+```
+Skee.SceneCue.frame_cue(k, presentation, held)        what ScenePresenter reads
+Skee.Scene.present(world, palette, rig, viewport, keep, cue, dt)
+  -> (Scenery, Keep)                                  ScenePresenter.update
+Skee.Scene.draw(k, scenery) -> List(DrawOp)           back to front, pixels
+```
+
+`rig` is `Skee.Camera.fit_world(k, world)`, worked out once: `Cabinet.fit` only
+scores screen heights, so the rig is the same for every viewport and room (all
+four rooms share the lane and board height). Keep `Keep` between frames. The
+HUD's hole positions are `Skee.Scene.hole_on_screen` (the fitted rig, as
+GameModel does), the stroke's geometry `Skee.Scene.flick_geometry`, the aiming
+guide `Skee.Camera.guide`, the held ball `Skee.Camera.waiting_ball` and a board
+tap `Skee.Camera.tapped_hole`.
+
+`DrawOp` is `ClearTo`, `FillShape(shape, paint, blend)`, `StrokeShape(shape, pen,
+blend)`, `DrawText` (centred, in the coordinates of its `frame`, an affine map
+for foreshortened badges), `PushClip(shape)` / `PopClip` (save, clip, restore).
+Shapes: `Poly`, `Holed` (even-odd), `Polys` (non-zero union), `Disc`, `Outline`
+(path steps). `Blend` is `Over` or `Lighter` (`globalCompositeOperation =
+"lighter"`). A `RadialPaint`'s centres and radii are in its `frame`: build the
+path in pixels, then set the frame before `fill`. Colours go to CSS through
+`Skee.Scene.css`, sizes in fonts through `css_number`: `float_to_string(1.0)` is
+`"1."`, which CSS rejects. `tools/scene_preview/paint.html` is a complete
+reference painter in 60 lines of JS.
+
+Parity, all against the real SkeeScene (32-bit Float there, 64-bit here):
+
+- World mappings, `Cabinet.fit` for seven viewports (390x844 to 1920x1080),
+  projected lane corners, hump, crease, every hole and ball centre: worst
+  1.6e-7 m and 5.6e-5 px. Tolerances 1e-6 m and 1e-3 px; a lane point is a
+  32-bit ray cast, measured 1.43e-6 m, allowed 2e-6.
+- The cabinet's node tree for every room (108 nodes: kind, size, colour,
+  outline, visibility, opacity, world transform) matches part for part.
+  `Cabinet.setReel` coins and halos, and `lightBulbs`, match.
+- `ScenePresenter.update` replayed over 984 frames of three real throws: ball,
+  shadow, trough count and camera match to 1e-6; the roll quaternion, checked
+  one frame at a time, to 3e-6. On the 82 frames where the ball sinks straight
+  into a hole Swift's roll axis is a normalised cross product of rounding noise,
+  so the ball spins at random; the port does not roll it there, and those
+  frames' orientation is not compared.
+- `Cabinet.fit`'s grids are Swift Float strides, whose lengths differ from a
+  Double's (`-1.8 through -0.2 by 0.05` stops at -0.25): the counts are Swift's.
+
+Deviations, where Canvas 2D has no equivalent:
+
+- No depth buffer: parts are painted in a fixed order by role (`Skee.Scene.layer`),
+  the ball last. A sinking ball is clipped to its pit and what is above it.
+- Toon lighting is worked out per flat face (per patch on balls), in linear
+  light: the cel ramp's three bands, the hemisphere fill and the rim band. The
+  floor's per-pixel rim is drawn as four rings. No cast shadows; the ball's
+  blob shadow is drawn.
+- Outlines are silhouettes stroked under the fill at the inverted hull's screen
+  width (`thick * height / (40 tan(fov/2))`), not hulls. Boxes are not chamfered.
+- Spheres are circles; the ball's gores are 30 lit patches. Gore seams are not
+  drawn.
+- Not drawn yet: particles (trail, sprays, drop bursts, Hot Spot glitter).
+  Fonts fall back from Avenir Next Heavy to Nunito or sans-serif.
+
+Speed (`tools/scene_preview/bench.sh`, node 26): `Cabinet.fit` 20 ms once;
+`present` plus `draw` 0.46 ms a frame over the 984 golden frames, at most 556
+ops (budget 16 ms, 2000 ops). `tools/scene_preview/preview.sh <stage> <w> <h>
+<dir>` paints a frame in headless Chrome; `tools/golden_scene`'s
+`scene-snapshot <png> <w> <h>` renders the real SceneKit cabinet beside it.
+
 ## Rules every core module follows
 
 - `cap pure` at the top, `needs ()` on every `fn` and `pfn`, no `needs` lines.
@@ -327,6 +399,11 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   `x` is `-0.0` the IEEE answer is `+0.0`, so the sign of a zero is lost. Write
   `if x == 0.0 do 0.0 else x end` where it matters (`Skee.Synth.plus_zero`).
   (`synth/fold_probe.march`)
+- **Let-bound lambdas over records, native.** A `let f = fn ... ->` that captures
+  a record and puts an Int argument into a record returns its tagged form
+  (2n + 1: 15 for 7), and one that takes a record argument and builds a record
+  segfaults. JS is right. Use named functions; Skee.Scene and Skee.Camera have
+  no let-bound lambdas. (`lambda_tagged_int/`)
 - **Int on JS.** Doubles: exact to 2^53-1. The JS runners use `--js-int-check`, which
   throws past that. Anything wider goes through `Skee.U64`.
 
@@ -350,6 +427,10 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   reads as the next function's comment. `make format` does not catch it. Put
   comments above a function, or give the commented piece a function of its own.
   (`format_moves_comments.march.txt`)
+- **`forge format` drops the parentheses around an `if` used as an operand**:
+  `(if c do a else b end) *. x` becomes `if c do a else b end *. x`, which does
+  not parse, and `n + (if ...)` the same. Bind the `if` to a `let` first.
+  (`format_drops_parens.march.txt`)
 - `forge format` also moves a file's leading comment inside the module, turns
   `use X.*` into `import X`, and rewrites `doc "x"` to `doc """x"""`.
 - A parse error in `lib/` shows up in dependants as `Unknown module`. Run
@@ -377,6 +458,13 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - `Json`'s constructors (`Str`, `Array`, `Object`, `Number`, `Null`, `Bool`) clash
   with `Msgpack` and `IOList`: write them `Json.Str` and so on, in patterns too.
 - `then` is a keyword: a function called `then` is a parse error at its name.
+  So are `affine` (a function), `len` and `by` (pattern variables).
+- The stdlib owns the type `Stage` (`flow.march`) and the constructor `Trace`
+  (`Method`): a type of yours called `Stage` is a different type with the same
+  name, reported as a mismatch between two `Stage`s.
+- A tuple on the line after a record literal is read as a call of the record:
+  `{ a: 1 }` then `(x, y)` on the next line is `not_a_function`. Bind the record
+  and return the tuple from a function (`Skee.Scene.pair`).
 - **`Json.parse` overflows the stack on deep nesting.** A few thousand `[` crash
   it (SIGBUS natively, `RangeError` on JS). Untrusted text goes through
   `Skee.Save.parse`, which counts depth first. (`json_deep_nesting.march`)
@@ -395,6 +483,24 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   it drops trailing commas, and replaces a string, number or key that
   Json.parse cannot read with a marker that `string_of` and `object_of`
   refuse, so it fails only where a decoder reads it, as in Swift.
+- **Json.parse is looser than Swift's JSONDecoder in four places**
+  (golden-meta rows `v*`, `raw*`, `bom*`, `dup*`, `*Tiny*`, from the meta
+  verifier's probe). Swift refuses a raw byte below 0x20 in any string or key
+  it decodes (an unread value, or a key of an object nothing opens, is only
+  scanned); `Skee.Save.parse` marks such text unreadable. Swift refuses a
+  number that rounds to zero from non-zero digits (`1e-400`, `2.4e-324`) as a
+  Double but reads it as 0 for an Int or UInt64; `parse` marks it, `float_of`
+  refuses the mark and `int_of` reads it as 0. Swift skips one leading UTF-8
+  byte order mark; `parse` drops it. A repeated key keeps its first value,
+  and an enum case key repeated counts once (`{"foul":{},"foul":{}}` is
+  `.foul`); `lookup` is first-wins and `action_of` drops repeats before it
+  counts.
+- **Ints past 2^53-1 in a save are refused, not misread.** Swift reads any
+  Int64 (`"balance":9007199254740993`). Json.parse holds a number as a double
+  and the JS target holds Int as one, so every Int field (balance, lifetime,
+  meters, comps, gamesSinceHost, hostVisits, extraTickets, the seed as a
+  number) gives `SaveOutOfRange` there. The meta case "deviations from
+  Swift's decoder stay as documented" (golden rows `wide`) pins it.
 - **Swift writes a `[Enum: Int]` in a different order every run.** Dictionary
   order is seeded per process, so `JSONEncoder` writes the progressive meters
   in any of 24 orders even with `.sortedKeys`. `golden-meta` re-runs itself

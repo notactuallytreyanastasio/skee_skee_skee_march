@@ -14,6 +14,12 @@ mod Skee.Save do
   --     that and a JSON number, so Swift's own run files still load.
   --   * A seed of 2^53 or more is written as 16 hex digits too. A JSON number
   --     that large cannot be read exactly here, so it is SaveOutOfRange.
+  --     Swift refuses both hex forms (golden rows vSeedHexStr, vPowerHexStr).
+  -- And one on the read side: a whole number past 2^53-1 in ANY Int field
+  -- (balance, lifetime, meters, comps, gamesSinceHost, hostVisits,
+  -- extraTickets, the seed) is SaveOutOfRange, where Swift reads any Int64.
+  -- Json.parse holds numbers as doubles and the JS target holds Int as one.
+  -- Golden rows `wide` pin all of these as the opposite of Swift's answer.
   cap pure
 
   import Skee.Units
@@ -451,6 +457,42 @@ mod Skee.Save do
     "\"\\u0007skee-unreadable\\u0007\""
   end
 
+  doc """What a number that rounds to zero from non-zero digits (`1e-400`) becomes. Swift's JSONDecoder refuses it as a Double, reads it as 0 for an Int or UInt64, and only scans it in a field nothing reads."""
+  fn underflow_mark() : String needs () do
+    let bell = Option.unwrap_or(String.from_codepoint(7), "")
+    bell ++ "skee-underflow" ++ bell
+  end
+
+  pfn underflow_json() : String needs () do
+    "\"\\u0007skee-underflow\\u0007\""
+  end
+
+  -- A raw byte below 0x20 in a string. Swift's scanner passes it, and the
+  -- decoder refuses it in any string or key it reads.
+  pfn has_control(s : String, i : Int, e : Int) : Bool needs () do
+    if i >= e do
+      false
+    else
+      if string_byte_at(s, i) < 32 do true else has_control(s, i + 1, e) end
+    end
+  end
+
+  -- A non-zero digit before the exponent of the number text from i to e.
+  pfn nonzero_mantissa(s : String, i : Int, e : Int) : Bool needs () do
+    if i >= e do
+      false
+    else
+      do
+        let c = string_byte_at(s, i)
+        if c == 69 || c == 101 do
+          false
+        else
+          if c >= 49 && c <= 57 do true else nonzero_mantissa(s, i + 1, e) end
+        end
+      end
+    end
+  end
+
   pfn kept_text(s : String, st : JsonScan) : String needs () do
     String.join(List.reverse(Cons(String.slice_bytes(s, st.copy_from, string_byte_length(s) - st.copy_from), st.pieces)), "")
   end
@@ -472,8 +514,27 @@ mod Skee.Save do
     scan_go(s, { st with scan_at: e, want: next, comma: -1 })
   end
 
-  -- A string or number: kept if Json.parse reads it, else marked unreadable.
-  -- Inside a dropped container only its extent matters, as in Swift.
+  pfn scan_marked(s : String, st : JsonScan, i : Int, e : Int, next : JsonWant, mark : String) : Result(String, SaveError) needs () do
+    let marked =
+      Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ mark, st.pieces)
+    scan_on(s, { st with pieces: marked, copy_from: e }, e, next)
+  end
+
+  -- What a string or number Json.parse reads stands in for: the text itself,
+  -- or a mark for what Swift reads differently.
+  pfn lexed_mark(s : String, i : Int, e : Int, v : JsonValue) : Option(String) needs () do
+    match v do
+    Json.Number(f) -> if f == 0.0 && nonzero_mantissa(s, i, e) do Some(underflow_json()) else None end
+    Json.Str(_) -> if has_control(s, i, e) do Some(unread_json()) else None end
+    Json.Null -> None
+    Json.Bool(_) -> None
+    Json.Array(_) -> None
+    Json.Object(_) -> None
+    end
+  end
+
+  -- A string or number: kept if Json.parse reads it as Swift does, else
+  -- marked. Inside a dropped container only its extent matters, as in Swift.
   pfn scan_lexed(s : String, st : JsonScan, i : Int, e : Int, next : JsonWant) : Result(String, SaveError) needs () do
     if e <= i do
       scan_fault(s, st, "unexpected character at byte " ++ int_to_string(i))
@@ -482,12 +543,13 @@ mod Skee.Save do
         scan_on(s, st, e, next)
       else
         match Json.parse(String.slice_bytes(s, i, e - i)) do
-        Ok(_) -> scan_on(s, st, e, next)
-        Err(_) -> do
-          let marked =
-            Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ unread_json(), st.pieces)
-          scan_on(s, { st with pieces: marked, copy_from: e }, e, next)
+        Ok(v) -> do
+          match lexed_mark(s, i, e, v) do
+          Some(mark) -> scan_marked(s, st, i, e, next, mark)
+          None -> scan_on(s, st, e, next)
+          end
         end
+        Err(_) -> scan_marked(s, st, i, e, next, unread_json())
         end
       end
     end
@@ -651,8 +713,19 @@ mod Skee.Save do
     scan_go(s, { scan_at: 0, want: WantTop, open: [], depth: 0, pruned_at: -1, pieces: [], copy_from: 0, comma: -1 })
   end
 
+  -- Swift's JSONDecoder skips one UTF-8 byte order mark at the very start
+  -- (golden rows vBOM, bomTwice, bomAfterSpace).
+  pfn without_bom(text : String) : String needs () do
+    if string_byte_at(text, 0) == 239 && string_byte_at(text, 1) == 187 && string_byte_at(text, 2) == 191 do
+      String.slice_bytes(text, 3, string_byte_length(text) - 3)
+    else
+      text
+    end
+  end
+
   doc """Parse JSON text as Swift's JSONDecoder reads it, refusing anything nested deeper than it reads."""
-  fn parse(text : String) : Result(JsonValue, SaveError) needs () do
+  fn parse(raw : String) : Result(JsonValue, SaveError) needs () do
+    let text = without_bom(raw)
     if !depth_ok(text, 0, 0, false) do
       Err(SaveTooDeep)
     else
@@ -699,7 +772,7 @@ mod Skee.Save do
       if s == unread_mark() do
         Err(SaveNotJson("unreadable text at " ++ path))
       else
-        Ok(s)
+        if s == underflow_mark() do Err(SaveWrongType(path)) else Ok(s) end
       end
     end
     Json.Null -> Err(SaveWrongType(path))
@@ -725,7 +798,7 @@ mod Skee.Save do
     int_to_float(9007199254740991)
   end
 
-  doc """A JSON number holding a whole number the JS target can hold exactly."""
+  doc """A JSON number holding a whole number the JS target can hold exactly. One that rounds to zero (`1e-400`) is 0, as Swift reads it."""
   fn int_of(v : JsonValue, path : String) : Result(Int, SaveError) needs () do
     match v do
     Json.Number(f) -> do
@@ -738,9 +811,9 @@ mod Skee.Save do
         end
       end
     end
+    Json.Str(s) -> if s == underflow_mark() do Ok(0) else Err(SaveWrongType(path)) end
     Json.Null -> Err(SaveWrongType(path))
     Json.Bool(_) -> Err(SaveWrongType(path))
-    Json.Str(_) -> Err(SaveWrongType(path))
     Json.Array(_) -> Err(SaveWrongType(path))
     Json.Object(_) -> Err(SaveWrongType(path))
     end
@@ -751,7 +824,9 @@ mod Skee.Save do
     match v do
     Json.Number(f) -> if is_finite(f) do Ok(f) else Err(SaveOutOfRange(path)) end
     Json.Str(s) -> do
-      if string_byte_length(s) != 16 do
+      if s == underflow_mark() do
+        Err(SaveOutOfRange(path))
+      else if string_byte_length(s) != 16 do
         Err(SaveWrongType(path))
       else
         match Skee.U64.of_hex(s) do
@@ -763,6 +838,7 @@ mod Skee.Save do
         end
         None -> Err(SaveWrongType(path))
         end
+      end
       end
     end
     Json.Null -> Err(SaveWrongType(path))
@@ -1046,18 +1122,7 @@ mod Skee.Save do
 
   pfn seed_of(v : JsonValue, path : String) : Result(Skee.U64.U64, SaveError) needs () do
     match v do
-    Json.Str(s) -> do
-      match Skee.U64.of_hex(s) do
-      Some(seed) -> do
-        if string_byte_length(s) == 16 do
-          Ok(seed)
-        else
-          Err(SaveWrongType(path))
-        end
-      end
-      None -> Err(SaveWrongType(path))
-      end
-    end
+    Json.Str(s) -> if s == underflow_mark() do Ok(Skee.U64.of_int(0)) else seed_of_hex(s, path) end
     Json.Number(_) -> do
       bind(int_of(v, path), fn n -> if n < 0 do Err(SaveOutOfRange(path)) else Ok(Skee.U64.of_int(n)) end)
     end
@@ -1068,13 +1133,30 @@ mod Skee.Save do
     end
   end
 
+  pfn seed_of_hex(s : String, path : String) : Result(Skee.U64.U64, SaveError) needs () do
+    match Skee.U64.of_hex(s) do
+    Some(seed) -> if string_byte_length(s) == 16 do Ok(seed) else Err(SaveWrongType(path)) end
+    None -> Err(SaveWrongType(path))
+    end
+  end
+
   pfn opt_float(f : List((String, JsonValue)), path : String, key : String) : Result(Option(Float), SaveError) needs () do
     optional(f, path, key, float_of)
   end
 
-  doc """Launch.init(from:): power and aim are required; a save with no speed is a power from the line."""
+  -- Launch.init(from:) reads `from` only inside `if let speed`: with no speed,
+  -- or a null one, `from` is never looked at (golden rows vFromNoSpeed,
+  -- vFromNullSpeed).
+  pfn from_of(f : List((String, JsonValue)), path : String, speed : Option(Float)) : Result(Option(Float), SaveError) needs () do
+    match speed do
+    Some(_) -> opt_float(f, path, "from")
+    None -> Ok(None)
+    end
+  end
+
+  doc """Launch.init(from:): power and aim are required; a save with no speed is a power from the line, and its `from` is not read."""
   fn launch_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Launch, SaveError) needs () do
-    bind(object_of(v, path), fn f -> bind(required(f, path, "power", float_of), fn power -> bind(required(f, path, "aim", float_of), fn aim -> bind(opt_float(f, path, "start"), fn start -> bind(opt_float(f, path, "fold"), fn fold -> bind(opt_float(f, path, "spin"), fn spin -> bind(opt_float(f, path, "skid"), fn skid -> bind(opt_float(f, path, "speed"), fn speed -> ok_map(opt_float(f, path, "from"), fn from -> Skee.Physics.launch_of_saved(k, { saved_power: power, saved_aim: aim, saved_start: start, saved_fold: fold, saved_spin: spin, saved_skid: skid, saved_speed: speed, saved_from: from }))))))))))
+    bind(object_of(v, path), fn f -> bind(required(f, path, "power", float_of), fn power -> bind(required(f, path, "aim", float_of), fn aim -> bind(opt_float(f, path, "start"), fn start -> bind(opt_float(f, path, "fold"), fn fold -> bind(opt_float(f, path, "spin"), fn spin -> bind(opt_float(f, path, "skid"), fn skid -> bind(opt_float(f, path, "speed"), fn speed -> ok_map(from_of(f, path, speed), fn from -> Skee.Physics.launch_of_saved(k, { saved_power: power, saved_aim: aim, saved_start: start, saved_fold: fold, saved_spin: spin, saved_skid: skid, saved_speed: speed, saved_from: from }))))))))))
   end
 
   pfn payload(v : JsonValue, path : String, decode : List((String, JsonValue)) -> String -> Result(Action, SaveError)) : Result(Action, SaveError) needs () do
@@ -1146,10 +1228,26 @@ mod Skee.Save do
     end
   end
 
-  doc """One Action: an object with exactly one key that names a case. As in Swift's synthesized decoding, keys that name no case are not counted."""
+  -- The case keys of an action object, each name once, its first value kept:
+  -- Swift's keyed container keeps the first of a repeated key, so allKeys
+  -- holds it once (golden rows vDupFoul, vDupPullDiff, dupPullBadSecond).
+  pfn case_keys(f : List((String, JsonValue)), seen : List(String), acc : List((String, JsonValue))) : List((String, JsonValue)) needs () do
+    match f do
+    Nil -> List.reverse(acc)
+    Cons((name, x), rest) -> do
+      if !is_case_name(name) || List.any(seen, fn n -> n == name) do
+        case_keys(rest, seen, acc)
+      else
+        case_keys(rest, Cons(name, seen), Cons((name, x), acc))
+      end
+    end
+    end
+  end
+
+  doc """One Action: an object with exactly one key that names a case. As in Swift's synthesized decoding, keys that name no case are not counted, and a repeated key counts once, with its first value."""
   fn action_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Action, SaveError) needs () do
     bind(object_of(v, path), fn f ->
-      match List.filter(f, fn kv -> is_case_name(Tuple.first(kv))) do
+      match case_keys(f, [], []) do
       Cons((name, payload_value), Nil) -> case_of(k, name, payload_value, path)
       Nil -> unknown_case(f, path)
       Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))

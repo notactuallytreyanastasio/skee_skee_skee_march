@@ -310,6 +310,36 @@ let deepHand: [(String, String)] = [
     ("deepKnown", #"{"balance":1,"lifetime":0,"owned":"# + deepWith(100, "") + "}"),
 ]
 for (label, json) in deepHand { walletRow(label, json) }
+// Rows from the meta verifier's probe, and their neighbours.
+let verifierWallet: [(String, String)] = [
+    ("vRawTabKey", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"a\tb\":1}"),
+    ("rawNewlineKey", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"a\nb\":1}"),
+    ("rawCtrlKeyNested", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"future\":{\"a\tb\":1}}"),
+    ("rawCtrlKeyInArray", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"future\":[{\"a\u{1}b\":1}]}"),
+    ("rawCtrlKeyInComp", "{\"balance\":1,\"lifetime\":2,\"owned\":[],\"comps\":[\"boardwalk\",{\"room\":\"boardwalk\",\"nights\":3,\"tickets\":2,\"credit\":0,\"a\tb\":1}]}"),
+    ("rawCtrlKeyInProgressive", "{\"balance\":1,\"lifetime\":2,\"owned\":[],\"progressive\":{\"meters\":[],\"a\rb\":1}}"),
+    ("rawDelKey", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"a\u{7f}b\":1}"),
+    ("rawTabUnreadValue", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"future\":\"a\tb\"}"),
+    ("rawCtrlUnreadValue", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"future\":[\"a\u{1}b\",\"c\nd\"]}"),
+    ("rawTabRoom", "{\"balance\":5,\"lifetime\":9,\"owned\":[],\"room\":\"board\twalk\"}"),
+    ("vBOM", "\u{FEFF}{\"balance\":5,\"lifetime\":9,\"owned\":[]}"),
+    ("bomThenSpace", "\u{FEFF} {\"balance\":5,\"lifetime\":9,\"owned\":[]}"),
+    ("bomTwice", "\u{FEFF}\u{FEFF}{\"balance\":5,\"lifetime\":9,\"owned\":[]}"),
+    ("bomAfterSpace", " \u{FEFF}{\"balance\":5,\"lifetime\":9,\"owned\":[]}"),
+    ("bomAtEnd", "{\"balance\":5,\"lifetime\":9,\"owned\":[]}\u{FEFF}"),
+    ("bomOnly", "\u{FEFF}"),
+    ("vDupBalance", #"{"balance":1,"balance":2,"lifetime":9,"owned":[]}"#),
+    ("vDupBadSecond", #"{"balance":2,"balance":"x","lifetime":9,"owned":[]}"#),
+    ("dupBadFirst", #"{"balance":"x","balance":2,"lifetime":9,"owned":[]}"#),
+    ("dupRoomKey", #"{"balance":1,"lifetime":9,"owned":[],"room":"penthouse","room":"moon"}"#),
+    ("dupInComp", #"{"balance":1,"lifetime":2,"owned":[],"comps":["boardwalk",{"room":"boardwalk","nights":3,"nights":"x","tickets":2,"credit":0}]}"#),
+    ("dupMetersKey", #"{"balance":1,"lifetime":2,"owned":[],"progressive":{"meters":["mini",7],"meters":3}}"#),
+    ("balanceTiny", #"{"balance":1e-400,"lifetime":-1e-400,"owned":[]}"#),
+    ("balanceSubnormal", #"{"balance":1e-320,"lifetime":9,"owned":[]}"#),
+    ("hostTiny", #"{"balance":1,"lifetime":9,"owned":[],"hostVisits":2.4e-324}"#),
+    ("unreadTiny", #"{"balance":1,"lifetime":9,"owned":[],"future":[1e-400,1e400]}"#),
+]
+for (label, json) in verifierWallet { walletRow(label, json) }
 for n in [31, 32, 40, 100, 256, 510, 511, 512, 513, 600, 1000] {
     walletRow("deepArrays\(n)", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + nested(n - 1) + "}")
     walletRow("deepObjects\(n)", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + nestedObjects(n - 1) + "}")
@@ -429,10 +459,69 @@ let handRuns: [(String, String)] = [
     ("foulWithJunk", #"{"seed":1,"actions":[{"foul":{"x":1}}]}"#),
 ]
 for (label, json) in handRuns { runRow(label, json) }
+let verifierRuns: [(String, String)] = [
+    ("vFromNoSpeed", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"from":"x"}}}]}"#),
+    ("vFromNullSpeed", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"speed":null,"from":true}}}]}"#),
+    ("fromBadWithSpeed", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"speed":3,"from":"x"}}}]}"#),
+    ("fromWithSpeed", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"speed":3,"from":0.5}}}]}"#),
+    ("fromNoSpeedNumber", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"from":0.5}}}]}"#),
+    ("vDupFoul", #"{"seed":1,"actions":[{"foul":{},"foul":{}}]}"#),
+    ("vDupPullDiff", #"{"seed":1,"actions":[{"pull":{"_0":1},"pull":{"_0":3}}]}"#),
+    ("dupPullBadSecond", #"{"seed":1,"actions":[{"pull":{"_0":1},"pull":{"_0":"x"}}]}"#),
+    ("dupPullBadFirst", #"{"seed":1,"actions":[{"pull":{"_0":"x"},"pull":{"_0":1}}]}"#),
+    ("dupFoulJunkFoul", #"{"seed":1,"actions":[{"foul":{},"junk":1,"foul":{}}]}"#),
+    ("dupFoulAndReroll", #"{"seed":1,"actions":[{"foul":{},"foul":{},"reroll":{}}]}"#),
+    ("dupLaunchPower", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"power":"x","aim":0}}}]}"#),
+    ("dupSeed", #"{"seed":5,"seed":"x","actions":[]}"#),
+    ("vPowerTiny", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":1e-400,"aim":0}}}]}"#),
+    ("powerTinyNegative", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":-1e-400,"aim":0}}}]}"#),
+    ("powerTinyDigits", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.000000000000000000000000000000001e-300,"aim":0}}}]}"#),
+    ("powerZeroExp", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0e-400,"aim":0.0e-999}}}]}"#),
+    ("powerLeastSubnormal", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":2.5e-324,"aim":0}}}]}"#),
+    ("powerBelowSubnormal", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":2.4e-324,"aim":0}}}]}"#),
+    ("speedTiny", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"speed":1e-400}}}]}"#),
+    ("fromTinyNoSpeed", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"from":1e-400}}}]}"#),
+    ("launchUnreadTiny", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":0.6,"aim":0,"x":1e-400}}}]}"#),
+    ("seedTiny", #"{"seed":1e-400,"actions":[]}"#),
+    ("armTiny", #"{"seed":1,"actions":[{"arm":{"_0":1e-400}}]}"#),
+    ("rawTabCaseKey", "{\"seed\":1,\"actions\":[{\"foul\":{},\"j\tk\":1}]}"),
+    ("rawTabPayloadKey", "{\"seed\":1,\"actions\":[{\"foul\":{\"j\tk\":1}}]}"),
+    ("rawTabLaunchKey", "{\"seed\":1,\"actions\":[{\"pull\":{\"_0\":1}},{\"throwBall\":{\"_0\":{\"power\":0.6,\"aim\":0,\"j\tk\":1}}}]}"),
+    ("rawTabUnreadInPayload", "{\"seed\":1,\"actions\":[{\"foul\":{\"x\":[\"a\tb\",{\"j\tk\":1}]}}]}"),
+    ("rawTabHole", "{\"seed\":1,\"actions\":[{\"buy\":{\"_0\":1,\"target\":\"ring\t40\"}}]}"),
+    ("bomRun", "\u{FEFF}{\"seed\":1,\"actions\":[]}"),
+]
+for (label, json) in verifierRuns { runRow(label, json) }
+
+// Where this port reads differently from Swift on purpose (docs/PORT.md,
+// Skee.Save's header): Ints the JS target cannot hold, and the hex strings
+// it writes. The suite requires March's answer to be the opposite of Swift's.
+@MainActor func wideRow(_ label: String, _ json: String) {
+    let ok = (try? JSONDecoder().decode(Wallet.self, from: Data(json.utf8))) != nil
+    g.line("wide", "wallet", label, hex(json), ok ? "ok" : "error")
+}
+@MainActor func wideRunRow(_ label: String, _ json: String) {
+    let ok = (try? JSONDecoder().decode(File.self, from: Data(json.utf8))) != nil
+    g.line("wide", "run", label, hex(json), ok ? "ok" : "error")
+}
+for (label, json) in [
+    ("balance2p53plus1", #"{"balance":9007199254740993,"lifetime":9,"owned":[]}"#),
+    ("balance2p53", #"{"balance":9007199254740992,"lifetime":9,"owned":[]}"#),
+    ("lifetimeInt64Max", #"{"balance":1,"lifetime":9223372036854775807,"owned":[]}"#),
+    ("hostVisitsWide", #"{"balance":1,"lifetime":9,"owned":[],"hostVisits":9007199254740992}"#),
+    ("compNightsWide", #"{"balance":1,"lifetime":2,"owned":[],"comps":["boardwalk",{"room":"boardwalk","nights":9007199254740992,"tickets":2,"credit":0}]}"#),
+    ("meterWide", #"{"balance":1,"lifetime":2,"owned":[],"progressive":{"meters":["mini",9007199254740992]}}"#),
+] { wideRow(label, json) }
+for (label, json) in [
+    ("vSeedHexStr", #"{"seed":"0000000000000001","actions":[]}"#),
+    ("vPowerHexStr", #"{"seed":1,"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"power":"3fe3333333333333","aim":0}}}]}"#),
+    ("extraWide", #"{"seed":1,"extraTickets":9007199254740992,"actions":[]}"#),
+    ("seed2p53", #"{"seed":9007199254740992,"actions":[]}"#),
+] { wideRunRow(label, json) }
 
 // ---- Tips seen, as TipStore keeps them: unknown names are dropped ----
 // TipStore reads [String]; a malformed string anywhere refuses the whole list.
-for (label, json) in [("tipsBadEscape", #"["combo","\x"]"#), ("tipsTrailingComma", #"["combo",]"#), ("tipsNumber", #"["combo",1.]"#)] {
+for (label, json) in [("tipsBadEscape", #"["combo","\x"]"#), ("tipsTrailingComma", #"["combo",]"#), ("tipsNumber", #"["combo",1.]"#), ("tipsRawTab", "[\"combo\",\"a\tb\"]"), ("tipsRawTabUnknown", "[\"combo\",\"tele\nport\"]"), ("tipsBOM", "\u{FEFF}[\"combo\"]"), ("tipsTiny", "[\"combo\",1e-400]")] {
     let seen = (try? JSONDecoder().decode([String].self, from: Data(json.utf8))).map { Set($0.compactMap(Tip.init)) }
     g.line("tipsraw", label, hex(json), seen.map(tipsToken) ?? "error")
 }
