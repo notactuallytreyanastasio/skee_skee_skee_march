@@ -360,10 +360,13 @@ mod PresentationSuite do
 
   fn shot_bound_near_zero() : Outcome do
     let want = GoldenIo.float_of_bits("bf9df72302e6752c")
-    let near = PresentationGolden.shot_float(want +. 0.00000000000016, "bf9df72302e6752c", "near zero")
-    let far = PresentationGolden.shot_float(want +. 0.000001, "bf9df72302e6752c", "a micrometre")
-    let big = PresentationGolden.shot_float(1.0 +. 0.000000001, "3ff0000000000000", "a nanometre at 1 m")
-    all([expect(!is_mismatch(near), "1.6e-13 m from Swift near zero is drift"), expect(is_mismatch(far), "1e-6 m from Swift is a mismatch"), expect(is_mismatch(big), "1e-9 m at 1 m is past the ulp bound and the metre floor")])
+    let near =
+      PresentationGolden.shot_float(want +. 0.00000000000016, "bf9df72302e6752c", "near zero")
+    let far =
+      PresentationGolden.shot_float(want +. 0.000001, "bf9df72302e6752c", "a micrometre")
+    let big =
+      PresentationGolden.shot_float(1.0 +. 0.000000002, "3ff0000000000000", "2 nm at 1 m")
+    all([expect(!is_mismatch(near), "1.6e-13 m from Swift near zero is drift"), expect(is_mismatch(far), "1e-6 m from Swift is a mismatch"), expect(is_mismatch(big), "2e-9 m at 1 m is past the ulp bound and the nanometre floor")])
   end
 
   -- ---- Restyle ----

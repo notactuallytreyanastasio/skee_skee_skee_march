@@ -188,6 +188,32 @@ for (phase, level) in [(0, Float(0.35)), (1, 0.9), (5, 0.35), (2, 0)] as [(Int, 
     g.line(["bulbs", i(phase), f(level)] + lit)
 }
 
+// ---- Textures.lane: each board's tone, read off the real texture ----
+// The commonest pixel inside each board (between its seams, grain streaks
+// aside) is the board's fill, mixed from the maple base.
+do {
+    let img = Textures.lane
+    let w = img.width, h = img.height
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+    let bw = Double(w) / 9
+    for board in 0..<9 {
+        var counts: [Int: Int] = [:]
+        let x0 = Int((Double(board) * bw).rounded(.up)) + 3, x1 = Int((Double(board + 1) * bw).rounded(.down)) - 3
+        for y in 0..<h {
+            for x in x0..<x1 {
+                let o = (y * w + x) * 4
+                counts[Int(px[o]) * 65536 + Int(px[o + 1]) * 256 + Int(px[o + 2]), default: 0] += 1
+            }
+        }
+        let tone = counts.max { $0.value < $1.value }!.key
+        g.line(["lanetone", i(board), i(tone / 65536), i(tone / 256 % 256), i(tone % 256)])
+    }
+}
+
 // ---- ScenePresenter.update, frame by frame over real throws ----
 // Inputs the presenter read and what it did to the ball, shadow, trough and
 // camera, so the March port can replay the same inputs.

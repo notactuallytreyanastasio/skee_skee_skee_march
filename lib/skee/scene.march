@@ -1248,7 +1248,7 @@ mod Skee.Scene do
 
   doc """Rings of light grow and fade over 0.55 s."""
   fn age_waves(waves : List(Wave), dt : Float) : List(Wave) needs () do
-    List.filter(List.map(waves, fn x -> { x with age: x.age +. dt }), fn x -> x.age /. 0.55 < 1.0)
+    List.filter(List.map(waves, fn x -> { x with age: x.age +. dt }), fn x -> x.age /. wave_life() < 1.0)
   end
 
   doc """Cabinet.lightBulbs' arguments: an idle twinkle, a fast chase when excited."""
@@ -1819,10 +1819,24 @@ mod Skee.Scene do
     planks(k, Skee.Rng.seed(Skee.U64.make(0, 11)), 9)
   end
 
+  doc """Textures.lane's maple: the base fill, and where every board's tone starts."""
+  fn lane_wood() : Rgba needs () do
+    hex(15906930)
+  end
+
+  doc """Each of Textures.lane's nine boards: the maple mixed toward 0xE5A35E."""
+  fn lane_plank_tones(k : Skee.Consts.Consts) : List(Rgba) needs () do
+    List.map(lane_planks(k), plank_tone)
+  end
+
+  pfn plank_tone(pl : Plank) : Rgba needs () do
+    mix(lane_wood(), hex(15049566), pl.tone *. 0.6)
+  end
+
   pfn paint_lane_wood(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, outline : List(Vec2)) : List(DrawOp) needs () do
     let bw = 512.0 /. 9.0
     let metre = scale_at(b, lane_uv(p, w, h, l, 256.0, 1024.0)) *. w /. 512.0
-    let base = fill(Poly(outline), shade(hex(15905906), lit))
+    let base = fill(Poly(outline), shade(lane_wood(), lit))
     let boards =
       List.flat_map(List.enumerate(lane_planks(b.k)), fn e -> paint_plank(b, p, w, h, l, lit, bw, metre, e))
     let seams =
@@ -1836,7 +1850,7 @@ mod Skee.Scene do
     match e do
     (i, pl) -> do
       let x0 = int_to_float(i) *. bw
-      let tone = mix(hex(15905906), hex(15049566), pl.tone *. 0.6)
+      let tone = plank_tone(pl)
       let board_fill =
         fill(Poly(lane_quad(b, p, w, h, l, x0, 0.0, x0 +. bw, 2048.0)), shade(tone, lit))
       let grain = with_alpha(shade(hex(14723174), lit), 0.55)
@@ -2414,11 +2428,20 @@ mod Skee.Scene do
   end
 
   -- ---- Waves ----
+  doc """A ring of light's scale and opacity at its age (ScenePresenter.spectacle)."""
+  fn wave_look(wv : Wave) : (Float, Float) needs () do
+    let u = wv.age /. wave_life()
+    (wv.size *. (0.15 +. u), 1.0 -. u *. u)
+  end
+
+  doc """Seconds a ring of light lives."""
+  fn wave_life() : Float needs () do
+    0.55
+  end
+
   doc """A ring of light: Textures.wave on a plane facing `facing`."""
   fn wave_ops(b : Brush, wv : Wave) : List(DrawOp) needs () do
-    let u = wv.age /. 0.55
-    let scale = wv.size *. (0.15 +. u)
-    let opacity = 1.0 -. u *. u
+    let (scale, opacity) = wave_look(wv)
     let f =
       quat_frame(quat_between(v3(0.0, 0.0, 1.0), wv.facing), plus(wv.spot, times(wv.facing, 0.01)), scale)
     let pts = List.map(List.range(0, 40), fn i -> px(b, apply(f, wave_point(i))))
@@ -2562,14 +2585,36 @@ mod Skee.Scene do
 
   pfn paint_ranked(b : Brush, clip : Option(Shape), r : Ranked) : List(DrawOp) needs () do
     let ops = paint_part(b, r.ranked)
-    match r.ranked.role do
-    BallPart -> do
-      match clip do
-      Some(c) -> List.concat([[PushClip(c)], ops, [PopClip]])
-      None -> ops
-      end
+    match clip do
+    Some(c) -> if clipped_to_pit(r.ranked.role) do List.concat([[PushClip(c)], ops, [PopClip]]) else ops end
+    None -> ops
     end
-    _ -> ops
+  end
+
+  doc """Whether a part sinks with the ball, so a sinking ball's pit clip applies to it."""
+  fn clipped_to_pit(role : Role) : Bool needs () do
+    match role do
+    BallPart -> true
+    FloorPart -> false
+    LaneSlab -> false
+    RailPart -> false
+    RailCap -> false
+    BodyPart -> false
+    HumpPart -> false
+    PanelPart -> false
+    ZonePart -> false
+    LipPart -> false
+    PitPart -> false
+    RimPart -> false
+    BadgePart -> false
+    CoinPart(_) -> false
+    HaloPart(_) -> false
+    SideWall -> false
+    BackCap -> false
+    BulbPart -> false
+    TroughPart -> false
+    WaitingBall -> false
+    ShadowPart -> false
     end
   end
 

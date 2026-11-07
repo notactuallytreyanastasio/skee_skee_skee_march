@@ -919,13 +919,232 @@ mod SceneSuite do
 
   fn presenter_cases() : List(Case) do
     [
-      case("ScenePresenter.update over three real throws", fn () -> replay_outcome())
+      case("ScenePresenter.update over three real throws", fn () -> replay_outcome()),
+      case("ScenePresenter.update over a frame: reels, bulbs, rings, aim", fn () -> look_outcome())
     ]
   end
 
   fn replay_outcome() : Outcome do
     let r = replayed()
     all(List.reverse(r.outcomes))
+  end
+
+  -- ---- ScenePresenter.update over a whole frame: reels, bulbs, rings, aim ----
+  -- Replay "b" feeds what update reads besides the ball (excited, the
+  -- symbols shown so far, the top slot, the reels' positions) and compares
+  -- what it set on the cabinet: each reel's shown symbol, halo opacity and
+  -- colour, first coin's swell, hiding and emission; every bulb; every ring
+  -- of light's scale and opacity; the camera's position and where it looks.
+  fn kind_of(token : String) : BallKind do
+    match List.find([Marshmallow, ClassicBall, JumpingBean, Wobbler, Comet], fn b -> kind_token(b) == token) do
+    Some(b) -> b
+    None -> panic("bad golden ball: " ++ token)
+    end
+  end
+
+  fn kind_token(b : BallKind) : String do
+    match b do
+    Marshmallow -> "marshmallow"
+    ClassicBall -> "classic"
+    JumpingBean -> "bean"
+    Wobbler -> "wobbler"
+    Comet -> "comet"
+    end
+  end
+
+  fn symbol_token(x : Symbol) : String do
+    match x do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  fn symbol_of(token : String) : Symbol do
+    match List.find([Blank, Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover], fn x -> symbol_token(x) == token) do
+    Some(x) -> x
+    None -> panic("bad golden symbol: " ++ token)
+    end
+  end
+
+  fn symbols_of(token : String) : List(Symbol) do
+    if token == "-" do [] else List.map(String.split(token, ","), symbol_of) end
+  end
+
+  fn slot_of(token : String) : Option(TopSlot) do
+    match symbols_of(token) do
+    Cons(a, Cons(b, Cons(c, Nil))) -> Some({ targets: Three(a, b, c) })
+    _ -> None
+    end
+  end
+
+  fn reel_field(row : List(String), hole_index : Int, field : Int) : String do
+    token_at(row, 24 + 9 * hole_index + field)
+  end
+
+  fn look_positions(row : List(String)) : PerReel(Float) do
+    List.fold_left(List.enumerate(Skee.HoleMap.reel_holes()), Skee.HoleMap.fill_reels(0.0), fn (m, e) -> put_position(m, row, e))
+  end
+
+  fn put_position(m : PerReel(Float), row : List(String), e : (Int, Hole)) : PerReel(Float) do
+    match e do
+    (i, h) -> Skee.HoleMap.reel_put(m, h, fl(reel_field(row, i, 0)))
+    end
+  end
+
+  fn look_cue(row : List(String)) : Skee.Scene.FrameCue do
+    let base = frame_cue(row)
+    {
+      base with
+      kind: kind_of(token_at(row, 18)),
+      excited: token_at(row, 20) == "1",
+      reel_cue: {
+        setup: Skee.Types.standard_setup(),
+        positions: look_positions(row),
+        have: symbols_of(token_at(row, 21)),
+        slot: slot_of(token_at(row, 22))
+      }
+    }
+  end
+
+  -- Where the camera looks: SceneKit's worldFront after simdLook(at:), a
+  -- 32-bit unit vector.
+  fn look_tol() : Float do
+    0.000002
+  end
+
+  fn reel_check(s : Skee.Scene.Scenery, row : List(String), what : String, e : (Int, Hole)) : Outcome do
+    match e do
+    (i, h) -> do
+      let look = Skee.Scene.reel_look_at(s.reels, h)
+      let (opacity, colour) = Skee.Scene.halo(look)
+      let layout = Skee.Scene.reel_layout(k(), s.world.table.board, h)
+      let c = Skee.Scene.coin(k(), layout, look, 0)
+      let glow = Skee.Scene.coin_emission(look)
+      let w = what ++ " " ++ hole_token(h)
+      all([expect_string(symbol_token(look.symbol), reel_field(row, i, 1), w ++ " symbol"), near(opacity, reel_field(row, i, 2), unit_tol(), w ++ " halo opacity"), expect_string(colour_token(Some(colour)), reel_field(row, i, 3), w ++ " halo colour"), near(c.swell, reel_field(row, i, 4), unit_tol(), w ++ " coin swell"), expect_string(if c.coin_hidden do "1" else "0" end, reel_field(row, i, 5), w ++ " coin hidden"), compare_floats([glow.glow_r, glow.glow_g, glow.glow_b], [reel_field(row, i, 6), reel_field(row, i, 7), reel_field(row, i, 8)], unit_tol(), w ++ " coin emission")])
+    end
+    end
+  end
+
+  fn bulb_glow(light_ : Skee.Scene.BulbLight, i : Int) : Float do
+    if Skee.Scene.bulb_lit(light_, i) do light_.level else 0.0 end
+  end
+
+  fn wave_floats(wv : Skee.Scene.Wave) : List(Float) do
+    let (scale, opacity) = Skee.Scene.wave_look(wv)
+    [scale, opacity]
+  end
+
+  fn look_check(s : Skee.Scene.Scenery, row : List(String), bulbs : List(String), waves : List(String)) : Outcome do
+    let what = "look " ++ String.join(List.take(row, 2), " ")
+    let cam = s.camera
+    let front = unit(minus(cam.target, cam.eye))
+    let reels =
+      List.map(List.enumerate(Skee.HoleMap.reel_holes()), fn e -> reel_check(s, row, what, e))
+    let lit = List.drop(bulbs, 2)
+    let got_lit = List.map(List.range(0, List.length(lit)), fn i -> bulb_glow(s.bulbs, i))
+    let ring_count = GoldenIo.int(token_at(waves, 2))
+    let rings = List.flat_map(s.waves, wave_floats)
+    all([expect_string(token_at(row, 23), "1", what ++ " standard setup"), all(reels), expect_int(List.length(lit), List.length(Skee.Scene.bulb_spots(s.world)), what ++ " bulb count"), compare_floats(got_lit, lit, unit_tol(), what ++ " bulbs"), expect_int(List.length(s.waves), ring_count, what ++ " rings of light"), if ring_count == 0 do expect(List.length(rings) == 0, what ++ " no rings") else compare_floats(rings, List.drop(waves, 3), unit_tol(), what ++ " ring scale, opacity") end, near3(cam.eye, token_at(row, 87), token_at(row, 88), token_at(row, 89), metres_tol(), what ++ " camera"), near3(front, token_at(row, 90), token_at(row, 91), token_at(row, 92), look_tol(), what ++ " camera looks")])
+  end
+
+  -- What replay "b" went through, so a path it never reaches shows up.
+  type LookSeen = {
+    glow_one : Int,
+    glow_two : Int,
+    flashed : Int,
+    slot_halo : Int,
+    excited : Int,
+    leaning : Int,
+    rings : Int
+  }
+
+  type LookReplay = {
+    world : World,
+    rig : Skee.Camera.Rig,
+    kept : Skee.Scene.Keep,
+    outcomes : List(Outcome),
+    seen : LookSeen
+  }
+
+  fn some_reel(s : Skee.Scene.Scenery, test : Skee.Scene.ReelLook -> Bool) : Int do
+    count_if(List.any(List.map(Skee.HoleMap.reel_holes(), fn h -> Skee.Scene.reel_look_at(s.reels, h)), test))
+  end
+
+  fn is_glow_one(l : Skee.Scene.ReelLook) : Bool do
+    l.glow == 1.0
+  end
+
+  fn is_glow_two(l : Skee.Scene.ReelLook) : Bool do
+    l.glow == 2.0
+  end
+
+  fn is_flashed(l : Skee.Scene.ReelLook) : Bool do
+    l.pulse > 1.0
+  end
+
+  fn is_slot_halo(l : Skee.Scene.ReelLook) : Bool do
+    l.glow == 0.0 && l.slot_match
+  end
+
+  fn saw(seen : LookSeen, s : Skee.Scene.Scenery, c : Skee.Scene.FrameCue, lean : Float) : LookSeen do
+    {
+      glow_one: seen.glow_one + some_reel(s, is_glow_one),
+      glow_two: seen.glow_two + some_reel(s, is_glow_two),
+      flashed: seen.flashed + some_reel(s, is_flashed),
+      slot_halo: seen.slot_halo + some_reel(s, is_slot_halo),
+      excited: seen.excited + count_if(c.excited),
+      leaning: seen.leaning + count_if(lean > 0.0),
+      rings: seen.rings + count_if(List.length(s.waves) > 0)
+    }
+  end
+
+  fn look_step(acc : LookReplay, rows3 : (List(String), (List(String), List(String)))) : LookReplay do
+    match rows3 do
+    (row, (bulbs, waves)) -> do
+      let cue = look_cue(row)
+      let (scene, kept) =
+        Skee.Scene.present(acc.world, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, cue, 1.0 /. 60.0)
+      {
+        world: acc.world,
+        rig: acc.rig,
+        kept: kept,
+        outcomes: Cons(look_check(scene, row, bulbs, waves), acc.outcomes),
+        seen: saw(acc.seen, scene, cue, kept.lean)
+      }
+    end
+    end
+  end
+
+  fn look_replayed() : LookReplay do
+    let w = boardwalk()
+    let fresh = Skee.Scene.keep_fresh()
+    let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
+    let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
+    let none = { glow_one: 0, glow_two: 0, flashed: 0, slot_halo: 0, excited: 0, leaning: 0, rings: 0 }
+    let inputs = List.zip(rows("look"), List.zip(rows("lookbulbs"), rows("lookwaves")))
+    List.fold_left(inputs, { world: w, rig: fitted(), kept: start, outcomes: [], seen: none }, look_step)
+  end
+
+  fn look_outcome() : Outcome do
+    let r = look_replayed()
+    let n = r.seen
+    let covered =
+      [expect(n.glow_one > 0, "replay b never glows a reel once"), expect(n.glow_two > 0, "replay b never glows a reel twice"), expect(n.flashed > 0, "replay b never flashes a hole"), expect(n.slot_halo > 0, "replay b never shows a slot match"), expect(n.excited > 0, "replay b is never excited"), expect(n.leaning > 0, "replay b never leans"), expect(n.rings > 0, "replay b has no rings of light")]
+    all(List.concat([[expect_int(List.length(r.outcomes), List.length(rows("lookwaves")), "every look row replayed")], covered, List.reverse(r.outcomes)]))
+  end
+
+  doc """How many frames of replay b reached each path, printed by the runner."""
+  fn look_seen() : String do
+    let r = look_replayed()
+    let n = r.seen
+    "glow1 " ++ int_to_string(n.glow_one) ++ ", glow2 " ++ int_to_string(n.glow_two) ++ ", flash " ++ int_to_string(n.flashed) ++ ", slot " ++ int_to_string(n.slot_halo) ++ ", excited " ++ int_to_string(n.excited) ++ ", leaning " ++ int_to_string(n.leaning) ++ ", rings " ++ int_to_string(n.rings)
   end
 
   -- ---- Drawing ----
@@ -1157,8 +1376,32 @@ mod SceneSuite do
     all([expect(scene.ball.place.visible, "the waiting ball shows"), expect(length3(minus(scene.ball.place.centre, spot)) < 0.000001, "at the release spot"), expect_int(scene.waiting, Skee.Reducer.balls_left(run.round) - 1, "the rest wait in the trough"), expect(List.length(cue.sparks) == 0, "no sparks yet"), expect(List.length(ops) > 300, "the cabinet draws")])
   end
 
+  -- Textures.lane's boards, read off the real texture as 8-bit sRGB: each
+  -- board's commonest pixel. The port's tone is rounded the same way.
+  fn lane_tone_case() : Outcome do
+    let tones = Skee.Scene.lane_plank_tones(k())
+    let want = rows("lanetone")
+    all(Cons(expect_int(List.length(tones), List.length(want), "nine boards"), List.zip_with(tones, want, lane_tone_row)))
+  end
+
+  fn lane_tone_row(c : Skee.Scene.Rgba, row : List(String)) : Outcome do
+    match row do
+    Cons(i, Cons(r, Cons(g, Cons(b, Nil)))) -> do
+      let what = "board " ++ i
+      all([within_one(c.red, r, what ++ " red"), within_one(c.green, g, what ++ " green"), within_one(c.blue, b, what ++ " blue")])
+    end
+    _ -> Mismatch("bad lanetone row")
+    end
+  end
+
+  -- CoreGraphics rounds its 8-bit channels its own way: one step either side.
+  fn within_one(got : Int, token : String, what : String) : Outcome do
+    let d = got - GoldenIo.int(token)
+    expect(d <= 1 && d >= -1, what ++ ": got " ++ int_to_string(got) ++ ", want " ++ token)
+  end
+
   fn draw_cases() : List(Case) do
-    List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case()), case("CSS text for colours and fonts", fn () -> css_case()), case("Presentation to scene, through Skee.SceneCue", fn () -> bridge_case())]])
+    List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case()), case("CSS text for colours and fonts", fn () -> css_case()), case("Textures.lane: every board's tone", fn () -> lane_tone_case()), case("Presentation to scene, through Skee.SceneCue", fn () -> bridge_case())]])
   end
 
   -- ---- Measured error, printed by the runner ----

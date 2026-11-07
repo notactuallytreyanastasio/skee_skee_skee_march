@@ -44,9 +44,11 @@ mod Skee.Camera do
 
   doc """Viewport sizes are positive; anything else falls back to one pixel."""
   fn viewport(width : Float, height : Float) : Viewport needs () do
-    let w = if width > 0.0 do width else 1.0 end
-    let h = if height > 0.0 do height else 1.0 end
-    { width: w, height: h }
+    if width > 0.0 do
+      if height > 0.0 do { width: width, height: height } else { width: width, height: 1.0 } end
+    else
+      if height > 0.0 do { width: 1.0, height: height } else { width: 1.0, height: 1.0 } end
+    end
   end
 
   fn tan_half(k : Skee.Consts.Consts, fov : Float) : Float needs () do
@@ -296,7 +298,7 @@ mod Skee.Camera do
   end
 
   -- ---- ScenePresenter: the screen half ----
-  doc """ScenePresenter.flickGeometry: crease and lane spots screen, for Skee.Stroke."""
+  doc """ScenePresenter.flickGeometry: crease and lane on screen, for Skee.Stroke."""
   fn flick_geometry(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport) : FlickGeometry needs () do
     let l = lens(k, rig, v)
     let lane_spec = w.table.lane
@@ -377,14 +379,14 @@ mod Skee.Camera do
     plus(held, times(lane_normal(w), ball_radius(w)))
   end
 
-  doc """ScenePresenter.laneCoordinates: physics (x, s) of a scene point spots the lane."""
+  doc """ScenePresenter.laneCoordinates: physics (x, s) of a scene point on the lane."""
   fn lane_coordinates(w : World, p : Vec3) : (Float, Float) needs () do
     let rel = minus(p, lane(w, 0.0, 0.0))
     (rel.x, dot3(rel, lane_forward(w)) /. w.lane_scale)
   end
 
   doc """
-  Where each hole is spots screen, in pixels: GameModel's holeOnScreen, for
+  Where each hole is on screen, in pixels: GameModel's holeOnScreen, for
   HUDState popups and board taps. Uses the fitted rig, not the leaning one.
   """
   fn hole_on_screen(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport) : PerHole(Vec2) needs () do
@@ -439,7 +441,7 @@ mod Skee.Camera do
 
   doc """
   The camera for this frame: the fitted rig leaned toward the rings and
-  shaken spots big moments. `shake` and `clock` come from the presentation.
+  shaken on big moments. `shake` and `clock` come from the presentation.
   """
   fn framed(w : World, rig : Rig, lean : Float, shake : Float, clock : Float) : Rig needs () do
     let focus = board(w, vec2(0.0, w.table.board.ring_center.y), 0.0)
