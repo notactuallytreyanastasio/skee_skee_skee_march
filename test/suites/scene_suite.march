@@ -1,0 +1,436 @@
+mod SceneSuite do
+
+  -- The scene piece: Skee.World, Skee.Camera and Skee.Scene. Golden rows come
+  -- from the real SkeeScene (tools/golden_scene). SkeeScene computes in 32-bit
+  -- Float and this port in 64-bit, so values are compared within a tolerance
+  -- stated next to each reader, and the worst measured error is printed.
+  import Harness
+  import Skee.Maths
+  import Skee.World
+
+  fn rows(kind : String) : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Scene.chunks()), kind)
+  end
+
+  fn k() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  fn fl(token : String) : Float do
+    GoldenIo.float_of_bits(token)
+  end
+
+  -- Tolerances. Float32 carries 24 bits: a scene coordinate near 3 m is good
+  -- to about 2.4e-7 m, and a few roundings stack. Pixels are fractions of a
+  -- 1920-pixel screen through a 32-bit projection.
+  fn metres_tol() : Float do
+    0.000001
+  end
+
+  fn pixels_tol() : Float do
+    0.001
+  end
+
+  fn unit_tol() : Float do
+    0.000001
+  end
+
+  fn near(actual : Float, token : String, tol : Float, what : String) : Outcome do
+    let want = fl(token)
+    let d = Math.abs(actual -. want)
+    if d <= tol do
+      Passed(1)
+    else
+      Mismatch(what ++ ": got " ++ float_to_string(actual) ++ ", want " ++ float_to_string(want) ++ " (off " ++ float_to_string(d) ++ ")")
+    end
+  end
+
+  fn near3(p : Vec3, x : String, y : String, z : String, tol : Float, what : String) : Outcome do
+    all([near(p.x, x, tol, what ++ ".x"), near(p.y, y, tol, what ++ ".y"), near(p.z, z, tol, what ++ ".z")])
+  end
+
+  fn near2(p : Vec2, x : String, y : String, tol : Float, what : String) : Outcome do
+    all([near(p.x, x, tol, what ++ ".x"), near(p.y, y, tol, what ++ ".y")])
+  end
+
+  fn room_of(token : String) : Room do
+    match List.find(Skee.Rooms.all_rooms(), fn r -> room_token(r) == token) do
+    Some(r) -> r
+    None -> panic("bad golden room: " ++ token)
+    end
+  end
+
+  fn room_token(r : Room) : String do
+    match r do
+    Boardwalk -> "boardwalk"
+    NeonLounge -> "neonLounge"
+    HighRoller -> "highRoller"
+    Penthouse -> "penthouse"
+    end
+  end
+
+  fn world_of(token : String) : World do
+    Skee.World.make(k(), Skee.Rooms.table(k(), room_of(token)))
+  end
+
+  fn phase_of(token : String) : PathPhase do
+    if token == "lane" do OnLane else if token == "air" do InAir else OnBoard end end
+  end
+
+  fn hole_of(token : String) : Hole do
+    match List.find(Skee.HoleMap.all_holes(), fn h -> hole_token(h) == token) do
+    Some(h) -> h
+    None -> panic("bad golden hole: " ++ token)
+    end
+  end
+
+  fn hole_token(h : Hole) : String do
+    match h do
+    Gutter -> "gutter"
+    Ring10 -> "ring10"
+    Ring20 -> "ring20"
+    Ring30 -> "ring30"
+    Ring40 -> "ring40"
+    Ring50 -> "ring50"
+    PocketLeft -> "pocketLeft"
+    PocketRight -> "pocketRight"
+    end
+  end
+
+  -- ---- World ----
+  fn world_row(row : List(String)) : Outcome do
+    match row do
+    [r, length, br, nx, ny, nz, fx, fy, fz, ox, oy, oz, ux, uy, uz, nbx, nby, nbz] -> do
+      let w = world_of(r)
+      all([near(lane_length(w), length, metres_tol(), r ++ " laneLength"), near(ball_radius(w), br, metres_tol(), r ++ " ballRadius"), near3(lane_normal(w), nx, ny, nz, unit_tol(), r ++ " laneNormal"), near3(lane_forward(w), fx, fy, fz, unit_tol(), r ++ " laneForward"), near3(board_origin(w), ox, oy, oz, metres_tol(), r ++ " boardOrigin"), near3(board_up(w), ux, uy, uz, unit_tol(), r ++ " boardUp"), near3(board_normal(w), nbx, nby, nbz, unit_tol(), r ++ " boardNormal")])
+    end
+    _ -> Mismatch("bad world row")
+    end
+  end
+
+  fn lane_row(row : List(String)) : Outcome do
+    match row do
+    [r, x, s, px, py, pz] -> near3(lane(world_of(r), fl(x), fl(s)), px, py, pz, metres_tol(), r ++ " lane " ++ x ++ " " ++ s)
+    _ -> Mismatch("bad lane row")
+    end
+  end
+
+  fn board_row(row : List(String)) : Outcome do
+    match row do
+    [r, x, y, z, px, py, pz] -> near3(board(world_of(r), vec2(fl(x), fl(y)), fl(z)), px, py, pz, metres_tol(), r ++ " board")
+    _ -> Mismatch("bad board row")
+    end
+  end
+
+  fn sample_of(phase : String, x : String, along : String, height : String) : PathSample do
+    { t: 0.0, phase: phase_of(phase), px: fl(x), along: fl(along), height: fl(height) }
+  end
+
+  fn ball_row(row : List(String)) : Outcome do
+    match row do
+    [r, phase, x, along, height, scale, cx, cy, cz, nx, ny, nz] -> do
+      let w = world_of(r)
+      let s = sample_of(phase, x, along, height)
+      all([near(ball_scale(w, s), scale, unit_tol(), r ++ " ballScale"), near3(ball_center(w, s), cx, cy, cz, metres_tol(), r ++ " ballCenter"), near3(surface_normal(w, s), nx, ny, nz, unit_tol(), r ++ " surfaceNormal")])
+    end
+    _ -> Mismatch("bad ball row")
+    end
+  end
+
+  -- ---- Camera ----
+  fn boardwalk() : World do
+    world_of("boardwalk")
+  end
+
+  fn fitted() : Skee.Camera.Rig do
+    Skee.Camera.fit_world(k(), boardwalk())
+  end
+
+  fn view_of(w : String, h : String) : Skee.Camera.Viewport do
+    Skee.Camera.viewport(int_to_float(GoldenIo.int(w)), int_to_float(GoldenIo.int(h)))
+  end
+
+  fn framing_row(row : List(String)) : Outcome do
+    match row do
+    [nx, ny, nz, hx, hy, hz, tx, ty, tz] -> do
+      let f = Skee.Camera.framing(boardwalk())
+      all([near3(f.near_point, nx, ny, nz, metres_tol(), "near"), near3(f.hump_point, hx, hy, hz, metres_tol(), "hump"), near3(f.top_point, tx, ty, tz, metres_tol(), "top")])
+    end
+    _ -> Mismatch("bad framing row")
+    end
+  end
+
+  fn fit_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, ex, ey, ez, tx, ty, tz, fov] -> do
+      let what = "fit " ++ w ++ "x" ++ h
+      all([near3(rig.eye, ex, ey, ez, metres_tol(), what ++ " eye"), near3(rig.target, tx, ty, tz, metres_tol(), what ++ " target"), near(rig.fov, fov, unit_tol(), what ++ " fov")])
+    end
+    _ -> Mismatch("bad fit row")
+    end
+  end
+
+  fn proj_point(w : World, name : String) : Vec3 do
+    let span = w.table.lane.length
+    let hw = w.table.lane.width /. 2.0
+    let f = Skee.Camera.framing(w)
+    if name == "laneNearLeft" do
+      lane(w, -hw, 0.0)
+    else if name == "laneNearRight" do
+      lane(w, hw, 0.0)
+    else if name == "laneFarLeft" do
+      lane(w, -hw, span)
+    else if name == "laneFarRight" do
+      lane(w, hw, span)
+    else if name == "hump" do
+      f.hump_point
+    else if name == "near" do
+      f.near_point
+    else if name == "top" do
+      f.top_point
+    else if String.starts_with(name, "sample") do
+      ball_center(w, sample_n(GoldenIo.int(String.replace_all(name, "sample", ""))))
+    else
+      board(w, Skee.Physics.hole_center(w.table.board, hole_of(name)), 0.0)
+    end end end end end end end end
+  end
+
+  -- The samples golden-scene projects, in its order.
+  fn samples() : List(PathSample) do
+    [
+      sample_of_floats(OnLane, 0.0, 0.0, 0.0),
+      sample_of_floats(OnLane, -0.21, 0.7, 0.0),
+      sample_of_floats(OnLane, 0.25, 2.4, 0.0),
+      sample_of_floats(InAir, 0.05, 2.45, 0.04),
+      sample_of_floats(InAir, -0.1, 2.52, 0.11),
+      sample_of_floats(OnBoard, 0.12, 2.65, 0.002),
+      sample_of_floats(OnBoard, 0.0, 2.9, 0.0),
+      sample_of_floats(OnBoard, -0.2, 3.26, 0.0)
+    ]
+  end
+
+  fn sample_of_floats(p : PathPhase, x : Float, along : Float, h : Float) : PathSample do
+    { t: 0.0, phase: p, px: x, along: along, height: h }
+  end
+
+  fn sample_n(n : Int) : PathSample do
+    match List.nth_opt(samples(), n) do
+    Some(s) -> s
+    None -> panic("no sample " ++ int_to_string(n))
+    end
+  end
+
+  fn proj_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, name, px, py] -> do
+      let world = boardwalk()
+      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
+      near2(Skee.Camera.pixel(k(), l, proj_point(world, name)), px, py, pixels_tol(), w ++ "x" ++ h ++ " " ++ name)
+    end
+    _ -> Mismatch("bad proj row")
+    end
+  end
+
+  fn holes_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, name, px, py] -> do
+      let spots = Skee.Camera.hole_on_screen(k(), boardwalk(), rig, view_of(w, h))
+      if List.any(Skee.HoleMap.all_holes(), fn x -> hole_token(x) == name) do
+        near2(Skee.HoleMap.at(spots, hole_of(name)), px, py, pixels_tol(), "holeOnScreen " ++ name)
+      else
+        Passed(0)
+      end
+    end
+    _ -> Mismatch("bad proj row")
+    end
+  end
+
+  fn flick_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, crease, cx, half, give] -> do
+      let g = Skee.Camera.flick_geometry(k(), boardwalk(), rig, view_of(w, h))
+      let what = "flick " ++ w ++ "x" ++ h
+      all([near(g.crease_y, crease, pixels_tol(), what ++ " creaseY"), near(g.lane_center_x, cx, pixels_tol(), what ++ " laneCenterX"), near(g.lane_half_width, half, pixels_tol(), what ++ " laneHalfWidth"), near(g.foul_give, give, 0.0, what ++ " foulGive")])
+    end
+    _ -> Mismatch("bad flick row")
+    end
+  end
+
+  fn guide_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    Cons(w, Cons(h, Cons(line, coords))) -> do
+      let pts = Skee.Camera.guide(k(), boardwalk(), rig, view_of(w, h), fl(line))
+      let got = List.flat_map(pts, fn p -> [p.x, p.y])
+      if List.length(got) == List.length(coords) do
+        all(List.zip_with(got, coords, fn (g, c) -> near(g, c, pixels_tol(), "guide " ++ w ++ "x" ++ h ++ " line " ++ line)))
+      else
+        Mismatch("guide length")
+      end
+    end
+    _ -> Mismatch("bad guide row")
+    end
+  end
+
+  fn waiting_row(row : List(String)) : Outcome do
+    match row do
+    [line, x, y, z] -> near3(Skee.Camera.waiting_ball(boardwalk(), fl(line)), x, y, z, metres_tol(), "waitingBall " ++ line)
+    _ -> Mismatch("bad waiting row")
+    end
+  end
+
+  fn lane_point_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, fx, fy, hit, x, y, z] -> do
+      let got = Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy)))
+      match got do
+      Some(p) -> if hit == "1" do near3(p, x, y, z, metres_tol(), "lanePoint") else Mismatch("lanePoint hit, Swift missed") end
+      None -> Mismatch("lanePoint missed, Swift hit")
+      end
+    end
+    [w, h, fx, fy, _] -> do
+      match Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy))) do
+      Some(_) -> Mismatch("lanePoint hit, Swift missed")
+      None -> Passed(1)
+      end
+    end
+    _ -> Mismatch("bad lanepoint row")
+    end
+  end
+
+  fn lane_coords_row(row : List(String)) : Outcome do
+    match row do
+    [px, py, pz, x, s] -> do
+      let (gx, gs) = Skee.Camera.lane_coordinates(boardwalk(), v3(fl(px), fl(py), fl(pz)))
+      all([near(gx, x, metres_tol(), "laneCoordinates x"), near(gs, s, metres_tol(), "laneCoordinates s")])
+    end
+    _ -> Mismatch("bad lanecoords row")
+    end
+  end
+
+  fn ray_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+    match row do
+    [w, h, ox, oy, oz, dx, dy, dz] -> do
+      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
+      let (o, d) = Skee.Camera.ray(l, vec2(0.3, 0.6))
+      all([near3(o, ox, oy, oz, metres_tol(), "ray origin"), near3(d, dx, dy, dz, unit_tol(), "ray direction")])
+    end
+    _ -> Mismatch("bad ray row")
+    end
+  end
+
+  fn camera0_row(row : List(String)) : Outcome do
+    match row do
+    [_, x, y, z, fov] -> do
+      let r = Skee.Camera.initial()
+      all([near3(r.eye, x, y, z, metres_tol(), "initial camera"), near(r.fov, fov, 0.0, "initial fov")])
+    end
+    _ -> Mismatch("bad camera0 row")
+    end
+  end
+
+  fn tap_case() : Outcome do
+    let w = boardwalk()
+    let rig = fitted()
+    let v = Skee.Camera.viewport(390.0, 844.0)
+    let spots = Skee.Camera.hole_on_screen(k(), w, rig, v)
+    let at50 = spots.ring50
+    let near50 = Skee.Camera.tapped_hole(k(), w, rig, v, vec2(at50.x +. 3.0, at50.y -. 2.0))
+    let far = Skee.Camera.tapped_hole(k(), w, rig, v, vec2(5.0, 840.0))
+    let gutter = Skee.Camera.tapped_hole(k(), w, rig, v, spots.gutter)
+    all([expect(near50 == Some(Ring50), "tap by the 50 picks the 50"), expect(far == None, "a tap far from every hole picks none"), expect(gutter != Some(Gutter), "the gutter is never a target")])
+  end
+
+  fn lean_case() : Outcome do
+    let w = boardwalk()
+    let rig = fitted()
+    let still = Skee.Camera.framed(w, rig, 0.0, 0.0, 3.0)
+    let up = Skee.Camera.lean_step(0.0, 1.0, 0.1)
+    let down = Skee.Camera.lean_step(1.0, 0.0, 0.1)
+    let big = Skee.Camera.lean_step(0.2, 1.0, 1.0)
+    all([expect(Skee.World.length3(Skee.World.minus(still.eye, rig.eye)) == 0.0, "no lean, no shake: the fitted rig"), expect(Math.abs(up -. 0.5) < 0.0000001, "lean eases in at 5 per second"), expect(Math.abs(down -. 0.75) < 0.0000001, "lean eases out at 2.5 per second"), expect(big == 1.0, "a long frame lands on the target")])
+  end
+
+  fn world_cases() : List(Case) do
+    [
+      case("World constants, every room", fn () -> all(List.map(rows("world"), world_row))),
+      case("World.lane", fn () -> all(List.map(rows("lane"), lane_row))),
+      case("World.board", fn () -> all(List.map(rows("board"), board_row))),
+      case("World.ballCenter, ballScale, surfaceNormal", fn () -> all(List.map(rows("ball"), ball_row)))
+    ]
+  end
+
+  fn camera_cases(rig : Skee.Camera.Rig) : List(Case) do
+    [
+      case("Cabinet.framingPoints", fn () -> all(List.map(rows("framing"), framing_row))),
+      case("Cabinet.fit, every viewport", fn () -> all(List.map(rows("fit"), fn r -> fit_row(rig, r)))),
+      case("projected points, every viewport", fn () -> all(List.map(rows("proj"), fn r -> proj_row(rig, r)))),
+      case("hole_on_screen, every viewport", fn () -> all(List.map(rows("proj"), fn r -> holes_row(rig, r)))),
+      case("flickGeometry, every viewport", fn () -> all(List.map(rows("flick"), fn r -> flick_row(rig, r)))),
+      case("guide, every viewport", fn () -> all(List.map(rows("guide"), fn r -> guide_row(rig, r)))),
+      case("waitingBall", fn () -> all(List.map(rows("waiting"), waiting_row))),
+      case("lanePoint", fn () -> all(List.map(rows("lanepoint"), fn r -> lane_point_row(rig, r)))),
+      case("laneCoordinates", fn () -> all(List.map(rows("lanecoords"), lane_coords_row))),
+      case("CameraRig.ray", fn () -> all(List.map(rows("ray"), fn r -> ray_row(rig, r)))),
+      case("the camera before a fit", fn () -> all(List.map(rows("camera0"), camera0_row))),
+      case("tapBoard picks the nearest reel hole within 44 px", fn () -> tap_case()),
+      case("camera lean and shake", fn () -> lean_case())
+    ]
+  end
+
+  -- ---- Measured error, printed by the runner ----
+  fn off(actual : Float, token : String) : Float do
+    Math.abs(actual -. fl(token))
+  end
+
+  fn worst(xs : List(Float)) : Float do
+    List.fold_left(xs, 0.0, fn (a, b) -> if b > a do b else a end)
+  end
+
+  fn proj_off(rig : Skee.Camera.Rig, row : List(String)) : List(Float) do
+    match row do
+    [w, h, name, px, py] -> do
+      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
+      let p = Skee.Camera.pixel(k(), l, proj_point(boardwalk(), name))
+      [off(p.x, px), off(p.y, py)]
+    end
+    _ -> []
+    end
+  end
+
+  fn lane_off(row : List(String)) : List(Float) do
+    match row do
+    [r, x, s, px, py, pz] -> do
+      let p = lane(world_of(r), fl(x), fl(s))
+      [off(p.x, px), off(p.y, py), off(p.z, pz)]
+    end
+    _ -> []
+    end
+  end
+
+  fn ball_off(row : List(String)) : List(Float) do
+    match row do
+    [r, phase, x, along, height, _, cx, cy, cz, _, _, _] -> do
+      let c = ball_center(world_of(r), sample_of(phase, x, along, height))
+      [off(c.x, cx), off(c.y, cy), off(c.z, cz)]
+    end
+    _ -> []
+    end
+  end
+
+  doc """Worst pixel error over every projected golden point, every viewport."""
+  fn worst_pixels() : Float do
+    let rig = fitted()
+    worst(List.flat_map(rows("proj"), fn r -> proj_off(rig, r)))
+  end
+
+  doc """Worst position error in metres over the lane and ball-centre goldens."""
+  fn worst_metres() : Float do
+    worst(List.append(List.flat_map(rows("lane"), lane_off), List.flat_map(rows("ball"), ball_off)))
+  end
+
+  fn cases() : List(Case) do
+    let rig = fitted()
+    List.concat([world_cases(), camera_cases(rig)])
+  end
+
+end

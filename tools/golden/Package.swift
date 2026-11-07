@@ -33,5 +33,14 @@ let package = Package(
         .executableTarget(name: "golden-bots", dependencies: [
             "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
         ]),
+        .executableTarget(name: "golden-meta", dependencies: [
+            "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
+        ]),
+        // Owned by the presentation piece: SkeeRender's Presentation and SkeeHUD's HUDState.
+        .executableTarget(name: "golden-presentation", dependencies: [
+            "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
+            .product(name: "SkeeRender", package: "SkeeSkeeSkee"),
+            .product(name: "SkeeHUD", package: "SkeeSkeeSkee"),
+        ]),
     ]
 )

@@ -1,0 +1,919 @@
+mod Skee.Presentation do
+
+  -- SkeeRender's Presentation.swift: what the screen is showing, as opposed to
+  -- what the game state is. The reducer resolves a throw at once; the
+  -- presentation plays it out over a few seconds as beats and only then shows
+  -- the new state. A pure value: the shell calls `advance` each frame, plays the
+  -- `cues` of that frame and draws from the rest.
+  --
+  -- Swift mutates in place; here every operation returns the next Presentation.
+  -- Every function that needs pi or infinity takes `k` first (docs/PORT.md).
+  cap pure
+
+  import Skee.Maths
+
+  -- One animated moment between two game states.
+  type Beat =
+    BeatRoll(ShotResult, BallRecord)
+    | BeatSpin(PerReel(Int))
+    | BeatPull(Pull)
+    | BeatTally(FrameScore)
+    | BeatBanner(String, String, Float)
+    | BeatCommit(RunState)
+    | BeatRestyle(ArtStyle, ArtStyle)
+
+  derive Show for Beat
+
+  -- A moment worth a sound or an effect.
+  type Cue =
+    CueLaunch
+    | CueRail
+    | CueHump
+    | CueLip
+    | CueBackwall
+    | CueLanded
+    | CueDrop(Hole)
+    | CueGutter
+    | CueHop
+    | CueWhoosh
+    | CueHotSpot
+    | CueLever
+    | CuePullWin(Int)
+    | CueReelTick
+    | CueReelStop
+    | CueCombo(Int)
+    | CueTallyChips(Int)
+    | CueTallyMult(Int)
+    | CueFrameDone
+    | CueLineWon
+    | CueJackpot
+    | CueBanner(String)
+    | CueFoul
+
+  derive Eq, Show for Cue
+
+  -- A recent throw's power and where it went, for the lane gauge.
+  type ThrowMark = { mark_power : Float, mark_hole : Hole }
+
+  derive Show for ThrowMark
+
+  type PopupAnchor = AnchorHole(Hole) | AnchorCenter | AnchorHud
+
+  derive Eq, Show for PopupAnchor
+
+  type PopupKind = PopupChips | PopupMult | PopupTickets | PopupBad | PopupJackpot
+
+  derive Eq, Show for PopupKind
+
+  -- Floating text. `age` runs 0 to 1 over `life` seconds.
+  type Popup = {
+    popup_text : String,
+    anchor : PopupAnchor,
+    popup_kind : PopupKind,
+    life : Float,
+    age : Float
+  }
+
+  derive Show for Popup
+
+  -- The last ball's landing, kept on the board until `until`.
+  type RestingBall = { rest_sample : PathSample, until : Float }
+
+  derive Show for RestingBall
+
+  type Presentation = {
+    shown : RunState,
+    beats : List(Beat),
+    beat_time : Float,
+    clock : Float,
+    reel_positions : PerReel(Float),
+    spin_from : PerReel(Float),
+    pull_positions : Three(Float),
+    pull_from : Three(Float),
+    pull_stopped : Int,
+    last_pull : Option(Pull),
+    popups : List(Popup),
+    trail : List(PathSample),
+    flash : Float,
+    shake : Float,
+    celebration : Float,
+    resting_ball : Option(RestingBall),
+    style : ArtStyle,
+    recent_throws : List(ThrowMark),
+    tallied_bonus : Points,
+    finished : List(Beat),
+    cues : List(Cue),
+    last_tick : Float,
+    shown_steps : Int
+  }
+
+  derive Show for Presentation
+
+  -- Swift's restyleProgress tuple.
+  type Restyling = { restyle_from : ArtStyle, restyle_to : ArtStyle, restyle_progress : Float }
+
+  derive Show for Restyling
+
+  -- Swift's tallyProgress tuple: the frame and how many of its steps are shown.
+  type TallyShown = { tally_frame : FrameScore, revealed : Int }
+
+  derive Show for TallyShown
+
+  -- Swift's banner tuple.
+  type BannerShown = { banner_title : String, banner_sub : String, banner_progress : Float }
+
+  derive Show for BannerShown
+
+  -- ---- Tuning ----
+  doc """
+  Seconds of screen time per recorded second of a shot. At real time the whole
+  throw read as a flick of light; 1.4 gives the roll a second to watch.
+  """
+  fn roll_speed() : Float needs () do
+    1.4
+  end
+
+  doc """Seconds per revealed tally step."""
+  fn tally_step() : Float needs () do
+    0.15
+  end
+
+  doc """How slow time runs while a line-completing ball is in the air."""
+  fn anticipation_scale() : Float needs () do
+    0.4
+  end
+
+  -- ---- Small helpers ----
+  pfn last_of(xs : List(a)) : Option(a) needs () do
+    match xs do
+    Nil -> None
+    Cons(x, Nil) -> Some(x)
+    Cons(_, rest) -> last_of(rest)
+    end
+  end
+
+  pfn first_t(path : List(PathSample)) : Float needs () do
+    match path do
+    Nil -> 0.0
+    Cons(s, _) -> s.t
+    end
+  end
+
+  doc """`stops.mapValues(Double.init)`."""
+  fn reel_floats(m : PerReel(Int)) : PerReel(Float) needs () do
+    {
+      reel10: int_to_float(m.reel10),
+      reel20: int_to_float(m.reel20),
+      reel30: int_to_float(m.reel30),
+      reel40: int_to_float(m.reel40),
+      reel50: int_to_float(m.reel50),
+      reel_left: int_to_float(m.reel_left),
+      reel_right: int_to_float(m.reel_right)
+    }
+  end
+
+  doc """Swift's `==` on `[Hole: Int]` stops."""
+  fn same_stops(a : PerReel(Int), b : PerReel(Int)) : Bool needs () do
+    a.reel10 == b.reel10 && a.reel20 == b.reel20 && a.reel30 == b.reel30 && a.reel40 == b.reel40 && a.reel50 == b.reel50 && a.reel_left == b.reel_left && a.reel_right == b.reel_right
+  end
+
+  pfn three_floats(t : Three(Int)) : Three(Float) needs () do
+    match t do
+    Three(a, b, c) -> Three(int_to_float(a), int_to_float(b), int_to_float(c))
+    end
+  end
+
+  pfn three_at(t : Three(a), i : Int) : a needs () do
+    match t do
+    Three(a, b, c) -> if i == 0 do a else if i == 1 do b else c end end
+    end
+  end
+
+  pfn three_put(t : Three(a), i : Int, v : a) : Three(a) needs () do
+    match t do
+    Three(a, b, c) -> if i == 0 do Three(v, b, c) else if i == 1 do Three(a, v, c) else Three(a, b, v) end end
+    end
+  end
+
+  pfn reel_float(m : PerReel(Float), h : Hole) : Float needs () do
+    match Skee.HoleMap.reel_at(m, h) do
+    Some(x) -> x
+    None -> 0.0
+    end
+  end
+
+  pfn reel_int(m : PerReel(Int), h : Hole) : Int needs () do
+    match Skee.HoleMap.reel_at(m, h) do
+    Some(x) -> x
+    None -> 0
+    end
+  end
+
+  pfn put_reel_float(m : PerReel(Float), h : Hole, v : Float) : PerReel(Float) needs () do
+    Skee.HoleMap.reel_put(m, h, v)
+  end
+
+  doc """Symbol's rawValue."""
+  fn symbol_raw(s : Symbol) : String needs () do
+    match s do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  pfn add_cue(p : Presentation, c : Cue) : Presentation needs () do
+    { p with cues: List.append(p.cues, [c]) }
+  end
+
+  pfn add_popup(p : Presentation, text : String, anchor : PopupAnchor, kind : PopupKind, life : Float) : Presentation needs () do
+    let pop = { popup_text: text, anchor: anchor, popup_kind: kind, life: life, age: 0.0 }
+    { p with popups: List.append(p.popups, [pop]) }
+  end
+
+  -- ---- Making one ----
+  doc """Presentation(state:): showing `s` with nothing queued."""
+  fn make(s : RunState) : Presentation needs () do
+    let pulls =
+      match s.round.round_pull do
+      Some(q) -> three_floats(q.stops)
+      None -> Three(0.0, 7.0, 14.0)
+      end
+    let reels = reel_floats(s.reel_stops)
+    {
+      shown: s,
+      beats: [],
+      beat_time: 0.0,
+      clock: 0.0,
+      reel_positions: reels,
+      spin_from: Skee.HoleMap.fill_reels(0.0),
+      pull_positions: pulls,
+      pull_from: Three(0.0, 0.0, 0.0),
+      pull_stopped: 0,
+      last_pull: s.round.round_pull,
+      popups: [],
+      trail: [],
+      flash: 0.0,
+      shake: 0.0,
+      celebration: 0.0,
+      resting_ball: None,
+      style: Skee.Palette.style_for_ante(s.ante),
+      recent_throws: [],
+      tallied_bonus: Points(0),
+      finished: [],
+      cues: [],
+      last_tick: 0.0,
+      shown_steps: 0
+    }
+  end
+
+  fn is_busy(p : Presentation) : Bool needs () do
+    match p.beats do
+    Nil -> false
+    Cons(_, _) -> true
+    end
+  end
+
+  fn current(p : Presentation) : Option(Beat) needs () do
+    match p.beats do
+    Nil -> None
+    Cons(b, _) -> Some(b)
+    end
+  end
+
+  -- ---- Beats ----
+  doc """Beat.duration."""
+  fn duration(b : Beat) : Float needs () do
+    match b do
+    BeatRoll(r, _) -> do
+      match last_of(r.path) do
+      Some(s) -> s.t *. roll_speed()
+      None -> 0.0
+      end
+    end
+    BeatSpin(_) -> 0.75
+    BeatPull(q) -> pull_duration(q)
+    BeatTally(f) -> int_to_float(List.length(f.steps)) *. tally_step() +. 0.6
+    BeatBanner(_, _, s) -> s
+    BeatCommit(_) -> 0.0
+    BeatRestyle(_, _) -> 1.6
+    end
+  end
+
+  doc """
+  When reel `i` of a pull stops. With two BONUS already showing on the first
+  two reels the last one hangs on, the floor's oldest tease.
+  """
+  fn pull_stop(i : Int, q : Pull) : Float needs () do
+    let base = 0.7 +. 0.3 *. int_to_float(i)
+    if i == 2 && teases(q) do base +. 0.9 else base end
+  end
+
+  pfn bonus_in_first_two(row : Three(ReelSymbol)) : Int needs () do
+    match row do
+    Three(a, b, _) -> (if a == ReelBonus do 1 else 0 end) + (if b == ReelBonus do 1 else 0 end)
+    end
+  end
+
+  doc """At least two BONUS in the window's first two reels."""
+  fn teases(q : Pull) : Bool needs () do
+    match Skee.Scoring.grid(q) do
+    Three(top, mid, bottom) -> bonus_in_first_two(top) + bonus_in_first_two(mid) + bonus_in_first_two(bottom) >= 2
+    end
+  end
+
+  doc """Spin, then a beat to read the wins."""
+  fn pull_duration(q : Pull) : Float needs () do
+    let read =
+      if Skee.Units.chips_int(Skee.Scoring.line_chips(q)) > 0 || Skee.Scoring.triggers_free_games(q) do 1.0 else 0.45 end
+    pull_stop(2, q) +. read
+  end
+
+  pfn strip_length(i : Int) : Int needs () do
+    List.length(three_at(Skee.Rooms.base_strips(), i))
+  end
+
+  doc """Symbol at a fractional reel position and row offset, for drawing."""
+  fn pull_symbol(reel : Int, position : Float, row : Int, room : Room) : ReelSymbol needs () do
+    let strip = three_at(Skee.Rooms.strips(room), reel)
+    let n = List.length(strip)
+    let i = (float_floor(position) + row) % n
+    match List.nth_opt(strip, (i + n) % n) do
+    Some(s) -> s
+    None -> ReelCherry
+    end
+  end
+
+  -- ---- Enqueueing ----
+  doc """
+  Drop the part of a path before it reaches `along`, re-timed to start at zero.
+  Event times are left as they are, as in the Swift.
+  """
+  fn trim(r : ShotResult, along : Float) : ShotResult needs () do
+    if along > 0.0 do
+      match List.find_index(r.path, fn s -> s.along >= along) do
+      Some(i) -> do
+        if i > 0 do
+          let kept = List.drop(r.path, i)
+          let t0 = first_t(kept)
+          { r with path: List.map(kept, fn s -> { s with t: s.t -. t0 }) }
+        else
+          r
+        end
+      end
+      None -> r
+      end
+    else
+      r
+    end
+  end
+
+  pfn points_text(p : Points) : String needs () do
+    int_to_string(Skee.Units.points_int(p))
+  end
+
+  pfn banner_beat(title : String, sub : String, seconds : Float) : Beat needs () do
+    BeatBanner(title, sub, seconds)
+  end
+
+  -- The beats for one event, and whether the reels have been spun.
+  pfn event_beats(p : Presentation, step : Step, along : Float, spun : Bool, e : GameEvent) : (List(Beat), Bool) needs () do
+    let s = step.run
+    match e do
+    Fouled -> ([banner_beat("FOUL", "thumb past the crease", 1.0)], spun)
+    Shot(r, b) -> ([BeatRoll(trim(r, along), b)], spun)
+    FrameScored(f) -> ([BeatTally(f)], spun)
+    FeverLit -> ([BeatSpin(s.reel_stops), banner_beat("FEVER", "next frame x2", 1.2)], true)
+    RoundCleared(score, target, payout) -> do
+      let sub =
+        points_text(score) ++ " / " ++ points_text(target) ++ "   +" ++ int_to_string(Skee.Units.tickets_int(Skee.Reducer.payout_total(payout))) ++ " TICKETS"
+      let shown = [banner_beat("CLEARED", sub, 1.8)]
+      if spun do (shown, true) else (Cons(BeatSpin(s.reel_stops), shown), true) end
+    end
+    RoundFailed(score, target) -> ([banner_beat("GAME OVER", points_text(score) ++ " / " ++ points_text(target), 2.4)], spun)
+    RunWon -> ([banner_beat("YOU BEAT THE ARCADE", "", 3.0)], spun)
+    AnteStarted(a, boss) -> do
+      let to = Skee.Palette.style_for_ante(a)
+      let ante = banner_beat("ANTE " ++ int_to_string(a), "BOSS: " ++ String.to_uppercase(Skee.Items.boss_name(boss)), 1.6)
+      if p.style == to do ([ante], spun) else ([BeatRestyle(p.style, to), ante], spun) end
+    end
+    RoundStarted(kind, target) -> do
+      ([BeatCommit(s), banner_beat(String.to_uppercase(Skee.Items.round_title(kind)), "REACH " ++ points_text(target), 1.2)], spun)
+    end
+    Pulled(q) -> ([BeatPull(q)], spun)
+    FreeGamesWon(n) -> ([banner_beat("FREE GAMES", int_to_string(n) ++ " FREE FRAMES · EVERY ONE x2", 1.8)], spun)
+    JackpotHit(tier) -> ([banner_beat(Skee.Scoring.tier_title(tier) ++ " JACKPOT", "PAID TO YOUR WINNINGS", 2.4)], spun)
+    CounterOpened -> ([], spun)
+    Bought(_) -> ([], spun)
+    Sold(_) -> ([], spun)
+    Rerolled -> ([], spun)
+    Armed(_) -> ([], spun)
+    BallChosen(_) -> ([], spun)
+    end
+  end
+
+  pfn enqueue_events(p : Presentation, step : Step, along : Float, events : List(GameEvent), acc : List(Beat), spun : Bool) : (List(Beat), Bool) needs () do
+    match events do
+    Nil -> (acc, spun)
+    Cons(e, rest) -> do
+      let (more, now_spun) = event_beats(p, step, along, spun, e)
+      enqueue_events(p, step, along, rest, List.append(acc, more), now_spun)
+    end
+    end
+  end
+
+  doc """
+  Turn a reducer step into beats. `step.run` is the truth; beats only decide
+  how the screen gets there. `release_along` is how far up the lane the thumb
+  let go: the roll is shown from there, so the ball does not jump back.
+  """
+  fn enqueue(p : Presentation, step : Step, release_along : Float) : Presentation needs () do
+    let (added, spun) = enqueue_events(p, step, release_along, step.step_events, [], false)
+    let spin =
+      if !spun && !same_stops(step.run.reel_stops, p.shown.reel_stops) do [BeatSpin(step.run.reel_stops)] else [] end
+    { p with beats: List.concat([p.beats, added, spin, [BeatCommit(step.run)]]) }
+  end
+
+  -- ---- Reading ----
+  doc """Linear interpolation into a recorded path."""
+  fn sample(path : List(PathSample), t : Float) : Option(PathSample) needs () do
+    match path do
+    Nil -> None
+    Cons(first, rest) -> sample_from(first, rest, t)
+    end
+  end
+
+  pfn sample_from(prev : PathSample, rest : List(PathSample), t : Float) : Option(PathSample) needs () do
+    match rest do
+    Nil -> Some(prev)
+    Cons(s, more) -> do
+      if s.t >= t do
+        let span = s.t -. prev.t
+        let u = if span > 0.0 do (t -. prev.t) /. span else 1.0 end
+        Some({
+          t: t,
+          phase: if u < 0.5 do prev.phase else s.phase end,
+          px: prev.px +. (s.px -. prev.px) *. u,
+          along: prev.along +. (s.along -. prev.along) *. u,
+          height: prev.height +. (s.height -. prev.height) *. u
+        })
+      else
+        sample_from(s, more, t)
+      end
+    end
+    end
+  end
+
+  doc """Where the ball is right now, if one is rolling or resting."""
+  fn ball(p : Presentation) : Option(PathSample) needs () do
+    match p.beats do
+    Cons(BeatRoll(r, _), _) -> sample(r.path, p.beat_time /. roll_speed())
+    _ -> do
+      match p.resting_ball do
+      Some(rest) -> Some(rest.rest_sample)
+      None -> None
+      end
+    end
+    end
+  end
+
+  pfn is_pair(line : Payline) : Bool needs () do
+    match line do
+    Pair(_) -> true
+    NoLine -> false
+    Triple(_) -> false
+    end
+  end
+
+  pfn ends_shot(e : ShotEvent) : Bool needs () do
+    match e do
+    ShotDropped(_) -> true
+    ShotGutter -> true
+    ShotDud -> false
+    ShotRail -> false
+    ShotLaunched -> false
+    ShotLanded -> false
+    ShotLip(_) -> false
+    ShotBackwall -> false
+    ShotHop -> false
+    ShotSettled(_) -> false
+    end
+  end
+
+  doc """
+  1 while a ball that could complete a pair into three of a kind is in the air:
+  the slot's "will it land" moment.
+  """
+  fn anticipation(k : Skee.Consts.Consts, p : Presentation) : Float needs () do
+    match p.beats do
+    Cons(BeatRoll(r, _), _) -> do
+      let have = List.map(p.shown.round.current_balls, fn b -> b.record_symbol)
+      if List.length(have) == 2 && is_pair(Skee.Scoring.evaluate(have)) do
+        match ball(p) do
+        Some(b) -> do
+          let lane = Skee.Types.standard_lane(k)
+          if b.along > lane.length do
+            let drop_t =
+              match List.find(r.events, fn e -> ends_shot(e.event)) do
+              Some(e) -> e.at
+              None -> k.infinity
+              end
+            if p.beat_time /. roll_speed() +. first_t(r.path) < drop_t -. 0.02 do 1.0 else 0.0 end
+          else
+            0.0
+          end
+        end
+        None -> 0.0
+        end
+      else
+        0.0
+      end
+    end
+    _ -> 0.0
+    end
+  end
+
+  doc """How fast presentation time runs right now (slow motion below 1)."""
+  fn time_scale(k : Skee.Consts.Consts, p : Presentation) : Float needs () do
+    if anticipation(k, p) > 0.0 do anticipation_scale() else 1.0 end
+  end
+
+  doc """Progress through a restyle, if one is running."""
+  fn restyle_progress(p : Presentation) : Option(Restyling) needs () do
+    match p.beats do
+    Cons(BeatRestyle(a, b), _) -> do
+      Some({ restyle_from: a, restyle_to: b, restyle_progress: p.beat_time /. duration(BeatRestyle(a, b)) })
+    end
+    _ -> None
+    end
+  end
+
+  doc """The frame being tallied and how many of its steps are revealed."""
+  fn tally_progress(p : Presentation) : Option(TallyShown) needs () do
+    match p.beats do
+    Cons(BeatTally(f), _) -> Some({ tally_frame: f, revealed: revealed_steps(f, p.beat_time) })
+    _ -> None
+    end
+  end
+
+  pfn revealed_steps(f : FrameScore, beat_time : Float) : Int needs () do
+    Math.min_int(List.length(f.steps), float_floor(beat_time /. tally_step()) + 1)
+  end
+
+  doc """The pull machine's last reel is teasing right now."""
+  fn teasing(p : Presentation) : Bool needs () do
+    match p.beats do
+    Cons(BeatPull(q), _) -> teases(q) && p.beat_time > pull_stop(1, q) && p.beat_time < pull_stop(2, q)
+    _ -> false
+    end
+  end
+
+  fn banner(p : Presentation) : Option(BannerShown) needs () do
+    match p.beats do
+    Cons(BeatBanner(a, b, s), _) -> Some({ banner_title: a, banner_sub: b, banner_progress: p.beat_time /. s })
+    _ -> None
+    end
+  end
+
+  -- ---- Advancing ----
+  pfn age_popups(popups : List(Popup), dt : Float) : List(Popup) needs () do
+    List.filter_map(popups, fn pop -> do
+      let aged = { pop with age: pop.age +. dt /. pop.life }
+      if aged.age < 1.0 do Some(aged) else None end
+    end)
+  end
+
+  doc """Move presentation time on by `dt` seconds of wall time."""
+  fn advance(k : Skee.Consts.Consts, p0 : Presentation, dt : Float) : Presentation needs () do
+    let clock = p0.clock +. dt
+    let resting =
+      match p0.resting_ball do
+      Some(r) -> if clock > r.until do None else Some(r) end
+      None -> None
+      end
+    let p : Presentation = {
+      p0 with
+      finished: [],
+      cues: [],
+      clock: clock,
+      flash: max_float(0.0, p0.flash -. dt *. 2.5),
+      shake: max_float(0.0, p0.shake -. dt *. 3.0),
+      celebration: max_float(0.0, p0.celebration -. dt /. 2.4),
+      popups: age_popups(p0.popups, dt),
+      resting_ball: resting
+    }
+    run_beats(k, p, dt)
+  end
+
+  pfn run_beats(k : Skee.Consts.Consts, p0 : Presentation, remaining : Float) : Presentation needs () do
+    match p0.beats do
+    Nil -> p0
+    Cons(beat, rest) -> do
+      let p = if p0.beat_time == 0.0 do begin(p0, beat) else p0 end
+      let scale = time_scale(k, p)
+      let left = duration(beat) -. p.beat_time
+      let before = p.beat_time
+      if remaining *. scale < left do
+        during(k, { p with beat_time: before +. remaining *. scale }, beat, before)
+      else
+        let still = remaining -. max_float(left, 0.0) /. scale
+        let played = during(k, { p with beat_time: duration(beat) }, beat, before)
+        let done = finish(played, beat)
+        run_beats(k, { done with finished: List.append(done.finished, [beat]), beats: rest, beat_time: 0.0 }, still)
+      end
+    end
+    end
+  end
+
+  doc """Fast-forward everything queued."""
+  fn skip(k : Skee.Consts.Consts, p : Presentation) : Presentation needs () do
+    if is_busy(p) do skip(k, advance(k, p, 30.0)) else p end
+  end
+
+  -- ---- The beat lifecycle ----
+  pfn celebrates(title : String) : Bool needs () do
+    title == "CLEARED" || title == "FREE GAMES" || String.ends_with(title, "JACKPOT") || title == "YOU BEAT THE ARCADE"
+  end
+
+  pfn begin(p : Presentation, beat : Beat) : Presentation needs () do
+    match beat do
+    BeatRoll(_, b) -> do
+      let launched = add_cue({ p with trail: [] }, CueLaunch)
+      if b.record_ball == Comet do add_cue(launched, CueWhoosh) else launched end
+    end
+    BeatSpin(_) -> add_cue({ p with spin_from: p.reel_positions, last_tick: 0.0 }, CueReelTick)
+    BeatPull(_) -> do
+      add_cue({ p with pull_from: p.pull_positions, pull_stopped: 0, last_pull: None, last_tick: 0.0 }, CueLever)
+    end
+    BeatTally(_) -> { p with shown_steps: 0 }
+    BeatBanner(t, _, _) -> do
+      let lit = { p with flash: max_float(p.flash, 0.4) }
+      let cued = add_cue(lit, if t == "FOUL" do CueFoul else CueBanner(t) end)
+      if celebrates(t) do { cued with celebration: 1.0 } else cued end
+    end
+    BeatCommit(_) -> p
+    BeatRestyle(_, _) -> p
+    end
+  end
+
+  pfn shot_cue(p : Presentation, b : BallRecord, e : ShotEvent) : Presentation needs () do
+    match e do
+    ShotLaunched -> do
+      let kick = if b.record_ball == Comet do 0.8 else 0.25 end
+      add_cue({ p with shake: max_float(p.shake, kick) }, CueHump)
+    end
+    ShotLip(_) -> add_cue(p, CueLip)
+    ShotBackwall -> add_cue(p, CueBackwall)
+    ShotLanded -> add_cue(p, CueLanded)
+    ShotDropped(h) -> add_cue(p, CueDrop(h))
+    ShotGutter -> add_cue(p, CueGutter)
+    ShotRail -> add_cue(p, CueRail)
+    ShotHop -> add_cue(p, CueHop)
+    ShotDud -> p
+    ShotSettled(_) -> p
+    end
+  end
+
+  pfn during_roll(p : Presentation, r : ShotResult, b : BallRecord, before : Float) : Presentation needs () do
+    let t0 = first_t(r.path)
+    let a = before /. roll_speed() +. t0
+    let bt = p.beat_time /. roll_speed() +. t0
+    let passed =
+      List.filter(r.events, fn e -> e.at > a && e.at <= bt || before == 0.0 && e.at == t0 && e.at <= bt)
+    let cued = List.fold_left(passed, p, fn (acc, e) -> shot_cue(acc, b, e.event))
+    match sample(r.path, p.beat_time /. roll_speed()) do
+    Some(s) -> do
+      let longer = List.append(cued.trail, [s])
+      let n = List.length(longer)
+      { cued with trail: if n > 14 do List.drop(longer, n - 14) else longer end }
+    end
+    None -> cued
+    end
+  end
+
+  -- Raise `target` by whole turns until it is at least `floor`.
+  pfn wind_forward(target : Float, floor : Float, turn : Float) : Float needs () do
+    if target < floor do wind_forward(target +. turn, floor, turn) else target end
+  end
+
+  pfn pull_reel(k : Skee.Consts.Consts, p : Presentation, q : Pull, i : Int) : Presentation needs () do
+    let n = int_to_float(strip_length(i))
+    let end_at = pull_stop(i, q)
+    let start = three_at(p.pull_from, i)
+    let target = wind_forward(int_to_float(three_at(q.stops, i)), start +. n *. int_to_float(3 + i), n)
+    let u = min_float(1.0, p.beat_time /. end_at)
+    let eased =
+      if u < 1.0 do 1.0 -. Math.pow(1.0 -. u, 3.0) +. 0.04 *. Math.sin(u *. k.pi) else 1.0 end
+    let at = if u >= 1.0 do target else start +. (target -. start) *. min_float(eased, 1.01) end
+    { p with pull_positions: three_put(p.pull_positions, i, at) }
+  end
+
+  pfn stop_reels(p : Presentation, q : Pull) : Presentation needs () do
+    if p.pull_stopped < 3 && p.beat_time >= pull_stop(p.pull_stopped, q) do
+      stop_reels(add_cue({ p with pull_stopped: p.pull_stopped + 1 }, CueReelStop), q)
+    else
+      p
+    end
+  end
+
+  pfn during_pull(k : Skee.Consts.Consts, p0 : Presentation, q : Pull) : Presentation needs () do
+    let spinning = p0.beat_time < pull_stop(2, q)
+    let ticked =
+      if spinning && p0.beat_time -. p0.last_tick > 0.06 do
+        add_cue({ p0 with last_tick: p0.beat_time }, CueReelTick)
+      else
+        p0
+      end
+    let spun = List.fold_left([0, 1, 2], ticked, fn (acc, i) -> pull_reel(k, acc, q, i))
+    let stopped = stop_reels(spun, q)
+    match stopped.last_pull do
+    None -> do
+      if spinning do
+        stopped
+      else
+        let shown = { stopped with last_pull: Some(q) }
+        let chips = Skee.Units.chips_int(Skee.Scoring.line_chips(q))
+        if chips > 0 do
+          add_cue(add_popup(shown, "WIN " ++ int_to_string(chips), AnchorHud, PopupChips, 1.4), CuePullWin(chips))
+        else
+          shown
+        end
+      end
+    end
+    Some(_) -> stopped
+    end
+  end
+
+  pfn spin_reel(p : Presentation, to : PerReel(Int), eased : Float, hole : Hole) : Presentation needs () do
+    let n = int_to_float(List.length(Skee.Scoring.reel(p.shown.setup, hole)))
+    let start = reel_float(p.spin_from, hole)
+    let wanted = int_to_float(reel_int(to, hole))
+    -- An empty reel cannot exist (the reducer refuses ReelTooShort); Swift would
+    -- spin forever on one, so it is left where it is.
+    let target = if n > 0.0 do wind_forward(wanted, start +. 2.0 *. n, n) else wanted end
+    { p with reel_positions: put_reel_float(p.reel_positions, hole, start +. (target -. start) *. eased) }
+  end
+
+  pfn during_spin(p0 : Presentation, to : PerReel(Int)) : Presentation needs () do
+    let length = duration(BeatSpin(to))
+    let ticked =
+      if p0.beat_time -. p0.last_tick > 0.07 && p0.beat_time < length *. 0.8 do
+        add_cue({ p0 with last_tick: p0.beat_time }, CueReelTick)
+      else
+        p0
+      end
+    let u = min_float(1.0, ticked.beat_time /. length)
+    let eased = 1.0 -. Math.pow(1.0 -. u, 3.0)
+    List.fold_left(Skee.HoleMap.reel_holes(), ticked, fn (acc, h) -> spin_reel(acc, to, eased, h))
+  end
+
+  pfn is_mult(e : ScoreEffect) : Bool needs () do
+    match e do
+    AddMult(_) -> true
+    TimesMult(_) -> true
+    SetBase(_, _) -> false
+    AddChips(_) -> false
+    AddTickets(_) -> false
+    Note(_) -> false
+    end
+  end
+
+  pfn reveal_steps(p : Presentation, f : FrameScore, upto : Int) : Presentation needs () do
+    if p.shown_steps < upto do
+      let cue =
+        match List.nth_opt(f.steps, p.shown_steps) do
+        Some(st) -> if is_mult(st.effect) do CueTallyMult(p.shown_steps) else CueTallyChips(p.shown_steps) end
+        None -> CueTallyChips(p.shown_steps)
+        end
+      reveal_steps(add_cue({ p with shown_steps: p.shown_steps + 1 }, cue), f, upto)
+    else
+      p
+    end
+  end
+
+  pfn during(k : Skee.Consts.Consts, p : Presentation, beat : Beat, before : Float) : Presentation needs () do
+    match beat do
+    BeatRoll(r, b) -> during_roll(p, r, b, before)
+    BeatPull(q) -> during_pull(k, p, q)
+    BeatSpin(to) -> during_spin(p, to)
+    BeatTally(f) -> reveal_steps(p, f, revealed_steps(f, p.beat_time))
+    BeatBanner(_, _, _) -> p
+    BeatCommit(_) -> p
+    BeatRestyle(_, _) -> p
+    end
+  end
+
+  pfn roll_popup_text(r : ShotResult, b : BallRecord) : String needs () do
+    match b.record_hole do
+    Gutter -> if Skee.Physics.rattles(r) > 0 do "SO CLOSE!" else "GUTTER" end
+    Ring10 -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    Ring20 -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    Ring30 -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    Ring40 -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    Ring50 -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    PocketLeft -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    PocketRight -> "+" ++ int_to_string(Skee.Units.chips_int(b.record_chips))
+    end
+  end
+
+  pfn finish_roll(p0 : Presentation, r : ShotResult, b : BallRecord) : Presentation needs () do
+    let rested =
+      match last_of(r.path) do
+      Some(s) -> { p0 with resting_ball: Some({ rest_sample: s, until: p0.clock +. 0.6 }) }
+      None -> p0
+      end
+    let throws = List.append(rested.recent_throws, [{ mark_power: r.launch.power, mark_hole: b.record_hole }])
+    let kept = if List.length(throws) > 6 do List.drop(throws, 1) else throws end
+    let gutter = b.record_hole == Gutter
+    let landed =
+      add_popup({ rested with recent_throws: kept, trail: [] }, roll_popup_text(r, b), AnchorHole(b.record_hole), if gutter do PopupBad else PopupChips end, 1.1)
+    let shaken =
+      if Skee.Physics.rattles(r) > 0 do { landed with shake: max_float(landed.shake, 0.35) } else landed end
+    let hot =
+      if b.hot do
+        do
+          let called =
+            add_cue(add_popup(shaken, "HOT SPOT! x2", AnchorCenter, PopupJackpot, 1.5), CueHotSpot)
+          { called with celebration: max_float(called.celebration, 0.7), flash: max_float(called.flash, 0.5) }
+        end
+      else
+        if Skee.Physics.face_value(b.record_hole) >= 50 do
+          { shaken with celebration: max_float(shaken.celebration, 0.45) }
+        else
+          shaken
+        end
+      end
+    let paid =
+      if Skee.Scoring.scored(b) && Skee.Items.pay(b.record_ball) >= 2.0 do
+        add_popup(hot, Skee.Items.ball_short(b.record_ball) ++ " " ++ Skee.Items.pay_label(b.record_ball) ++ "!", AnchorHud, PopupTickets, 1.2)
+      else
+        hot
+      end
+    if b.slot_hits > 0 do
+      let text = if b.record_combo > 1 do "COMBO x" ++ int_to_string(b.record_combo) else "TOP SLOT!" end
+      let called = add_cue(add_popup(paid, text, AnchorHud, PopupMult, 1.4), CueCombo(b.record_combo))
+      { called with flash: max_float(called.flash, 0.25 +. 0.1 *. int_to_float(Math.min_int(b.record_combo, 5))) }
+    else
+      paid
+    end
+  end
+
+  pfn tally_line(f : FrameScore) : String needs () do
+    let total = points_text(Skee.Scoring.frame_total(f))
+    match f.payline do
+    NoLine -> total
+    Pair(s) -> "PAIR OF " ++ String.to_uppercase(symbol_raw(s)) ++ "S  " ++ total
+    Triple(s) -> do
+      if Skee.Scoring.is_jackpot(f) do
+        "JACKPOT  " ++ total
+      else
+        "THREE " ++ String.to_uppercase(symbol_raw(s)) ++ "S  " ++ total
+      end
+    end
+    end
+  end
+
+  pfn finish_tally(p : Presentation, f : FrameScore) : Presentation needs () do
+    let jackpot = Skee.Scoring.is_jackpot(f)
+    let lined =
+      match f.payline do
+      NoLine -> false
+      Pair(_) -> true
+      Triple(_) -> true
+      end
+    let cue = if jackpot do CueJackpot else if lined do CueLineWon else CueFrameDone end end
+    let shown =
+      add_cue(add_popup(p, tally_line(f), AnchorCenter, if jackpot do PopupJackpot else PopupMult end, 1.6), cue)
+    let cheered =
+      if lined do
+        { shown with celebration: max_float(shown.celebration, if jackpot do 1.0 else 0.6 end) }
+      else
+        shown
+      end
+    { cheered with tallied_bonus: Skee.Units.add_points(cheered.tallied_bonus, Skee.Scoring.frame_total(f)) }
+  end
+
+  pfn finish(p : Presentation, beat : Beat) : Presentation needs () do
+    match beat do
+    BeatRoll(r, b) -> finish_roll(p, r, b)
+    BeatSpin(to) -> add_cue({ p with reel_positions: reel_floats(to) }, CueReelStop)
+    BeatPull(q) -> { p with pull_positions: three_floats(q.stops), last_pull: Some(q) }
+    BeatTally(f) -> finish_tally(p, f)
+    BeatCommit(s) -> do
+      let committed = { p with shown: s, tallied_bonus: Points(0), reel_positions: reel_floats(s.reel_stops) }
+      match s.round.round_pull do
+      Some(q) -> { committed with pull_positions: three_floats(q.stops), last_pull: Some(q) }
+      None -> committed
+      end
+    end
+    BeatRestyle(_, to) -> { p with style: to }
+    BeatBanner(_, _, _) -> p
+    end
+  end
+
+end

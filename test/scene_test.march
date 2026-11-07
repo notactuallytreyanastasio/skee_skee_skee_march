@@ -1,0 +1,9 @@
+mod SceneTest do
+
+  needs IO.Console
+
+  test "scene suite" do
+    assert Harness.failures(SceneSuite.cases()) == []
+  end
+
+end

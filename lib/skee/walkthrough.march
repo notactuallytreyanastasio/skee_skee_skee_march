@@ -1,0 +1,478 @@
+mod Skee.Walkthrough do
+
+  -- Meta/Walkthrough.swift: the first loadout (a coached practice game for the
+  -- basics), the one-time tip cards of a real game, and GameModel's bookkeeping
+  -- of which tip shows when. Each step teaches one thing: some wait for the
+  -- player to do it, read off the reducer's events; some are a card to read and
+  -- tap. Skip ends it anywhere.
+  cap pure
+
+  -- ---- Steps ----
+  doc """WalkthroughStep.allCases, in raw-value order."""
+  fn all_steps() : List(WalkthroughStep) needs () do
+    [
+      WalkWelcome,
+      WalkPull,
+      WalkFlick,
+      WalkSymbols,
+      WalkLine,
+      WalkScore,
+      WalkPullAgain,
+      WalkTopSlot,
+      WalkLastPull,
+      WalkFinish,
+      WalkCounter,
+      WalkPrizes
+    ]
+  end
+
+  doc """The step's Swift raw value."""
+  fn step_index(s : WalkthroughStep) : { Int | _ >= 0 && _ <= 11 } needs () do
+    match s do
+    WalkWelcome -> 0
+    WalkPull -> 1
+    WalkFlick -> 2
+    WalkSymbols -> 3
+    WalkLine -> 4
+    WalkScore -> 5
+    WalkPullAgain -> 6
+    WalkTopSlot -> 7
+    WalkLastPull -> 8
+    WalkFinish -> 9
+    WalkCounter -> 10
+    WalkPrizes -> 11
+    end
+  end
+
+  doc """WalkthroughStep(rawValue:)."""
+  fn step_of_index(n : Int) : Option(WalkthroughStep) needs () do
+    List.find(all_steps(), fn s -> step_index(s) == n)
+  end
+
+  doc """The step after this one, or None after the last."""
+  fn next_step(s : WalkthroughStep) : Option(WalkthroughStep) needs () do
+    step_of_index(step_index(s) + 1)
+  end
+
+  doc """Waiting for the lever. A free game pulls it for you, so these can be passed over."""
+  fn wants_pull(s : WalkthroughStep) : Bool needs () do
+    match s do
+    WalkPull -> true
+    WalkPullAgain -> true
+    WalkLastPull -> true
+    WalkWelcome -> false
+    WalkFlick -> false
+    WalkSymbols -> false
+    WalkLine -> false
+    WalkScore -> false
+    WalkTopSlot -> false
+    WalkFinish -> false
+    WalkCounter -> false
+    WalkPrizes -> false
+    end
+  end
+
+  -- ---- The walkthrough ----
+  doc """Walkthrough(step:)."""
+  fn start_at(s : WalkthroughStep) : Walkthrough needs () do
+    { walk_step: s, walk_finished: false, walk_last_foul: false, walk_pulled_ahead: false }
+  end
+
+  doc """Walkthrough(): from the welcome card."""
+  fn new_walkthrough() : Walkthrough needs () do
+    start_at(WalkWelcome)
+  end
+
+  doc """Walkthrough.practiceTarget."""
+  fn practice_target() : Points needs () do
+    Points(60)
+  end
+
+  doc """Field-by-field equality: records here do not derive Eq (docs/PORT.md)."""
+  fn same(a : Walkthrough, b : Walkthrough) : Bool needs () do
+    a.walk_step == b.walk_step && a.walk_finished == b.walk_finished && a.walk_last_foul == b.walk_last_foul && a.walk_pulled_ahead == b.walk_pulled_ahead
+  end
+
+  pfn go(w : Walkthrough, s : WalkthroughStep) : Walkthrough needs () do
+    { w with walk_step: s, walk_last_foul: false }
+  end
+
+  pfn on_pulled(w : Walkthrough) : Walkthrough needs () do
+    match w.walk_step do
+    WalkPull -> go(w, WalkFlick)
+    WalkPullAgain -> go(w, WalkTopSlot)
+    WalkLastPull -> go(w, WalkFinish)
+    WalkWelcome -> { w with walk_pulled_ahead: true }
+    WalkFlick -> { w with walk_pulled_ahead: true }
+    WalkSymbols -> { w with walk_pulled_ahead: true }
+    WalkLine -> { w with walk_pulled_ahead: true }
+    WalkScore -> { w with walk_pulled_ahead: true }
+    WalkTopSlot -> { w with walk_pulled_ahead: true }
+    WalkFinish -> { w with walk_pulled_ahead: true }
+    WalkCounter -> { w with walk_pulled_ahead: true }
+    WalkPrizes -> { w with walk_pulled_ahead: true }
+    end
+  end
+
+  pfn on_fouled(w : Walkthrough) : Walkthrough needs () do
+    match w.walk_step do
+    WalkFlick -> { w with walk_last_foul: true }
+    WalkSymbols -> go(w, WalkLine)
+    WalkWelcome -> w
+    WalkPull -> w
+    WalkLine -> w
+    WalkScore -> w
+    WalkPullAgain -> w
+    WalkTopSlot -> w
+    WalkLastPull -> w
+    WalkFinish -> w
+    WalkCounter -> w
+    WalkPrizes -> w
+    end
+  end
+
+  pfn on_shot(w : Walkthrough) : Walkthrough needs () do
+    match w.walk_step do
+    WalkFlick -> go(w, WalkSymbols)
+    WalkSymbols -> go(w, WalkLine)
+    WalkWelcome -> w
+    WalkPull -> w
+    WalkLine -> w
+    WalkScore -> w
+    WalkPullAgain -> w
+    WalkTopSlot -> w
+    WalkLastPull -> w
+    WalkFinish -> w
+    WalkCounter -> w
+    WalkPrizes -> w
+    end
+  end
+
+  pfn on_frame(w : Walkthrough) : Walkthrough needs () do
+    match w.walk_step do
+    WalkFlick -> go(w, WalkScore)
+    WalkSymbols -> go(w, WalkScore)
+    WalkLine -> go(w, WalkScore)
+    WalkTopSlot -> go(w, WalkLastPull)
+    WalkWelcome -> w
+    WalkPull -> w
+    WalkScore -> w
+    WalkPullAgain -> w
+    WalkLastPull -> w
+    WalkFinish -> w
+    WalkCounter -> w
+    WalkPrizes -> w
+    end
+  end
+
+  pfn on_round_started(w : Walkthrough) : Walkthrough needs () do
+    match w.walk_step do
+    WalkCounter -> go(w, WalkPrizes)
+    WalkWelcome -> w
+    WalkPull -> w
+    WalkFlick -> w
+    WalkSymbols -> w
+    WalkLine -> w
+    WalkScore -> w
+    WalkPullAgain -> w
+    WalkTopSlot -> w
+    WalkLastPull -> w
+    WalkFinish -> w
+    WalkPrizes -> w
+    end
+  end
+
+  pfn observe_one(w : Walkthrough, e : GameEvent) : Walkthrough needs () do
+    match e do
+    Pulled(_) -> on_pulled(w)
+    Fouled -> on_fouled(w)
+    Shot(_, _) -> on_shot(w)
+    FrameScored(_) -> on_frame(w)
+    RoundStarted(_, _) -> on_round_started(w)
+    CounterOpened -> go(w, WalkCounter)
+    RoundFailed(_, _) -> go(w, WalkPrizes)
+    FreeGamesWon(_) -> w
+    JackpotHit(_) -> w
+    FeverLit -> w
+    RoundCleared(_, _, _) -> w
+    Bought(_) -> w
+    Sold(_) -> w
+    Rerolled -> w
+    Armed(_) -> w
+    BallChosen(_) -> w
+    AnteStarted(_, _) -> w
+    RunWon -> w
+    end
+  end
+
+  doc """Walkthrough.observe: advance on the events a step of the reducer raised, in order."""
+  fn observe(w : Walkthrough, events : List(GameEvent)) : Walkthrough needs () do
+    if w.walk_finished do w else List.fold_left(events, w, observe_one) end
+  end
+
+  doc """Walkthrough.gotIt: dismiss a card that has no task, on to the next step or done."""
+  fn got_it(w : Walkthrough) : Walkthrough needs () do
+    let c = card(w)
+    if !c.coach_needs_tap do
+      w
+    else
+      match next_step(w.walk_step) do
+      None -> { w with walk_finished: true }
+      Some(next) -> do
+        let after = next_step(next)
+        match after do
+        Some(skipped_to) -> do
+          if wants_pull(next) && w.walk_pulled_ahead do
+            go({ w with walk_pulled_ahead: false }, skipped_to)
+          else
+            go(w, next)
+          end
+        end
+        None -> go(w, next)
+        end
+      end
+      end
+    end
+  end
+
+  doc """Walkthrough.skip: ends it anywhere."""
+  fn skip(w : Walkthrough) : Walkthrough needs () do
+    { w with walk_finished: true }
+  end
+
+  pfn coach(title : String, body : String, needs_tap : Bool, high : Bool) : CoachCard needs () do
+    { coach_title: title, coach_body: body, coach_needs_tap: needs_tap, coach_high: high }
+  end
+
+  doc """Walkthrough.card: the card for the current step."""
+  fn card(w : Walkthrough) : CoachCard needs () do
+    match w.walk_step do
+    WalkWelcome -> coach("YOUR FIRST LOADOUT", "This is a practice game. It doesn't count, you can't get it wrong, and nobody's in a hurry. We'll just cover the basics.", true, false)
+    WalkPull -> coach("PULL THE LEVER", "Every turn starts at the slot machine. Drag the lever down, or tap SPIN.", false, true)
+    WalkFlick -> do
+      if w.walk_last_foul do
+        coach("THAT WAS A FOUL", "Your thumb went past the line, so that ball didn't count. No harm done. Start lower, flick, and let go before the line.", false, false)
+      else
+        coach("ROLL THE BALL", "Put your thumb on the dotted line, flick straight up and let go. A faster flick rolls farther. Don't worry about aiming yet.", false, false)
+      end
+    end
+    WalkSymbols -> coach("EVERY HOLE HAS A PICTURE", "Your ball took the picture of the hole it landed in. Look for it in the row of three. Roll another.", false, false)
+    WalkLine -> coach("THREE BALLS, ONE LINE", "Your three balls make a slot line, just like three reels. Two matching pictures pay well. Three pay big. Roll your last ball.", false, false)
+    WalkScore -> coach("HOW SCORING WORKS", "Holes pay chips, and the far ones pay most. Matches raise your multiplier. Your score for the turn is chips times multiplier.", true, false)
+    WalkPullAgain -> coach("NEXT TURN", "Pull again. This time, watch the middle row of the machine.", false, true)
+    WalkTopSlot -> coach("AIM FOR YOUR PICTURES", "The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try to hit one.", false, false)
+    WalkLastPull -> coach("LAST TURN", "One more turn in this round. Pull the lever.", false, true)
+    WalkFinish -> coach("BEAT THE TARGET", "The goal of every round is the target score at the top of the screen. Reach it before your balls run out. Roll your last three.", false, false)
+    WalkCounter -> coach("THE PRIZE COUNTER", "Clearing a round pays tickets. Spend them here on things that help, or save them. Tap NEXT ROUND when you're ready.", false, true)
+    WalkPrizes -> coach("THAT'S ALL YOU NEED", "Now for a real game. There's more to discover, and I'll show you each new thing as it comes up. Have fun!", true, false)
+    end
+  end
+
+  doc """practiceRun(room:): a fixed seed and a low target, so a first try clears it and sees the counter."""
+  fn practice_run(k : Skee.Consts.Consts, room : Room) : RunState needs () do
+    let s = Skee.Reducer.new_run(k, Skee.U64.of_int(2024), Skee.Types.standard_config(), room, Tickets(0))
+    { s with round: { s.round with target: practice_target() } }
+  end
+
+  -- ---- Tips ----
+  doc """Tip.allCases, in Swift's order."""
+  fn all_tips() : List(Tip) needs () do
+    [
+      TipCombo,
+      TipHotSpot,
+      TipCharm,
+      TipSpecialty,
+      TipBoardEdit,
+      TipBoss,
+      TipBets,
+      TipBalls,
+      TipFever,
+      TipFreeGames,
+      TipJackpot,
+      TipGameOver
+    ]
+  end
+
+  doc """Tip.gap: balls that must go by after one card before a card that can wait."""
+  fn gap() : Int needs () do
+    6
+  end
+
+  doc """Tip.canWait: these come up again if held back. The rest happen once, so they are shown when they happen."""
+  fn can_wait(t : Tip) : Bool needs () do
+    match t do
+    TipCombo -> true
+    TipHotSpot -> true
+    TipBets -> true
+    TipBalls -> true
+    TipCharm -> false
+    TipSpecialty -> false
+    TipBoardEdit -> false
+    TipBoss -> false
+    TipFever -> false
+    TipFreeGames -> false
+    TipJackpot -> false
+    TipGameOver -> false
+    end
+  end
+
+  doc """Set membership over a list of tips."""
+  fn has_tip(seen : List(Tip), t : Tip) : Bool needs () do
+    List.any(seen, fn x -> x == t)
+  end
+
+  doc """Set insert: the result is in Tip order with no repeats, whatever order `seen` was in."""
+  fn add_tip(seen : List(Tip), t : Tip) : List(Tip) needs () do
+    List.filter(all_tips(), fn x -> x == t || has_tip(seen, x))
+  end
+
+  doc """A list of tips as a set: Tip order, no repeats."""
+  fn tip_set(tips : List(Tip)) : List(Tip) needs () do
+    List.filter(all_tips(), fn x -> has_tip(tips, x))
+  end
+
+  pfn shot_tip(b : BallRecord) : Option(Tip) needs () do
+    if b.hot do Some(TipHotSpot) else if b.slot_hits > 0 do Some(TipCombo) else None end end
+  end
+
+  pfn is_warmup(k : RoundKind) : Bool needs () do
+    match k do
+    Warmup -> true
+    Feature -> false
+    BossRound -> false
+    end
+  end
+
+  pfn bought_tip(o : Offer) : Tip needs () do
+    match o do
+    OfferCharm(_) -> TipCharm
+    OfferPowerUp(_) -> TipSpecialty
+    OfferStamp(_) -> TipBoardEdit
+    OfferGild -> TipBoardEdit
+    OfferPurge -> TipBoardEdit
+    end
+  end
+
+  pfn round_tip(k : RoundKind, seen : List(Tip)) : Option(Tip) needs () do
+    match k do
+    BossRound -> Some(TipBoss)
+    Warmup -> if has_tip(seen, TipBets) do Some(TipBalls) else None end
+    Feature -> if has_tip(seen, TipBets) do Some(TipBalls) else None end
+    end
+  end
+
+  doc """Tip.raised(by:in:seen:): the tip one event raises, seen or not."""
+  fn raised(e : GameEvent, s : RunState, seen : List(Tip)) : Option(Tip) needs () do
+    match e do
+    Shot(_, b) -> shot_tip(b)
+    Pulled(_) -> if !is_warmup(s.round.kind) || s.ante > 1 do Some(TipHotSpot) else None end
+    Bought(o) -> Some(bought_tip(o))
+    RoundStarted(k, _) -> round_tip(k, seen)
+    FrameScored(_) -> do
+      if s.ante > 1 || has_tip(seen, TipGameOver) do Some(TipBets) else None end
+    end
+    FeverLit -> Some(TipFever)
+    FreeGamesWon(_) -> Some(TipFreeGames)
+    JackpotHit(_) -> Some(TipJackpot)
+    RoundFailed(_, _) -> Some(TipGameOver)
+    Fouled -> None
+    RoundCleared(_, _, _) -> None
+    CounterOpened -> None
+    Sold(_) -> None
+    Rerolled -> None
+    Armed(_) -> None
+    BallChosen(_) -> None
+    AnteStarted(_, _) -> None
+    RunWon -> None
+    end
+  end
+
+  pfn waited(since : SinceTip) : Bool needs () do
+    match since do
+    NoTipYet -> true
+    BallsSince(n) -> n >= gap()
+    end
+  end
+
+  pfn first_tip(events : List(GameEvent), s : RunState, seen : List(Tip), since : SinceTip) : Option(Tip) needs () do
+    match events do
+    Nil -> None
+    Cons(e, rest) -> do
+      match raised(e, s, seen) do
+      Some(t) -> do
+        if !has_tip(seen, t) && (!can_wait(t) || waited(since)) do Some(t) else first_tip(rest, s, seen, since) end
+      end
+      None -> first_tip(rest, s, seen, since)
+      end
+    end
+    end
+  end
+
+  doc """Tip.next(after:in:seen:sinceLast:): the first unseen tip these events raise."""
+  fn next_tip(events : List(GameEvent), s : RunState, seen : List(Tip), since : SinceTip) : Option(Tip) needs () do
+    first_tip(events, s, seen, since)
+  end
+
+  doc """Tip.card."""
+  fn tip_card(t : Tip) : CoachCard needs () do
+    match t do
+    TipCombo -> coach("A COMBO!", "That ball matched one of your targets. Keep matching, ball after ball, and each one adds more to your score. A miss ends it.", true, false)
+    TipHotSpot -> coach("THE HOT SPOT", "See the sparkling gold ring on the board? That hole pays double this turn. Every pull moves it.", true, false)
+    TipCharm -> coach("YOUR FIRST CHARM", "Charms work by themselves for the rest of the game. There's nothing to do. Yours sit down the left side of the screen.", true, true)
+    TipSpecialty -> coach("A SPECIALTY BALL", "Tap it at the side of the screen when you want it, then throw. It only works on that one ball, so save it for a good moment.", true, true)
+    TipBoardEdit -> coach("YOUR OWN BOARD", "That change stays on the board until this game ends. Shaping the holes to suit you is how big scores get built.", true, true)
+    TipBoss -> coach("A BOSS MACHINE", "The third round of every ante bends one rule. This machine's rule is written at the top of the screen. Beat it to reach the next ante.", true, false)
+    TipBets -> coach("BIGGER BETS", "The machine has new buttons. Betting 3 or 5 lines costs tickets but wins more, and only 5 lines can hit a jackpot. 1 line is always free.", true, true)
+    TipBalls -> coach("PICK YOUR BALL", "You can now swap balls for free before any throw. Marshmallow is the easiest. Wilder balls are harder and pay more.", true, true)
+    TipFever -> coach("FEVER!", "Rattles and gutter balls filled the meter, so your next turn scores double. Even a bad roll helps.", true, false)
+    TipFreeGames -> coach("FREE GAMES!", "Three BONUS pictures won you extra turns. The machine pulls for you, and they score double.", true, false)
+    TipJackpot -> coach("JACKPOT!", "You hit a jackpot meter. It goes straight into your winnings for the prize shop, and you keep it whatever happens next.", true, false)
+    TipGameOver -> coach("NOT TO WORRY", "Every game ends sooner or later. Your winnings are saved for the prize shop, and the next game starts fresh. Sal looks after people who come back.", true, false)
+    end
+  end
+
+  -- ---- GameModel's tip bookkeeping ----
+  doc """The tracker a real game starts with, from the tips already seen (TipStore.seen)."""
+  fn new_tracker(seen : List(Tip)) : TipTracker needs () do
+    { tips_seen: tip_set(seen), since_tip: NoTipYet, tip_showing: None }
+  end
+
+  pfn count_ball(a : Action, since : SinceTip) : SinceTip needs () do
+    match a do
+    ThrowBall(_) -> do
+      match since do
+      NoTipYet -> NoTipYet
+      BallsSince(n) -> BallsSince(n + 1)
+      end
+    end
+    PullLever(_) -> since
+    CommitFoul -> since
+    ChooseBall(_) -> since
+    Arm(_) -> since
+    Buy(_, _) -> since
+    Reroll -> since
+    Sell(_) -> since
+    LeaveCounter -> since
+    end
+  end
+
+  doc """GameModel.send, after an action the rules accepted in a real game: count the ball, and raise the next tip if no card is showing. The new tip is already in `tips_seen`, so the shell saves that list."""
+  fn track(t : TipTracker, a : Action, step : Step) : TipTracker needs () do
+    let counted = { t with since_tip: count_ball(a, t.since_tip) }
+    match counted.tip_showing do
+    Some(_) -> counted
+    None -> do
+      match next_tip(step.step_events, step.run, counted.tips_seen, counted.since_tip) do
+      Some(tip) -> { tips_seen: add_tip(counted.tips_seen, tip), since_tip: BallsSince(0), tip_showing: Some(tip) }
+      None -> counted
+      end
+    end
+    end
+  end
+
+  doc """The tip card was tapped away (GOT IT or skip), or the practice game began."""
+  fn dismiss_tip(t : TipTracker) : TipTracker needs () do
+    { t with tip_showing: None }
+  end
+
+end

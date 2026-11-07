@@ -1,0 +1,10 @@
+mod SceneMain do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    println("scene: worst position error " ++ float_to_string(SceneSuite.worst_metres()) ++ " m, worst projected error " ++ float_to_string(SceneSuite.worst_pixels()) ++ " px (Swift computes in 32-bit Float)")
+    Harness.report("scene", SceneSuite.cases())
+  end
+
+end

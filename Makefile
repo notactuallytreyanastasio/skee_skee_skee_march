@@ -50,6 +50,11 @@ format:
 
 golden: $(addprefix golden-,$(GOLDEN_TARGETS))
 
+# The synth is in SkeeRender, so its generator is a package of its own (synth piece).
+golden-synth:
+	cd tools/golden_synth && swift build $(SWIFT_FLAGS) --product golden-synth --scratch-path $(CURDIR)/tools/golden_synth/.build
+	tools/golden_synth/.build/release/golden-synth $(CURDIR)
+
 golden-%:
 	cd $(GOLDEN_DIR) && swift build $(SWIFT_FLAGS) --product golden-$*
 	$(GOLDEN_DIR)/.build/release/golden-$* $(CURDIR)

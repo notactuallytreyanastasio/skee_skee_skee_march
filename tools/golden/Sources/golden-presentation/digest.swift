@@ -1,0 +1,1 @@
+../golden-run/digest.swift

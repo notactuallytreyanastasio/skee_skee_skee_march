@@ -830,4 +830,86 @@ mod Skee.Types do
     }
   end
 
+  -- ---- Meta: the first loadout, tips and the Guide (Meta/Walkthrough, Guide) ----
+  -- The walkthrough's steps, in Swift's order (its raw values 0 to 11).
+  type WalkthroughStep =
+    WalkWelcome
+    | WalkPull
+    | WalkFlick
+    | WalkSymbols
+    | WalkLine
+    | WalkScore
+    | WalkPullAgain
+    | WalkTopSlot
+    | WalkLastPull
+    | WalkFinish
+    | WalkCounter
+    | WalkPrizes
+
+  derive Eq, Show for WalkthroughStep
+
+  -- One coach card. `coach_needs_tap`: no task, it waits for GOT IT.
+  -- `coach_high`: sit high, so the card does not cover what it is about.
+  type CoachCard = {
+    coach_title : String,
+    coach_body : String,
+    coach_needs_tap : Bool,
+    coach_high : Bool
+  }
+
+  derive Show for CoachCard
+
+  -- The coached practice game. `walk_pulled_ahead`: a free game has already
+  -- pulled the next frame's lever.
+  type Walkthrough = {
+    walk_step : WalkthroughStep,
+    walk_finished : Bool,
+    walk_last_foul : Bool,
+    walk_pulled_ahead : Bool
+  }
+
+  derive Show for Walkthrough
+
+  -- A first-time card in a real game, in Swift's order.
+  type Tip =
+    TipCombo
+    | TipHotSpot
+    | TipCharm
+    | TipSpecialty
+    | TipBoardEdit
+    | TipBoss
+    | TipBets
+    | TipBalls
+    | TipFever
+    | TipFreeGames
+    | TipJackpot
+    | TipGameOver
+
+  derive Eq, Show for Tip
+
+  -- Balls thrown since the last tip card. Swift's Int.max is NoTipYet.
+  type SinceTip = NoTipYet | BallsSince(Int)
+
+  derive Eq, Show for SinceTip
+
+  -- GameModel's tip state: what has been seen (Swift's Set, kept in
+  -- Tip order), the balls since the last card, and the card showing.
+  type TipTracker = {
+    tips_seen : List(Tip),
+    since_tip : SinceTip,
+    tip_showing : Option(Tip)
+  }
+
+  derive Show for TipTracker
+
+  -- A Guide topic. Empty `topic_unlocks`: there from the start; otherwise
+  -- any one of them unlocks it.
+  type GuideTopic = {
+    topic_title : String,
+    topic_pages : List(String),
+    topic_unlocks : List(Tip)
+  }
+
+  derive Show for GuideTopic
+
 end

@@ -1,0 +1,14 @@
+mod T do
+  needs IO.Console
+  type A = { ante : Int, score : Int }
+  type B = { ante : Int, name : String }
+  fn mk(x : Int) : B do
+    { ante: x, name: "z" }
+  end
+  fn main(_c : Cap(IO.Console)) : () do
+    let a : A = { ante: 1, score: 2 }
+    let b = mk(3)
+    println(int_to_string(a.ante + b.ante) ++ String.to_uppercase("warm-up bell ×"))
+    println(int_to_string((-3) % 20))
+  end
+end
