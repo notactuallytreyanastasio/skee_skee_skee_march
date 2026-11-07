@@ -304,6 +304,16 @@ mod Skee.Scene do
     hex(c.packed)
   end
 
+  doc """
+  The colour as CSS, e.g. rgba(58,35,70,0.55). float_to_string prints 1.0 as
+  "1.", which CSS rejects, so the alpha goes out in thousandths.
+  """
+  fn css(c : Rgba) : String needs () do
+    let milli = Math.clamp_int(float_round(c.alpha *. 1000.0), 0, 1000)
+    let alpha = if milli >= 1000 do "1" else "0." ++ String.pad_left(int_to_string(milli), 3, "0") end
+    "rgba(" ++ int_to_string(c.red) ++ "," ++ int_to_string(c.green) ++ "," ++ int_to_string(c.blue) ++ "," ++ alpha ++ ")"
+  end
+
   doc """Toon.ink: the colour of every outline."""
   fn ink() : Rgba needs () do
     hex(3810118)

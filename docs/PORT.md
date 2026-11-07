@@ -380,6 +380,26 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - **`Json.parse` overflows the stack on deep nesting.** A few thousand `[` crash
   it (SIGBUS natively, `RangeError` on JS). Untrusted text goes through
   `Skee.Save.parse`, which counts depth first. (`json_deep_nesting.march`)
+- **`Json.parse` overflows a native stack well before Swift's limit.** Objects
+  350-400 deep crash it natively (SIGBUS); node manages 1024. Swift's
+  JSONDecoder reads 512 levels and refuses the 513th. `Skee.Save.parse` checks
+  every level past 16 in its own tail-recursive pass and gives Json.parse an
+  empty container of the same kind there, which no save decoder looks into.
+  (`json_depth_probe/probe.march`)
+- **Swift's JSONDecoder is looser than `Json.parse`** (golden-meta rows
+  `trailingComma*`, `leaf*`, `badKey*`, `foulJunk`). It reads trailing commas;
+  a string or number in a field no decoder reads is only scanned, not checked
+  (`1.`, `01`, `--1`, `"\x"`, `"\uZZZZ"` all load), while `tru` is refused;
+  and an enum case object counts only the keys that name a case
+  (`{"foul":{},"junk":1}` is `.foul`). `Skee.Save.parse` bridges all three:
+  it drops trailing commas, and replaces a string, number or key that
+  Json.parse cannot read with a marker that `string_of` and `object_of`
+  refuse, so it fails only where a decoder reads it, as in Swift.
+- **Swift writes a `[Enum: Int]` in a different order every run.** Dictionary
+  order is seeded per process, so `JSONEncoder` writes the progressive meters
+  in any of 24 orders even with `.sortedKeys`. `golden-meta` re-runs itself
+  with `SWIFT_DETERMINISTIC_HASHING=1` so its output is stable, and the meta
+  suite compares the meter pairs as a set. March writes them in tier order.
 - Swift's JSONEncoder writes a dictionary whose key is a String-backed enum
   (`[Room: Comp]`, `[JackpotTier: Int]`) as one array, key then value, not as an
   object. `Skee.Save.pairs_of` reads that shape.

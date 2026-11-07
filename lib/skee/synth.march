@@ -211,10 +211,8 @@ mod Skee.Synth do
   end
 
   -- ---- Voices ----
-  -- Swift's v(wave, f, to:, glide:, amp:, decay:, delay:), every argument
-  -- rounded to Float. The shorter forms are its defaults: to = f,
-  -- glide = 0.1, delay = 0.
-  pfn voice(c : SynthConsts, w : SynthWave, f : Float, to : Float, glide : Float, amp : Float, decay : Float, delay : Float) : SynthVoice needs () do
+  doc """One voice, for `add`. Swift's public v(wave, f, to:, glide:, amp:, decay:, delay:), every argument rounded to Float. The shorter forms below are its defaults: to = f, glide = 0.1, delay = 0."""
+  fn voice(c : SynthConsts, w : SynthWave, f : Float, to : Float, glide : Float, amp : Float, decay : Float, delay : Float) : SynthVoice needs () do
     let d = f32(c, decay)
     {
       wave: w,
@@ -530,7 +528,7 @@ mod Skee.Synth do
       f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
     let t = f32(c, v.t +. c.dt)
     let kept =
-      if t > v.life do
+      if t >= v.life do
         m.kept
       else
         Cons({ v with t: t, phase: phase }, m.kept)

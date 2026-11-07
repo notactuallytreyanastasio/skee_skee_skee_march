@@ -1,7 +1,11 @@
 mod JsonDepthProbe do
 
   -- How deep Json.parse goes before the stack runs out, on each target, for
-  -- well-formed nesting ([[...]] and {"a":{"a":...}}).
+  -- well-formed nesting ([[...]] and {"a":{"a":...}}). Measured at b7c963d74
+  -- (--opt 0, M-series Mac): native parses arrays 480 deep but crashes with
+  -- SIGBUS on objects between 350 and 400 deep; node parses both at 1024.
+  -- Swift's JSONDecoder reads 512 levels, so Skee.Save checks levels past 16
+  -- itself and hands Json.parse an empty container in their place.
   --   march --compile --opt 0 -o $SCRATCH/jdp probe.march && $SCRATCH/jdp
   --   march --target js -o $SCRATCH/jdp.mjs probe.march && node $SCRATCH/jdp.mjs
   needs IO.Console

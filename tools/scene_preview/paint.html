@@ -1,0 +1,53 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- A reference Canvas 2D painter for Skee.Scene's DrawOps (preview only: the
+     game's shell paints them in March). Loads ops.js, written by preview.sh. -->
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+<canvas id="c"></canvas>
+<script src="ops.js"></script>
+<script>
+const c = document.getElementById('c');
+const W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
+c.width = W * dpr; c.height = H * dpr; c.style.width = W + 'px'; c.style.height = H + 'px';
+const g = c.getContext('2d');
+const base = [dpr, 0, 0, dpr, 0, 0];
+g.setTransform(...base);
+function ring(ps) { ps.forEach((p, i) => i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1])); g.closePath(); }
+function shape(s) {
+  g.beginPath();
+  if (s.poly) ring(s.poly);
+  else if (s.holed) { ring(s.holed[0]); ring(s.holed[1]); }
+  else if (s.polys) s.polys.forEach(ring);
+  else if (s.disc) g.arc(s.disc[0], s.disc[1], s.disc[2], 0, Math.PI * 2);
+  else if (s.path) s.path.forEach(t => {
+    if (t[0] === 'M') g.moveTo(...t[1]); else if (t[0] === 'L') g.lineTo(...t[1]);
+    else if (t[0] === 'Q') g.quadraticCurveTo(...t[1], ...t[2]);
+    else if (t[0] === 'C') g.bezierCurveTo(...t[1], ...t[2], ...t[3]); else g.closePath();
+  });
+  return s.holed ? 'evenodd' : 'nonzero';
+}
+function mul(a, b) { return [a[0]*b[0]+a[2]*b[1], a[1]*b[0]+a[3]*b[1], a[0]*b[2]+a[2]*b[3], a[1]*b[2]+a[3]*b[3], a[0]*b[4]+a[2]*b[5]+a[4], a[1]*b[4]+a[3]*b[5]+a[5]]; }
+for (const o of window.OPS) {
+  g.globalCompositeOperation = o.blend || 'source-over';
+  if (o.op === 'clear') { g.fillStyle = o.colour; g.fillRect(0, 0, W, H); }
+  else if (o.op === 'fill') {
+    const rule = shape(o.shape);
+    if (o.paint.flat) { g.fillStyle = o.paint.flat; g.fill(rule); }
+    else {
+      const r = o.paint.radial;
+      g.save(); g.setTransform(...mul(base, r.frame));
+      const grad = g.createRadialGradient(r.inner[0], r.inner[1], r.r0, r.outer[0], r.outer[1], r.r1);
+      r.stops.forEach(s => grad.addColorStop(s[0], s[1]));
+      g.fillStyle = grad; g.fill(rule); g.restore();
+    }
+  } else if (o.op === 'stroke') {
+    shape(o.shape); g.strokeStyle = o.pen.ink; g.lineWidth = o.pen.width; g.lineCap = o.pen.cap; g.lineJoin = o.pen.join; g.stroke();
+  } else if (o.op === 'text') {
+    g.save(); g.setTransform(...mul(base, o.frame)); g.font = o.font; g.textAlign = 'center'; g.textBaseline = 'middle';
+    if (o.edge) { g.strokeStyle = o.edge.ink; g.lineWidth = o.edge.width; g.lineJoin = 'round'; g.strokeText(o.words, o.at[0], o.at[1]); }
+    g.fillStyle = o.fill; g.fillText(o.words, o.at[0], o.at[1]); g.restore();
+  } else if (o.op === 'clip') { g.save(); g.clip(shape(o.shape)); }
+  else if (o.op === 'unclip') g.restore();
+}
+g.globalCompositeOperation = 'source-over';
+</script>

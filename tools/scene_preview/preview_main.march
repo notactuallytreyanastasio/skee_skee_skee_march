@@ -11,7 +11,7 @@ mod PreviewMain do
   end
 
   fn colour(c : Skee.Scene.Rgba) : String do
-    "rgba(" ++ int_to_string(c.red) ++ "," ++ int_to_string(c.green) ++ "," ++ int_to_string(c.blue) ++ "," ++ float_to_string(c.alpha) ++ ")"
+    Skee.Scene.css(c)
   end
 
   fn pt(p : Skee.Maths.Vec2) : String do
@@ -97,6 +97,90 @@ mod PreviewMain do
     end
   end
 
+  -- ---- JSON, for paint.html's Canvas 2D painter ----
+  fn jnum(x : Float) : String do
+    num(x)
+  end
+
+  fn jcolour(c : Skee.Scene.Rgba) : String do
+    "\"" ++ colour(c) ++ "\""
+  end
+
+  fn jpt(p : Skee.Maths.Vec2) : String do
+    "[" ++ jnum(p.x) ++ "," ++ jnum(p.y) ++ "]"
+  end
+
+  fn jring(ps : List(Skee.Maths.Vec2)) : String do
+    "[" ++ String.join(List.map(ps, jpt), ",") ++ "]"
+  end
+
+  fn jstep(s : Skee.Scene.PathStep) : String do
+    match s do
+    MoveTo(a) -> "[\"M\"," ++ jpt(a) ++ "]"
+    LineTo(a) -> "[\"L\"," ++ jpt(a) ++ "]"
+    QuadTo(a, b) -> "[\"Q\"," ++ jpt(a) ++ "," ++ jpt(b) ++ "]"
+    CubicTo(a, b, c) -> "[\"C\"," ++ jpt(a) ++ "," ++ jpt(b) ++ "," ++ jpt(c) ++ "]"
+    ClosePath -> "[\"Z\"]"
+    end
+  end
+
+  fn jshape(sh : Skee.Scene.Shape) : String do
+    match sh do
+    Poly(ps) -> "{\"poly\":" ++ jring(ps) ++ "}"
+    Holed(a, b) -> "{\"holed\":[" ++ jring(a) ++ "," ++ jring(b) ++ "]}"
+    Polys(rs) -> "{\"polys\":[" ++ String.join(List.map(rs, jring), ",") ++ "]}"
+    Disc(c, r) -> "{\"disc\":[" ++ jnum(c.x) ++ "," ++ jnum(c.y) ++ "," ++ jnum(r) ++ "]}"
+    Outline(steps) -> "{\"path\":[" ++ String.join(List.map(steps, jstep), ",") ++ "]}"
+    end
+  end
+
+  fn jaffine(a : Skee.Scene.Affine) : String do
+    "[" ++ String.join(List.map([a.a, a.b, a.c, a.d, a.e, a.f], float_to_string), ",") ++ "]"
+  end
+
+  fn jpen(p : Skee.Scene.Pen) : String do
+    let c = match p.ends do
+    ButtEnd -> "butt"
+    RoundEnd -> "round"
+    end
+    let j = match p.corners do
+    MitreCorner -> "miter"
+    RoundCorner -> "round"
+    end
+    "{\"ink\":" ++ jcolour(p.ink) ++ ",\"width\":" ++ jnum(p.width) ++ ",\"cap\":\"" ++ c ++ "\",\"join\":\"" ++ j ++ "\"}"
+  end
+
+  fn jblend(b : Skee.Scene.Blend) : String do
+    match b do
+    Over -> "\"source-over\""
+    Lighter -> "\"lighter\""
+    end
+  end
+
+  fn jpaint(p : Skee.Scene.Paint) : String do
+    match p do
+    Flat(c) -> "{\"flat\":" ++ jcolour(c) ++ "}"
+    RadialPaint(g) -> "{\"radial\":{\"inner\":" ++ jpt(g.inner) ++ ",\"r0\":" ++ jnum(g.inner_radius) ++ ",\"outer\":" ++ jpt(g.outer) ++ ",\"r1\":" ++ jnum(g.outer_radius) ++ ",\"frame\":" ++ jaffine(g.frame) ++ ",\"stops\":[" ++ String.join(List.map(g.stops, fn s -> "[" ++ float_to_string(s.offset) ++ "," ++ jcolour(s.colour) ++ "]"), ",") ++ "]}}"
+    end
+  end
+
+  fn op_json(op : Skee.Scene.DrawOp) : String do
+    match op do
+    ClearTo(c) -> "{\"op\":\"clear\",\"colour\":" ++ jcolour(c) ++ "}"
+    FillShape(sh, p, b) -> "{\"op\":\"fill\",\"shape\":" ++ jshape(sh) ++ ",\"paint\":" ++ jpaint(p) ++ ",\"blend\":" ++ jblend(b) ++ "}"
+    StrokeShape(sh, p, b) -> "{\"op\":\"stroke\",\"shape\":" ++ jshape(sh) ++ ",\"pen\":" ++ jpen(p) ++ ",\"blend\":" ++ jblend(b) ++ "}"
+    DrawText(t) -> do
+      let edge = match t.edge do
+      Some(p) -> jpen(p)
+      None -> "null"
+      end
+      "{\"op\":\"text\",\"words\":\"" ++ t.words ++ "\",\"font\":\"" ++ t.font ++ "\",\"at\":" ++ jpt(t.middle) ++ ",\"fill\":" ++ jcolour(t.fill) ++ ",\"edge\":" ++ edge ++ ",\"frame\":" ++ jaffine(t.frame) ++ "}"
+    end
+    PushClip(sh) -> "{\"op\":\"clip\",\"shape\":" ++ jshape(sh) ++ "}"
+    PopClip -> "{\"op\":\"unclip\"}"
+    end
+  end
+
   fn nth_arg(argv : List(String), i : Int) : String do
     match List.nth_opt(argv, i) do
     Some(x) -> x
@@ -107,15 +191,15 @@ mod PreviewMain do
   fn main(_c : Cap(IO.Console), _p : Cap(IO.Process)) : () do
     let k = Skee.Consts.make()
     let argv = process_argv()
-    let index = match string_to_int(nth_arg(argv, 2)) do
+    let index = match string_to_int(nth_arg(argv, 0)) do
     Some(n) -> n
     None -> 0
     end
-    let w = match string_to_float(nth_arg(argv, 3)) do
+    let w = match string_to_float(nth_arg(argv, 1)) do
     Some(x) -> x
     None -> 390.0
     end
-    let h = match string_to_float(nth_arg(argv, 4)) do
+    let h = match string_to_float(nth_arg(argv, 2)) do
     Some(x) -> x
     None -> 844.0
     end
@@ -126,6 +210,18 @@ mod PreviewMain do
     end
     let scene = { pick with viewport: Skee.Camera.viewport(w, h) }
     let ops = Skee.Scene.draw(k, scene)
+    if nth_arg(argv, 3) == "json" do
+      do
+        println("window.OPS = [")
+        List.each(ops, fn op -> println(op_json(op) ++ ","))
+        println("];")
+      end
+    else
+      svg_out(ops, w, h)
+    end
+  end
+
+  fn svg_out(ops : List(Skee.Scene.DrawOp), w : Float, h : Float) : () do
     println("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" ++ num(w) ++ "\" height=\"" ++ num(h) ++ "\" viewBox=\"0 0 " ++ num(w) ++ " " ++ num(h) ++ "\">")
     List.each(List.enumerate(ops), fn e -> println(op_svg(Tuple.first(e), Tuple.second(e))))
     println("</svg>")

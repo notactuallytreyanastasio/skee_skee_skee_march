@@ -562,11 +562,27 @@ mod SynthSuite do
     expect(all_same(whole, List.concat([a, b, c])), "rendering in blocks changed the sound")
   end
 
+  -- Swift drops a voice once `v.t > v.decay * 6`: strict, so a voice whose t
+  -- lands exactly on decay * 6 sounds one sample more. No game decay ever
+  -- lands on it, so the goldens cannot tell `>` from `>=`. This decay
+  -- (0x3c20fe0e) lands on it after 2600 samples; the voice counts and samples
+  -- are the real Swift Synth's, from tools/synth_probe/life.
+  fn voice_lives_through_t_equal_to_life() : Outcome do
+    let c = Skee.Synth.consts()
+    let v = Skee.Synth.voice(c, WaveSine, 440.0, 440.0, 0.1, 0.5, f32("3c20fe0e"), 0.0)
+    let s = Skee.Synth.add(Skee.Synth.new(), [v])
+    let (_, s1) = Skee.Synth.render(s, 2599)
+    let (last_alive, s2) = Skee.Synth.render(s1, 1)
+    let (last, s3) = Skee.Synth.render(s2, 1)
+    let (after, s4) = Skee.Synth.render(s3, 1)
+    all([Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.map(List.zip(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"]), fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
+  end
+
   fn cases() : List(Case) do
     let rows = golden()
     let c = Skee.Synth.consts()
     let results = List.map(scenarios(rows), run_scenario)
-    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
+    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("a voice lives through t == decay * 6", fn () -> voice_lives_through_t_equal_to_life()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
   end
 
 end
