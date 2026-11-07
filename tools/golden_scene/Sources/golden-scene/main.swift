@@ -214,6 +214,42 @@ do {
     }
 }
 
+// ---- Textures.lane, .ball(kind), .wave: sampled rows of the real images ----
+// Each row is run-length coded, `count value` pairs left to right, where a
+// value is the 8-bit premultiplied pixel a * 2^24 + r * 2^16 + g * 2^8 + b.
+// Memory row y is drawing y: Textures draws y-down. The port paints each
+// texture's marks from one list and reads its texel back from the same list.
+func pixels(_ img: CGImage) -> [UInt8] {
+    let w = img.width, h = img.height
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return px
+}
+@MainActor func textureRows(_ kind: [String], _ img: CGImage, rows: StrideTo<Int>) {
+    let px = pixels(img)
+    let w = img.width
+    for y in rows {
+        var runs: [String] = []
+        var last = -1, count = 0
+        for x in 0..<w {
+            let o = (y * w + x) * 4
+            let v = Int(px[o + 3]) * 16777216 + Int(px[o]) * 65536 + Int(px[o + 1]) * 256 + Int(px[o + 2])
+            if v == last { count += 1 } else {
+                if count > 0 { runs += [i(count), i(last)] }
+                last = v; count = 1
+            }
+        }
+        runs += [i(count), i(last)]
+        g.line(kind + [i(y)] + runs)
+    }
+}
+textureRows(["lanepx"], Textures.lane, rows: stride(from: 4, to: 2048, by: 8))
+for kind in BallKind.allCases { textureRows(["ballpx", kind.rawValue], Textures.ball(kind), rows: stride(from: 4, to: 256, by: 8)) }
+textureRows(["wavepx"], Textures.wave, rows: stride(from: 2, to: 256, by: 4))
+
 // ---- ScenePresenter.update, frame by frame over real throws ----
 // Inputs the presenter read and what it did to the ball, shadow, trough and
 // camera, so the March port can replay the same inputs.

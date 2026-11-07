@@ -1845,62 +1845,291 @@ mod Skee.Scene do
     mix(lane_wood(), hex(15049566), pl.tone *. 0.6)
   end
 
-  pfn paint_lane_wood(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, outline : List(Vec2)) : List(DrawOp) needs () do
-    let bw = 512.0 /. 9.0
-    let metre = scale_at(b, lane_uv(p, w, h, l, 256.0, 1024.0)) *. w /. 512.0
-    let base = fill(Poly(outline), shade(lane_wood(), lit))
-    let boards =
-      List.flat_map(List.enumerate(lane_planks(b.k)), fn e -> paint_plank(b, p, w, h, l, lit, bw, metre, e))
-    let seams =
-      List.map(List.range(1, 9), fn i -> StrokeShape(Poly(lane_line(b, p, w, h, l, int_to_float(i) *. bw, 0.0, int_to_float(i) *. bw, 2048.0)), butt_pen(shade(hex(13208398), lit), 3.0 *. metre), Over))
-    let arrows =
-      List.flat_map(List.enumerate([-2.0, -1.0, 0.0, 1.0, 2.0]), fn e -> paint_arrow(b, p, w, h, l, lit, bw, metre, e))
-    List.concat([[base], boards, seams, arrows])
+  -- ---- Texture marks ----
+  -- A Textures.swift image as the marks its CGContext draws, in the image's
+  -- pixels (y down), in drawing order. The draw paints a texture from its
+  -- marks, and `texel` reads a pixel back from the same marks, so the scene
+  -- suite can hold both against the real images.
+  type Mark =
+    MarkFill(List(Vec2), Rgba)
+    | MarkLine(Vec2, Vec2, Float, Rgba)
+    | MarkEdge(List(Vec2), Float, Rgba)
+    | MarkRing(Vec2, Float, Float, Rgba)
+    | Undrawn(Vec2, Vec2, Float)
+
+  -- MarkFill: a convex polygon, filled. MarkLine: a butt-capped segment of
+  -- that width. MarkEdge: a closed outline stroked with round joins.
+  -- MarkRing: a circle (centre, radius) stroked at that width. Undrawn: a
+  -- butt-capped stroke Swift paints and the port leaves out (docs/PORT.md,
+  -- deviations), so `texel` reads its pixels as unknown.
+
+  -- A pixel read back from marks: premultiplied 0...255 channels, alpha
+  -- 0...1, whether every mark edge near it is at least `texel_margin` away
+  -- (or buried under an opaque mark), so antialiasing cannot touch it, and
+  -- the index of the last mark that covered it (-1: the base).
+  type Texel = { tr : Float, tg : Float, tb : Float, ta : Float, clean : Bool, top : Int }
+
+  doc """
+  How far from a stroke's edge a pixel centre must be to be compared: half
+  a pixel's diagonal, so the whole pixel is on one side.
+  """
+  fn texel_margin() : Float needs () do
+    0.7072
   end
 
-  pfn paint_plank(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, bw : Float, metre : Float, e : (Int, Plank)) : List(DrawOp) needs () do
+  -- A mark with the box outside which it cannot reach a pixel, edge
+  -- margin included, worked out once so a texel skips the far marks.
+  type Placed = { mark : Mark, index : Int, lo : Vec2, hi : Vec2 }
+
+  doc """Marks ready for `texel`: each with its index and reach."""
+  fn place_marks(marks : List(Mark)) : List(Placed) needs () do
+    List.map(List.enumerate(marks), placed)
+  end
+
+  pfn placed(e : (Int, Mark)) : Placed needs () do
+    match e do
+    (i, m) -> do
+      let (pts, reach) = mark_extent(m)
+      let r = reach +. texel_margin()
+      let lo = List.fold_left(pts, vec2(1000000000.0, 1000000000.0), fn (a, q) -> vec2(min_float(a.x, q.x -. r), min_float(a.y, q.y -. r)))
+      let hi = List.fold_left(pts, vec2(-1000000000.0, -1000000000.0), fn (a, q) -> vec2(max_float(a.x, q.x +. r), max_float(a.y, q.y +. r)))
+      { mark: m, index: i, lo: lo, hi: hi }
+    end
+    end
+  end
+
+  -- The points a mark is built on, and how far past them it paints.
+  pfn mark_extent(m : Mark) : (List(Vec2), Float) needs () do
+    match m do
+    MarkFill(pts, _) -> (pts, 0.0)
+    MarkLine(a, z, width, _) -> ([a, z], width /. 2.0)
+    MarkEdge(pts, width, _) -> (pts, width /. 2.0)
+    MarkRing(centre, radius, width, _) -> ([centre], radius +. width /. 2.0)
+    Undrawn(a, z, width) -> ([a, z], width /. 2.0)
+    end
+  end
+
+  doc """The pixel at `q` after painting `marks` over `base`."""
+  fn texel(base : Rgba, marks : List(Mark), q : Vec2) : Texel needs () do
+    texel_placed(base, place_marks(marks), q)
+  end
+
+  doc """`texel` over marks already placed with `place_marks`."""
+  fn texel_placed(base : Rgba, marks : List(Placed), q : Vec2) : Texel needs () do
+    let a = base.alpha
+    let start =
+      {
+        tr: int_to_float(base.red) *. a,
+        tg: int_to_float(base.green) *. a,
+        tb: int_to_float(base.blue) *. a,
+        ta: a,
+        clean: true,
+        top: -1
+      }
+    List.fold_left(marks, start, fn (t, pm) -> placed_over(t, pm, q))
+  end
+
+  pfn placed_over(t : Texel, pm : Placed, q : Vec2) : Texel needs () do
+    if q.x < pm.lo.x || q.x > pm.hi.x || q.y < pm.lo.y || q.y > pm.hi.y do
+      t
+    else
+      mark_over(t, pm.index, pm.mark, q)
+    end
+  end
+
+  -- Where a point is against a mark: deep inside, deep outside, or near
+  -- enough an edge that antialiasing may reach it.
+  type Cover = DeepIn | DeepOut | NearEdge
+
+  pfn cover_of(inside : Bool, edge : Float) : Cover needs () do
+    if edge < texel_margin() do NearEdge else if inside do DeepIn else DeepOut end end
+  end
+
+  pfn mark_over(t : Texel, i : Int, m : Mark, q : Vec2) : Texel needs () do
+    match m do
+    MarkFill(pts, c) -> paint_texel(t, i, polygon_cover(pts, q), c)
+    MarkLine(a, z, width, c) -> paint_texel(t, i, polygon_cover(segment_box(a, z, width), q), c)
+    MarkEdge(pts, width, c) -> do
+      let d = outline_distance(pts, q)
+      paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
+    end
+    MarkRing(centre, radius, width, c) -> do
+      let d = Math.abs(Skee.Maths.length(Skee.Maths.sub(q, centre)) -. radius)
+      paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
+    end
+    Undrawn(a, z, width) -> do
+      match polygon_cover(segment_box(a, z, width), q) do
+      DeepOut -> t
+      DeepIn -> { t with clean: false }
+      NearEdge -> { t with clean: false }
+      end
+    end
+    end
+  end
+
+  pfn paint_texel(t : Texel, i : Int, cov : Cover, c : Rgba) : Texel needs () do
+    match cov do
+    DeepOut -> t
+    NearEdge -> { t with clean: false }
+    DeepIn -> do
+      let a = c.alpha
+      let keep = 1.0 -. a
+      {
+        tr: int_to_float(c.red) *. a +. t.tr *. keep,
+        tg: int_to_float(c.green) *. a +. t.tg *. keep,
+        tb: int_to_float(c.blue) *. a +. t.tb *. keep,
+        ta: a +. t.ta *. keep,
+        clean: t.clean || a >= 1.0,
+        top: i
+      }
+    end
+    end
+  end
+
+  -- A butt-capped stroke's area: the segment widened to a rectangle.
+  pfn segment_box(a : Vec2, z : Vec2, width : Float) : List(Vec2) needs () do
+    let d = Skee.Maths.normalized(Skee.Maths.sub(z, a))
+    let n = Skee.Maths.scale(vec2(0.0 -. d.y, d.x), width /. 2.0)
+    [Skee.Maths.add(a, n), Skee.Maths.add(z, n), Skee.Maths.sub(z, n), Skee.Maths.sub(a, n)]
+  end
+
+  -- A convex area covers the pixel centred on `q` when all four of its
+  -- corners are inside, and misses it when the centre is a margin outside.
+  pfn polygon_cover(pts : List(Vec2), q : Vec2) : Cover needs () do
+    let corners =
+      [vec2(q.x -. 0.5, q.y -. 0.5), vec2(q.x +. 0.5, q.y -. 0.5), vec2(q.x +. 0.5, q.y +. 0.5), vec2(q.x -. 0.5, q.y +. 0.5)]
+    if List.all(corners, fn c -> inside_convex(pts, c)) do
+      DeepIn
+    else
+      if !inside_convex(pts, q) && outline_distance(pts, q) >= texel_margin() do DeepOut else NearEdge end
+    end
+  end
+
+  -- Each edge of a closed outline, as (from, to).
+  pfn edges_of(pts : List(Vec2)) : List((Vec2, Vec2)) needs () do
+    match pts do
+    Cons(first, _) -> List.zip(pts, List.append(List.drop(pts, 1), [first]))
+    Nil -> []
+    end
+  end
+
+  pfn edge_cross(e : (Vec2, Vec2), q : Vec2) : Float needs () do
+    match e do
+    (a, z) -> do
+      let d = Skee.Maths.sub(z, a)
+      let r = Skee.Maths.sub(q, a)
+      d.x *. r.y -. d.y *. r.x
+    end
+    end
+  end
+
+  pfn inside_convex(pts : List(Vec2), q : Vec2) : Bool needs () do
+    let crosses = List.map(edges_of(pts), fn e -> edge_cross(e, q))
+    List.all(crosses, fn c -> c > 0.0) || List.all(crosses, fn c -> c < 0.0)
+  end
+
+  pfn segment_distance(e : (Vec2, Vec2), q : Vec2) : Float needs () do
+    match e do
+    (a, z) -> do
+      let d = Skee.Maths.sub(z, a)
+      let len2 = Skee.Maths.dot(d, d)
+      let t =
+        if len2 == 0.0 do 0.0 else Skee.Maths.clamp(Skee.Maths.dot(Skee.Maths.sub(q, a), d) /. len2, 0.0, 1.0) end
+      Skee.Maths.length(Skee.Maths.sub(q, Skee.Maths.add(a, Skee.Maths.scale(d, t))))
+    end
+    end
+  end
+
+  pfn outline_distance(pts : List(Vec2), q : Vec2) : Float needs () do
+    List.fold_left(edges_of(pts), 1000000000.0, fn (m, e) -> min_float(m, segment_distance(e, q)))
+  end
+
+  -- ---- Textures.lane ----
+  doc """Textures.lane's size in pixels: u across, v from the hinge end down."""
+  fn lane_texture_size() : Vec2 needs () do
+    vec2(512.0, 2048.0)
+  end
+
+  doc """
+  Textures.lane's marks over its maple: each board's tone and three grain
+  streaks, the eight seams, then the five arrows (fill, then ink edge).
+  """
+  fn lane_marks(k : Skee.Consts.Consts) : List(Mark) needs () do
+    let size = lane_texture_size()
+    let bw = size.x /. 9.0
+    let boards =
+      List.flat_map(List.enumerate(lane_planks(k)), fn e -> plank_marks(bw, size.y, e))
+    let seams =
+      List.map(List.range(1, 9), fn i -> MarkLine(vec2(int_to_float(i) *. bw, 0.0), vec2(int_to_float(i) *. bw, size.y), 3.0, hex(13208398)))
+    let arrows =
+      List.flat_map(List.enumerate([-2.0, -1.0, 0.0, 1.0, 2.0]), fn e -> arrow_marks(size, bw, e))
+    List.concat([boards, seams, arrows])
+  end
+
+  pfn plank_marks(bw : Float, height : Float, e : (Int, Plank)) : List(Mark) needs () do
     match e do
     (i, pl) -> do
       let x0 = int_to_float(i) *. bw
-      let tone = plank_tone(pl)
       let board_fill =
-        fill(Poly(lane_quad(b, p, w, h, l, x0, 0.0, x0 +. bw, 2048.0)), shade(tone, lit))
-      let grain = with_alpha(shade(hex(14723174), lit), 0.55)
-      let lines =
-        List.map(pl.streaks, fn st -> grain_line(b, p, w, h, l, x0, bw, grain, metre, st))
-      Cons(board_fill, lines)
+        MarkFill([vec2(x0, 0.0), vec2(x0 +. bw, 0.0), vec2(x0 +. bw, height), vec2(x0, height)], plank_tone(pl))
+      Cons(board_fill, List.map(pl.streaks, fn st -> grain_mark(x0, bw, height, st)))
     end
     end
   end
 
-  pfn grain_line(b : Brush, p : Part, w : Float, h : Float, l : Float, x0 : Float, bw : Float, grain : Rgba, metre : Float, st : (Float, Float, Float)) : DrawOp needs () do
+  pfn grain_mark(x0 : Float, bw : Float, height : Float, st : (Float, Float, Float)) : Mark needs () do
     match st do
     (ux, vy, len_) -> do
       let x = x0 +. ux *. bw
-      let y0 = vy *. 2048.0
-      StrokeShape(Poly(lane_line(b, p, w, h, l, x, y0, x +. 3.0, y0 +. 300.0 +. len_ *. 400.0)), butt_pen(grain, 2.0 *. metre), Over)
+      let y0 = vy *. height
+      MarkLine(vec2(x, y0), vec2(x +. 3.0, y0 +. 300.0 +. len_ *. 400.0), 2.0, with_alpha(hex(14723174), 0.55))
     end
     end
   end
 
-  pfn paint_arrow(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, bw : Float, metre : Float, e : (Int, Float)) : List(DrawOp) needs () do
+  pfn arrow_marks(size : Vec2, bw : Float, e : (Int, Float)) : List(Mark) needs () do
     match e do
     (k_, x) -> do
-      let cx = 256.0 +. x *. bw *. 1.5
+      let cx = size.x /. 2.0 +. x *. bw *. 1.5
       let drop = if k_ == 2 do -0.04 else Math.abs(x) *. 0.015 end
-      let tip = 2048.0 *. (0.34 -. drop)
-      let pts =
-        [
-          px(b, lane_uv(p, w, h, l, cx, tip +. 70.0)),
-          px(b, lane_uv(p, w, h, l, cx +. 22.0, tip)),
-          px(b, lane_uv(p, w, h, l, cx -. 22.0, tip))
-        ]
-      [
-        fill(Poly(pts), shade(hex(16744360), lit)),
-        StrokeShape(Poly(pts), pen(shade(ink(), lit), 5.0 *. metre), Over)
-      ]
+      let tip = size.y *. (0.34 -. drop)
+      let pts = [vec2(cx, tip +. 70.0), vec2(cx +. 22.0, tip), vec2(cx -. 22.0, tip)]
+      [MarkFill(pts, hex(16744360)), MarkEdge(pts, 5.0, ink())]
     end
     end
+  end
+
+  doc """A Textures.lane pixel at `q`, read back from `lane_marks`."""
+  fn lane_texel(k : Skee.Consts.Consts, q : Vec2) : Texel needs () do
+    texel(lane_wood(), lane_marks(k), q)
+  end
+
+  -- Marks to drawing operations, through `at` (texture pixels to screen
+  -- pixels) with `metre` screen pixels per texture pixel; `tint` turns a
+  -- mark's colour into the painted one (lit, or faded).
+  pfn paint_marks(k : Skee.Consts.Consts, at : Vec2 -> Vec2, metre : Float, tint : Rgba -> Rgba, marks : List(Mark)) : List(DrawOp) needs () do
+    List.flat_map(marks, fn m -> paint_mark(k, at, metre, tint, m))
+  end
+
+  pfn paint_mark(k : Skee.Consts.Consts, at : Vec2 -> Vec2, metre : Float, tint : Rgba -> Rgba, m : Mark) : List(DrawOp) needs () do
+    match m do
+    MarkFill(pts, c) -> [fill(Poly(List.map(pts, at)), tint(c))]
+    MarkLine(a, z, width, c) -> [StrokeShape(Poly([at(a), at(z)]), butt_pen(tint(c), width *. metre), Over)]
+    MarkEdge(pts, width, c) -> [StrokeShape(Poly(List.map(pts, at)), pen(tint(c), width *. metre), Over)]
+    MarkRing(centre, radius, width, c) -> [StrokeShape(Poly(List.map(List.range(0, 40), fn i -> at(ring_point(k, centre, radius, i)))), pen(tint(c), width *. metre), Over)]
+    Undrawn(_, _, _) -> []
+    end
+  end
+
+  pfn ring_point(k : Skee.Consts.Consts, centre : Vec2, radius : Float, i : Int) : Vec2 needs () do
+    let a = k.tau *. int_to_float(i) /. 40.0
+    vec2(centre.x +. radius *. Math.cos(a), centre.y +. radius *. Math.sin(a))
+  end
+
+  pfn paint_lane_wood(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, outline : List(Vec2)) : List(DrawOp) needs () do
+    let metre = scale_at(b, lane_uv(p, w, h, l, 256.0, 1024.0)) *. w /. 512.0
+    let base = fill(Poly(outline), shade(lane_wood(), lit))
+    Cons(base, paint_marks(b.k, fn q -> px(b, lane_uv(p, w, h, l, q.x, q.y)), metre, fn c -> shade(c, lit), lane_marks(b.k)))
   end
 
   -- Textures.badge on the front face: cream (gold when special) with the
@@ -2374,16 +2603,67 @@ mod Skee.Scene do
     end
   end
 
+  doc """Textures.ball's size in pixels: longitude across, latitude down."""
+  fn ball_texture_size() : Vec2 needs () do
+    vec2(512.0, 256.0)
+  end
+
+  doc """Rows of Textures.ball each white polar cap takes."""
+  fn ball_cap_rows() : Float needs () do
+    18.0
+  end
+
+  doc """The polar caps' colour."""
+  fn ball_cap_colour() : Rgba needs () do
+    hex(16777215)
+  end
+
+  doc """
+  Textures.ball(kind): six gores, the ink seams between them (which the
+  port does not draw, docs/PORT.md), then the two white caps.
+  """
+  fn ball_marks(kind : BallKind) : List(Mark) needs () do
+    let size = ball_texture_size()
+    let gw = size.x /. 6.0
+    let gores =
+      List.map(List.enumerate(stripes(kind)), fn e -> gore_mark(gw, size.y, e))
+    let seams =
+      List.map(List.range(0, 6), fn i -> Undrawn(vec2(int_to_float(i) *. gw, 0.0), vec2(int_to_float(i) *. gw, size.y), 4.0))
+    let cap = ball_cap_rows()
+    let caps =
+      [
+        MarkFill([vec2(0.0, 0.0), vec2(size.x, 0.0), vec2(size.x, cap), vec2(0.0, cap)], ball_cap_colour()),
+        MarkFill([vec2(0.0, size.y -. cap), vec2(size.x, size.y -. cap), vec2(size.x, size.y), vec2(0.0, size.y)], ball_cap_colour())
+      ]
+    List.concat([gores, seams, caps])
+  end
+
+  pfn gore_mark(gw : Float, height : Float, e : (Int, Rgba)) : Mark needs () do
+    match e do
+    (i, c) -> do
+      let x0 = int_to_float(i) *. gw
+      MarkFill([vec2(x0, 0.0), vec2(x0 +. gw +. 1.0, 0.0), vec2(x0 +. gw +. 1.0, height), vec2(x0, height)], c)
+    end
+    end
+  end
+
+  doc """A Textures.ball(kind) pixel at `q`, read back from `ball_marks`."""
+  fn ball_texel(kind : BallKind, q : Vec2) : Texel needs () do
+    texel(with_alpha(hex(0), 0.0), ball_marks(kind), q)
+  end
+
   -- Latitude bands of the equirectangular skin: the white polar caps take
-  -- 18 of 256 rows at each end (77.3 degrees and up).
-  pfn bands() : List((Float, Float, Bool)) needs () do
-    let cap = 1.3489
+  -- `ball_cap_rows` of the texture's rows at each end (77.3 degrees and up).
+  pfn bands(k : Skee.Consts.Consts) : List((Float, Float, Bool)) needs () do
+    let pole = k.pi /. 2.0
+    let size = ball_texture_size()
+    let cap = pole -. ball_cap_rows() /. size.y *. k.pi
     [
-      (-1.5708, 0.0 -. cap, true),
+      (0.0 -. pole, 0.0 -. cap, true),
       (0.0 -. cap, -0.45, false),
       (-0.45, 0.45, false),
       (0.45, cap, false),
-      (cap, 1.5708, true)
+      (cap, pole, true)
     ]
   end
 
@@ -2409,7 +2689,7 @@ mod Skee.Scene do
   pfn gore_ops(b : Brush, p : Part, world_r : Float, e : (Int, Rgba)) : List(DrawOp) needs () do
     match e do
     (i, colour) -> do
-      List.flat_map(bands(), fn band -> patch_op(b, p, world_r, i, colour, band))
+      List.flat_map(bands(b.k), fn band -> patch_op(b, p, world_r, i, colour, band))
     end
     end
   end
@@ -2429,7 +2709,7 @@ mod Skee.Scene do
           let edge1 =
             List.map([1.0, 0.5, 0.0], fn t -> ball_point(p, world_r, lon1, lat0 +. (lat1 -. lat0) *. t))
           let pts = List.map(List.append(edge0, edge1), fn q -> px(b, q))
-          let c = if white do hex(16777215) else colour end
+          let c = if white do ball_cap_colour() else colour end
           [fill(Poly(pts), shade(c, light(mid_dir, to_eye(b, centre))))]
         end
       else
@@ -2451,22 +2731,32 @@ mod Skee.Scene do
     0.55
   end
 
+  doc """Textures.wave's size in pixels (square)."""
+  fn wave_texture_size() : Float needs () do
+    256.0
+  end
+
+  doc """Textures.wave: a white ring, then a gold one on it, over clear."""
+  fn wave_marks() : List(Mark) needs () do
+    let n = wave_texture_size()
+    let centre = vec2(n /. 2.0, n /. 2.0)
+    let radius = (n -. 36.0) /. 2.0
+    [MarkRing(centre, radius, 22.0, hex(16777215)), MarkRing(centre, radius, 10.0, hex(16767053))]
+  end
+
+  doc """A Textures.wave pixel at `q`, read back from `wave_marks`."""
+  fn wave_texel(q : Vec2) : Texel needs () do
+    texel(with_alpha(hex(0), 0.0), wave_marks(), q)
+  end
+
   doc """A ring of light: Textures.wave on a plane facing `facing`."""
   fn wave_ops(b : Brush, wv : Wave) : List(DrawOp) needs () do
     let (scale, opacity) = wave_look(wv)
     let f =
       quat_frame(quat_between(v3(0.0, 0.0, 1.0), wv.facing), plus(wv.spot, times(wv.facing, 0.01)), scale)
-    let pts = List.map(List.range(0, 40), fn i -> px(b, apply(f, wave_point(b.k, i))))
+    let n = wave_texture_size()
     let ppm = scale *. scale_at(b, f.at)
-    [
-      StrokeShape(Poly(pts), pen(with_alpha(hex(16777215), opacity), 22.0 /. 256.0 *. ppm), Over),
-      StrokeShape(Poly(pts), pen(with_alpha(hex(16767053), opacity), 10.0 /. 256.0 *. ppm), Over)
-    ]
-  end
-
-  pfn wave_point(k : Skee.Consts.Consts, i : Int) : Vec3 needs () do
-    let a = k.tau *. int_to_float(i) /. 40.0
-    v3(0.4297 *. Math.cos(a), 0.4297 *. Math.sin(a), 0.0)
+    paint_marks(b.k, fn q -> px(b, apply(f, v3((q.x -. n /. 2.0) /. n, (q.y -. n /. 2.0) /. n, 0.0))), ppm /. n, fn c -> with_alpha(c, c.alpha *. opacity), wave_marks())
   end
 
   -- ---- Order ----

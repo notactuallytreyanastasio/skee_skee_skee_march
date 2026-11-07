@@ -947,7 +947,7 @@ mod SceneSuite do
       case("ScenePresenter.update over a marshmallow throw: its drawn size", fn () -> replay_outcome("e", Marshmallow)),
       case("ScenePresenter.update over a frame: reels, bulbs, rings, aim", fn () -> look_outcome("b")),
       case("ScenePresenter.update over comet throws: rings at the hump, back wall, rails", fn () -> look_outcome("c")),
-      case("ScenePresenter.update over a jumping bean: rings on its hops", fn () -> look_outcome("d"))
+      case("ScenePresenter.update over a jumping bean: rings on its hops, none at the walls", fn () -> look_outcome("d"))
     ]
   end
 
@@ -1470,6 +1470,127 @@ mod SceneSuite do
     expect(d <= 1 && d >= -1, what ++ ": got " ++ int_to_string(got) ++ ", want " ++ token)
   end
 
+  -- ---- Textures.lane, .ball(kind), .wave, pixel for pixel ----
+  -- Rows of the real images (every 32nd lane row, every 8th ball row, every
+  -- 4th wave row, each run-length coded) against `Skee.Scene.texel` over the
+  -- marks the draw paints. Only pixels whose centre is `texel_margin` clear
+  -- of every visible mark edge are compared, so CoreGraphics' antialiasing
+  -- is left out; every mark must be on top in some compared pixel, so a
+  -- mark the goldens never see fails the case.
+  type TexelTally = { compared : Int, bad : Int, first_bad : String, worst : Float, tops : List(Int) }
+
+  fn decode_runs(tokens : List(String)) : List(Int) do
+    match tokens do
+    Cons(n, Cons(v, rest)) -> List.append(List.map(List.range(0, GoldenIo.int(n)), fn _ -> GoldenIo.int(v)), decode_runs(rest))
+    _ -> []
+    end
+  end
+
+  -- CoreGraphics' 8-bit premultiplied compositing: two steps either side.
+  fn texel_tol() : Float do
+    2.0
+  end
+
+  fn texel_off(t : Skee.Scene.Texel, v : Int) : Float do
+    let a = int_to_float(v / 16777216)
+    let r = int_to_float(v / 65536 % 256)
+    let g = int_to_float(v / 256 % 256)
+    let b = int_to_float(v % 256)
+    worst([Math.abs(t.tr -. r), Math.abs(t.tg -. g), Math.abs(t.tb -. b), Math.abs(t.ta *. 255.0 -. a)])
+  end
+
+  fn texel_step(name : String, at : Vec2 -> Skee.Scene.Texel, y : Int, acc : TexelTally, e : (Int, Int)) : TexelTally do
+    match e do
+    (x, v) -> do
+      let t = at(vec2(int_to_float(x) +. 0.5, int_to_float(y) +. 0.5))
+      if t.clean do
+        do
+          let d = texel_off(t, v)
+          let bad = d > texel_tol()
+          let tops = if List.any(acc.tops, fn i -> i == t.top) do acc.tops else Cons(t.top, acc.tops) end
+          {
+            compared: acc.compared + 1,
+            bad: acc.bad + count_if(bad),
+            first_bad: if bad && acc.bad == 0 do name ++ " pixel " ++ int_to_string(x) ++ "," ++ int_to_string(y) ++ ": got " ++ texel_show(t) ++ ", want " ++ int_to_string(v) else acc.first_bad end,
+            worst: if d > acc.worst do d else acc.worst end,
+            tops: tops
+          }
+        end
+      else
+        acc
+      end
+    end
+    end
+  end
+
+  fn texel_show(t : Skee.Scene.Texel) : String do
+    float_to_string(t.tr) ++ "/" ++ float_to_string(t.tg) ++ "/" ++ float_to_string(t.tb) ++ "/" ++ float_to_string(t.ta)
+  end
+
+  fn texel_row(name : String, at : Vec2 -> Skee.Scene.Texel, acc : TexelTally, row : List(String)) : TexelTally do
+    match row do
+    Cons(y, runs) -> List.fold_left(List.enumerate(decode_runs(runs)), acc, fn (a, e) -> texel_step(name, at, GoldenIo.int(y), a, e))
+    Nil -> acc
+    end
+  end
+
+  fn texel_tally(name : String, at : Vec2 -> Skee.Scene.Texel, rs : List(List(String))) : TexelTally do
+    List.fold_left(rs, { compared: 0, bad: 0, first_bad: "", worst: 0.0, tops: [] }, fn (a, row) -> texel_row(name, at, a, row))
+  end
+
+  fn drawn_mark(m : Skee.Scene.Mark) : Bool do
+    match m do
+    MarkFill(_, _) -> true
+    MarkLine(_, _, _, _) -> true
+    MarkEdge(_, _, _) -> true
+    MarkRing(_, _, _, _) -> true
+    Undrawn(_, _, _) -> false
+    end
+  end
+
+  fn texture_outcome(name : String, marks : List(Skee.Scene.Mark), t : TexelTally) : Outcome do
+    let unseen =
+      List.filter(List.enumerate(marks), fn e -> drawn_mark(Tuple.second(e)) && !List.any(t.tops, fn i -> i == Tuple.first(e)))
+    let unseen_names = String.join(List.map(unseen, fn e -> int_to_string(Tuple.first(e))), ",")
+    all([expect(t.compared > 0, name ++ ": no pixel compared"), expect(t.bad == 0, name ++ ": " ++ int_to_string(t.bad) ++ " of " ++ int_to_string(t.compared) ++ " pixels off; first " ++ t.first_bad), expect(List.length(unseen) == 0, name ++ ": marks never on top in a compared pixel: " ++ unseen_names)])
+  end
+
+  fn lane_texture_case() : Outcome do
+    let marks = Skee.Scene.lane_marks(k())
+    let placed = Skee.Scene.place_marks(marks)
+    texture_outcome("Textures.lane", marks, texel_tally("lane", fn q -> Skee.Scene.texel_placed(Skee.Scene.lane_wood(), placed, q), rows("lanepx")))
+  end
+
+  fn ball_texture_case(b : BallKind) : Outcome do
+    let marks = Skee.Scene.ball_marks(b)
+    let placed = Skee.Scene.place_marks(marks)
+    let want = List.filter(rows("ballpx"), fn row -> List.take(row, 1) == [kind_token(b)])
+    texture_outcome("Textures.ball(" ++ kind_token(b) ++ ")", marks, texel_tally(kind_token(b), fn q -> Skee.Scene.texel_placed(clear(), placed, q), List.map(want, fn row -> List.drop(row, 1))))
+  end
+
+  -- The transparent pixel the ball and wave textures start from.
+  fn clear() : Skee.Scene.Rgba do
+    Skee.Scene.with_alpha(Skee.Scene.hex(0), 0.0)
+  end
+
+  fn wave_texture_case() : Outcome do
+    let placed = Skee.Scene.place_marks(Skee.Scene.wave_marks())
+    texture_outcome("Textures.wave", Skee.Scene.wave_marks(), texel_tally("wave", fn q -> Skee.Scene.texel_placed(clear(), placed, q), rows("wavepx")))
+  end
+
+  doc """Worst texel error over the compared pixels of every texture, printed by the runner."""
+  fn texture_worst() : String do
+    let lane_placed = Skee.Scene.place_marks(Skee.Scene.lane_marks(k()))
+    let wave_placed = Skee.Scene.place_marks(Skee.Scene.wave_marks())
+    let lane = texel_tally("lane", fn q -> Skee.Scene.texel_placed(Skee.Scene.lane_wood(), lane_placed, q), rows("lanepx"))
+    let wave = texel_tally("wave", fn q -> Skee.Scene.texel_placed(clear(), wave_placed, q), rows("wavepx"))
+    "lane " ++ float_to_string(lane.worst) ++ " over " ++ int_to_string(lane.compared) ++ " px, wave " ++ float_to_string(wave.worst) ++ " over " ++ int_to_string(wave.compared) ++ " px"
+  end
+
+  fn texture_cases() : List(Case) do
+    List.concat([[case("Textures.lane, pixel for pixel: boards, grain, seams, arrows", fn () -> lane_texture_case())], List.map([Marshmallow, ClassicBall, JumpingBean, Wobbler, Comet], fn b -> case("Textures.ball(" ++ kind_token(b) ++ "), pixel for pixel: gores and caps", fn () -> ball_texture_case(b))), [case("Textures.wave, pixel for pixel: the two rings", fn () -> wave_texture_case())]])
+  end
+
   fn draw_cases() : List(Case) do
     List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case()), case("CSS text for colours and fonts", fn () -> css_case()), case("Textures.lane: every board's tone", fn () -> lane_tone_case()), case("Presentation to scene, through Skee.SceneCue", fn () -> bridge_case())]])
   end
@@ -1527,7 +1648,7 @@ mod SceneSuite do
 
   fn cases() : List(Case) do
     let rig = fitted()
-    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases(), presenter_cases(), draw_cases()])
+    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases(), presenter_cases(), draw_cases(), texture_cases()])
   end
 
 end
