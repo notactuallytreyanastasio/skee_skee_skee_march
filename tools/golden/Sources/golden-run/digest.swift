@@ -204,6 +204,22 @@ extension Digest {
         }
     }
 
+    /// Every field of a table, the floats in the order golden-items lists them.
+    mutating func table(_ t: Table) {
+        let l = t.lane, h = t.hinge, d = t.board
+        for x in [l.length, l.width, l.incline, l.rollingFriction, l.railRestitution, l.minSpeed, l.scoringSpeed,
+                  l.maxSpeed, l.knee, l.maxAimAngle, l.hook, l.skidLoss,
+                  h.baseAngle, h.foldGain, h.carry,
+                  d.width, d.height, d.tilt, d.ringCenter.x, d.ringCenter.y, d.centerHoleOffset.x, d.centerHoleOffset.y,
+                  d.centerHoleRadius, d.captureSpeed, d.lipMinFall] { float(x) }
+        bool(d.pocketsNeedFlight)
+        list(d.ringWalls) { $0.float($1) }
+        list(d.pockets) { $0.hole($1.hole); $0.float($1.center.x); $0.float($1.center.y); $0.float($1.radius) }
+        for x in [d.lipHeight, d.ballRadius, d.lipBand, d.bounce, d.lipBounce, d.lipKick, d.wallRestitution,
+                  d.backwallRestitution, d.rollingFriction, d.landingGrip, d.wind.x, d.wind.y, d.ringHoleRadius,
+                  t.gravity, t.dt, t.maxDuration] { float(x) }
+    }
+
     /// The floats of one shot, for measuring libm drift. Not the whole path:
     /// the physics goldens cover that, sample by sample.
     mutating func shotDetail(_ s: ShotResult) {
@@ -230,5 +246,11 @@ func digest(of events: [GameEvent]) -> UInt32 {
 func detail(of s: ShotResult) -> UInt32 {
     var d = Digest()
     d.shotDetail(s)
+    return d.h
+}
+
+func digest(of t: Table) -> UInt32 {
+    var d = Digest()
+    d.table(t)
     return d.h
 }

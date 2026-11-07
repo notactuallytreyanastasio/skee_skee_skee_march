@@ -272,6 +272,28 @@ mod RunDigest do
     stats(bool(int(tickets(items, s.tickets), s.heat), s.fever), s.stats)
   end
 
+  fn floats(h : Int, xs : List(Float)) : Int do
+    List.fold_left(xs, h, float)
+  end
+
+  fn pocket(h : Int, p : Pocket) : Int do
+    floats(hole(h, p.pocket_hole), [p.center.x, p.center.y, p.radius])
+  end
+
+  doc """Every field of a table, in the order digest.swift's `table` feeds them."""
+  fn table(t : Table) : Int do
+    let l = t.lane
+    let g = t.hinge
+    let d = t.board
+    let w = d.ring_walls
+    let front =
+      floats(start(), [l.length, l.width, l.incline, l.rolling_friction, l.rail_restitution, l.min_speed, l.scoring_speed, l.max_speed, l.knee, l.max_aim_angle, l.hook, l.skid_loss, g.base_angle, g.fold_gain, g.carry, d.board_width, d.board_height, d.tilt, d.ring_center.x, d.ring_center.y, d.center_hole_offset.x, d.center_hole_offset.y, d.center_hole_radius, d.capture_speed, d.lip_min_fall])
+    let walls =
+      list(bool(front, d.pockets_need_flight), [w.wall40, w.wall30, w.wall20, w.wall10], float)
+    let pockets = list(walls, [d.pockets.left, d.pockets.right], pocket)
+    floats(pockets, [d.lip_height, d.ball_radius, d.lip_band, d.bounce, d.lip_bounce, d.lip_kick, d.wall_restitution, d.backwall_restitution, d.board_rolling_friction, d.landing_grip, d.wind.x, d.wind.y, d.ring_hole_radius, t.gravity, t.dt, t.max_duration])
+  end
+
   fn shot_event(h : Int, e : ShotEvent) : Int do
     match e do
     ShotDud -> word(h, 0)

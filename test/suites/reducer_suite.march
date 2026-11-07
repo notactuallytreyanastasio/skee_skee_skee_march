@@ -1025,24 +1025,30 @@ mod ReducerSuite do
     end
   end
 
-  fn check_step(t : Tally, l : Live, token : String, step : Step, state_digest : String, event_digest : String) : Tally do
+  -- `balls` is Swift's RoundState.ballsLeft after the step, which no digest holds.
+  fn check_step(t : Tally, l : Live, token : String, step : Step, state_digest : String, event_digest : String, balls : String) : Tally do
     let got_state = int_to_string(RunDigest.run(step.run))
     let got_events = int_to_string(RunDigest.events(step.step_events))
+    let got_balls = int_to_string(balls_left(step.run.round))
     if got_events != event_digest do
       fail(t, l, token, "event digest " ++ got_events ++ ", want " ++ event_digest)
     else
       if got_state != state_digest do
         fail(t, l, token, "state digest " ++ got_state ++ ", want " ++ state_digest)
       else
-        { t with steps: t.steps + 1, live: Some({ l with at: l.at + 1, s: step.run }) }
+        if got_balls != balls do
+          fail(t, l, token, "balls left " ++ got_balls ++ ", want " ++ balls)
+        else
+          { t with steps: t.steps + 1, live: Some({ l with at: l.at + 1, s: step.run }) }
+        end
       end
     end
   end
 
-  fn accepted(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, state_digest : String, event_digest : String) : Tally do
+  fn accepted(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, state_digest : String, event_digest : String, balls : String) : Tally do
     match apply(k, action_of(k, token), l.s) do
     Err(e) -> fail(t, l, token, "refused with " ++ show(e) ++ ", Swift accepted it")
-    Ok(step) -> check_step(t, l, token, step, state_digest, event_digest)
+    Ok(step) -> check_step(t, l, token, step, state_digest, event_digest, balls)
     end
   end
 
@@ -1059,13 +1065,13 @@ mod ReducerSuite do
     end
   end
 
-  fn thrown(k : Skee.Consts.Consts, mode : Mode, t0 : Tally, l : Live, token : String, shot : String, detail : String, state_digest : String, event_digest : String) : Tally do
+  fn thrown(k : Skee.Consts.Consts, mode : Mode, t0 : Tally, l : Live, token : String, shot : String, detail : String, state_digest : String, event_digest : String, balls : String) : Tally do
     let t = { t0 with shots: t0.shots + 1 }
     match step_with(k, mode, shot, action_of(k, token), l.s) do
     Err(e) -> fail(t, l, token, "refused with " ++ show(e) ++ ", Swift accepted it")
     Ok(step) -> do
       match (mode, shot_in(step.step_events)) do
-      (RecordedShots, _) -> check_step(t, l, token, step, state_digest, event_digest)
+      (RecordedShots, _) -> check_step(t, l, token, step, state_digest, event_digest, balls)
       (RealPhysics, None) -> fail(t, l, token, "no shot event")
       (RealPhysics, Some(r)) -> do
         if shot_token(r) != shot do
@@ -1073,7 +1079,7 @@ mod ReducerSuite do
         else
           do
             let differ = if int_to_string(RunDigest.detail(r)) != detail do 1 else 0 end
-            check_step({ t with floats_differ: t.floats_differ + differ }, l, token, step, state_digest, event_digest)
+            check_step({ t with floats_differ: t.floats_differ + differ }, l, token, step, state_digest, event_digest, balls)
           end
         end
       end
@@ -1095,13 +1101,29 @@ mod ReducerSuite do
     end
   end
 
+  -- A row this replay cannot read is a failure, never skipped: a golden whose
+  -- format moved on must not replay as a shorter, greener one.
+  fn unreadable(t : Tally, row : List(String)) : Tally do
+    let why = "unreadable golden row: " ++ String.join(row, " ")
+    let keep = if t.bad < 5 do Cons(why, t.shown) else t.shown end
+    { t with bad: t.bad + 1, shown: keep, live: None }
+  end
+
+  -- Rows of a run that parted, or failed, have no live state to replay.
   fn replay_row(k : Skee.Consts.Consts, mode : Mode, configs : List(RunConfig), t : Tally, row : List(String)) : Tally do
     match (t.live, row) do
     (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> started(k, configs, t, label, seed, room, extra, cfg, digest)
-    (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Nil))))) -> accepted(k, t, l, token, state_digest, event_digest)
-    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Nil))))))) -> thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest)
+    (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))) -> accepted(k, t, l, token, state_digest, event_digest, balls)
+    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))))) -> thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest, balls)
     (Some(l), Cons("e", Cons(token, Cons(want, Nil)))) -> refused(k, t, l, token, want)
-    (_, _) -> t
+    (None, Cons("s", _)) -> t
+    (None, Cons("t", _)) -> t
+    (None, Cons("e", _)) -> t
+    (_, Cons("cfg", _)) -> t
+    (_, Cons("clampi", _)) -> t
+    (_, Cons("wallet", _)) -> t
+    (_, Cons("tablefor", _)) -> t
+    (_, _) -> unreadable(t, row)
     end
   end
 
@@ -1130,9 +1152,10 @@ mod ReducerSuite do
     end
   end
 
-  -- A parted shot is libm's doing, and PORT.md accepts it on JS. Native shares
-  -- Swift's libm, so there it is a failure. Everything before the parting was
-  -- still checked, and every run was checked with recorded shots too.
+  -- A parted shot lands in another hole than Swift's. The tolerance is zero on
+  -- both targets: zero is what both measure, and a parting is how a wrong table
+  -- shows here (a boss modifier dropped under an armed power-up parted 103 shots
+  -- on JS). If libm alone ever parts one, this goes red and is reported as that.
   fn with_physics(t : Tally) : Outcome do
     if t.bad > 0 do
       counted(t)
@@ -1140,22 +1163,64 @@ mod ReducerSuite do
       if t.parted == 0 do
         counted(t)
       else
-        if on_js() do
-          Drifted(t.steps, t.parted, 0)
-        else
-          Mismatch(int_to_string(t.parted) ++ " shots parted from Swift's on native")
+        do
+          let target = if on_js() do "JS" else "native" end
+          Mismatch(int_to_string(t.parted) ++ " of " ++ int_to_string(t.shots) ++ " shots parted from Swift's on " ++ target ++ ", tolerance 0")
         end
       end
     end
   end
 
   -- Shots that landed the same but whose times, heights or speeds differ in the
-  -- last bits. Measured, never compared away: the digest of the run ignores them.
+  -- last bits. The digest of the run ignores them, so they are measured here
+  -- against a declared bound, per 10,000 shots. Measured on the 39,680 golden
+  -- shots: 3 on native (0.8 per 10,000), 841 on JS (212 per 10,000). The bounds
+  -- are 2 on native and 300 on JS. The digest says only that a shot differs,
+  -- not by how many ulps, so the harness's "worst 0 ulp" means not measured.
+  fn float_bound_per_10000() : Int do
+    if on_js() do 300 else 2 end
+  end
+
   fn shot_floats(t : Tally) : Outcome do
-    if t.floats_differ == 0 do
-      expect(t.shots > 0, "no shots")
+    let allowed = t.shots * float_bound_per_10000() / 10000
+    if t.shots == 0 do
+      Mismatch("no shots")
     else
-      Drifted(t.shots, t.floats_differ, 0)
+      if t.floats_differ == 0 do
+        Passed(t.shots)
+      else
+        if t.floats_differ > allowed do
+          Mismatch(int_to_string(t.floats_differ) ++ " of " ++ int_to_string(t.shots) ++ " shots differ from Swift in their floats, over the bound of " ++ int_to_string(allowed) ++ " (" ++ int_to_string(float_bound_per_10000()) ++ " per 10,000)")
+        else
+          Drifted(t.shots, t.floats_differ, 0)
+        end
+      end
+    end
+  end
+
+  -- ---- table(for:) ----
+  fn power_of(token : String) : Option(PowerUp) do
+    if token == "n" do None else Some(List.nth(Skee.Items.all_power_ups(), GoldenIo.int(token))) end
+  end
+
+  fn table_for_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
+    match row do
+    Cons(room, Cons(ante, Cons(antes, Cons(kind, Cons(boss, Cons(power, Cons(ball, Cons(want, Nil)))))))) -> do
+      let n = GoldenIo.int
+      let base =
+        new_run(k, Skee.U64.of_int(7), { Skee.Types.standard_config() with antes: n(antes) }, List.nth(Skee.Rooms.all_rooms(), n(room)), Tickets(0))
+      let a = n(ante)
+      if a < 1 do
+        Mismatch("ante below 1 in a tablefor row")
+      else
+        do
+          let s =
+            { base with ante: a, boss: List.nth(Skee.Items.all_bosses(), n(boss)), ball: List.nth(Skee.Items.all_balls(), n(ball)), round: { base.round with kind: List.nth(Skee.Items.all_round_kinds(), n(kind)), armed: power_of(power) } }
+          expect_string(int_to_string(RunDigest.table(table_for(k, s))), want, "table digest of " ++ String.join(row, " "))
+        end
+      end
+    end
+    _ -> Mismatch("bad tablefor row: " ++ String.join(row, " "))
     end
   end
 
@@ -1255,6 +1320,7 @@ mod ReducerSuite do
       case("a jackpot pull pays the meter into the wallet", fn () -> a_jackpot_pull_pays_the_meter_into_the_wallet()),
       case("free games do not feed the meters", fn () -> free_games_do_not_feed_the_meters()),
       case("wallet goldens", fn () -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
+      case("table_for stacks ante, boss, power-up and ball as Swift", fn () -> all(List.map(GoldenIo.of_kind(rows, "tablefor"), fn row -> table_for_row(k, row)))),
       case("golden runs, Swift's recorded shots", fn () -> counted(recorded)),
       case("golden runs, this target's physics", fn () -> with_physics(real)),
       case("golden shots, floats against Swift", fn () -> shot_floats(real)),

@@ -7,9 +7,15 @@ import GoldenSupport
 //   cfg <id> <antes> <frames> <balls> <start> <charms> <powerUps> <fever> <scale>
 //       <overkillStep> <overkillCap> <interestPer> <interestCap> <offers> <anteBase,...>
 //   run <label> <seed> <roomIndex> <extraTickets> <cfg id> <state digest>
-//   s <action> <state digest> <event digest>                 an accepted action
-//   t <action> <shot> <detail> <state digest> <event digest> an accepted throw
-//   e <action> <error index>                                 a refused action
+//   s <action> <state digest> <event digest> <balls left>                 an accepted action
+//   t <action> <shot> <detail> <state digest> <event digest> <balls left> an accepted throw
+//   e <action> <error index>                                              a refused action
+//   tablefor <room> <ante> <antes> <kind> <boss> <power or n> <ball> <table digest>
+//       table(for:) on a state built with those fields, every index an allCases one
+//
+// <balls left> is RoundState.ballsLeft after the step. It counts three balls a
+// frame whatever ballsPerFrame says, as Swift does, and the tall config's two
+// balls a frame is what tells the difference.
 //
 // Bot runs are what `playBotRun` plays. Chaos runs are a seeded driver throwing
 // legal and illegal actions at the reducer, which reaches what the bots never
@@ -68,6 +74,7 @@ func hash(_ x: UInt32) -> String { String(x) }
 // ---- Coverage ----
 
 var eventsSeen = Set<String>()
+var tiersSeen = Set<String>()
 var errorsSeen = Set<String>()
 var outcomes: [String: Int] = [:]
 var steps = 0
@@ -85,14 +92,18 @@ func name(_ e: GameEvent) -> String { String(String(describing: e).prefix { $0 !
         g.line("e", token(a), i(errorIndex(e)))
         return s
     case .success(let step):
-        for e in step.events { eventsSeen.insert(name(e)) }
+        for e in step.events {
+            eventsSeen.insert(name(e))
+            if case .jackpot(let tier) = e { tiersSeen.insert(String(describing: tier)) }
+        }
         let shot = step.events.compactMap { e -> ShotResult? in
             if case .shot(let r, _) = e { r } else { nil }
         }.first
         if let shot {
-            g.line("t", token(a), shotToken(shot), hash(detail(of: shot)), hash(digest(of: step.state)), hash(digest(of: step.events)))
+            g.line("t", token(a), shotToken(shot), hash(detail(of: shot)), hash(digest(of: step.state)), hash(digest(of: step.events)),
+                   i(step.state.round.ballsLeft))
         } else {
-            g.line("s", token(a), hash(digest(of: step.state)), hash(digest(of: step.events)))
+            g.line("s", token(a), hash(digest(of: step.state)), hash(digest(of: step.events)), i(step.state.round.ballsLeft))
         }
         return step.state
     }
@@ -151,6 +162,28 @@ do {
     tall.targetScale = 0.03
     tall.startTickets = 30
     configs.append(tall)
+}
+// The chaos runs below draw from these five only, so adding a config never
+// changes them.
+let baseConfigs = configs.count
+// Run lengths at the edge of `s.ante >= c.antes`: zero antes wins on the first
+// boss, as does one.
+for antes in [0, 1] {
+    var edge = RunConfig.standard
+    edge.antes = antes
+    edge.targetScale = 0.01
+    edge.startTickets = 20
+    configs.append(edge)
+}
+let edgeConfigs = [baseConfigs, baseConfigs + 1]
+// The Grand hunt: long rounds and deep pockets, so max bets keep coming.
+let huntConfig = configs.count
+do {
+    var hunt = RunConfig.standard
+    hunt.framesPerRound = 400
+    hunt.startTickets = 100_000
+    hunt.targetScale = 0.01
+    configs.append(hunt)
 }
 
 for (n, c) in configs.enumerated() {
@@ -294,7 +327,7 @@ struct Chaos {
 var chaosRuns = 0
 for n in 1...Int(chaosSeeds) {
     let room = Room.allCases[n % Room.allCases.count]
-    let cfg = n % configs.count
+    let cfg = n % baseConfigs
     let purger = n % 9 == 0
     let seed = mixed(n + 100_000)
     let extra = n % 3 == 0 ? n % 7 : 0
@@ -315,6 +348,103 @@ for n in 1...Int(chaosSeeds) {
     chaosRuns += 1
 }
 
+// ---- Chaos at the edge of the run length ----
+
+for (e, cfg) in edgeConfigs.enumerated() {
+    for n in 1...12 {
+        let room = Room.allCases[n % Room.allCases.count]
+        let seed = mixed(n + 200_000 + 1000 * e)
+        var s = newRun(seed: seed, config: configs[cfg], room: room)
+        var driver = Chaos(rng: SplitMix64(seed: seed ^ 0xC4A0), purger: false)
+        header("edge,\(e),\(n)", seed, room, 0, cfg, s)
+        var over = 0
+        for _ in 0..<300 {
+            s = write(driver.next(s), s)
+            switch s.phase {
+            case .won, .lost: over += 1
+            case .throwing, .prizeCounter: break
+            }
+            if over > 3 { break }
+        }
+        if case .won = s.phase { wins += 1 }
+        chaosRuns += 1
+    }
+}
+
+// ---- The Grand jackpot ----
+
+// Max bets and fouls until a pull hits the Grand, then a few more steps. No
+// bot or chaos run reaches it: it needs three wilds across the centre line.
+func isGrand(_ e: GameEvent) -> Bool {
+    if case .jackpot(.grand) = e { return true }
+    return false
+}
+
+@MainActor func huntActions(_ seed: UInt64, _ room: Room) -> [Action]? {
+    var s = newRun(seed: seed, config: configs[huntConfig], room: room)
+    var acts: [Action] = []
+    var after: Int? = nil
+    while acts.count < 1600 {
+        guard case .throwing = s.phase else { return nil }
+        let a: Action = s.round.pull == nil ? .pull(.five) : .foul
+        guard case .success(let step) = apply(a, to: s) else { return nil }
+        acts.append(a)
+        s = step.state
+        if after == nil && step.events.contains(where: isGrand) { after = 0 }
+        if let n = after {
+            if n >= 8 { return acts }
+            after = n + 1
+        }
+    }
+    return nil
+}
+
+var grandRuns = 0
+hunt: for n in 1...200_000 {
+    for room in Room.allCases {
+        let seed = mixed(n + 300_000)
+        guard let acts = huntActions(seed, room) else { continue }
+        var s = newRun(seed: seed, config: configs[huntConfig], room: room)
+        header("grand,\(n)", seed, room, 0, huntConfig, s)
+        for a in acts { s = write(a, s) }
+        grandRuns += 1
+        if grandRuns == 2 { break hunt }
+    }
+}
+
+// ---- table(for:): every modifier it stacks, in its order ----
+
+@MainActor func tableFor(_ room: Room, ante: Int, antes: Int, kind: RoundKind, boss: Boss, power: PowerUp?, ball: BallKind) {
+    var c = RunConfig.standard
+    c.antes = antes
+    var s = newRun(seed: 7, config: c, room: room)
+    s.ante = ante
+    s.round.kind = kind
+    s.boss = boss
+    s.round.armed = power
+    s.ball = ball
+    g.line("tablefor", i(index(room)), i(ante), i(antes), i(index(kind)), i(index(boss)),
+           power.map { String(index($0)) } ?? "n", i(index(ball)), hash(digest(of: table(for: s))))
+}
+
+var tables = 0
+for (r, room) in Room.allCases.enumerated() {
+    for kind in RoundKind.allCases {
+        for (b, boss) in Boss.allCases.enumerated() {
+            let powers: [PowerUp?] = [nil] + PowerUp.allCases.map { Optional($0) }
+            for (p, power) in powers.enumerated() {
+                // Every pair of boss and power-up on every kind, with the ante,
+                // run length and ball moving so each is seen against the rest.
+                let ante = 1 + (r + b + p) % 9
+                let antes = [8, 3, 1, 0, 12][(b + p) % 5]
+                let ball = BallKind.allCases[(r + b + p) % BallKind.allCases.count]
+                tableFor(room, ante: ante, antes: antes, kind: kind, boss: boss, power: power, ball: ball)
+                tables += 1
+            }
+        }
+    }
+}
+
 // ---- Coverage: a thin golden stops here ----
 
 let allEvents = ["pulled", "freeGamesWon", "jackpot", "shot", "fouled", "frameScored", "feverLit", "roundCleared",
@@ -324,7 +454,10 @@ let allErrors = ["wrongPhase", "noSuchOffer", "noSuchItem", "cantAfford", "slots
                  "reelTooShort", "needsPull", "alreadyPulled"]
 let missingEvents = allEvents.filter { !eventsSeen.contains($0) }
 let missingErrors = allErrors.filter { !errorsSeen.contains($0) }
-print("bot runs \(botRuns), chaos runs \(chaosRuns), wins \(wins), steps \(steps), rows \(g.lines.count)")
+print("bot runs \(botRuns), chaos runs \(chaosRuns), grand runs \(grandRuns), tables \(tables), wins \(wins), steps \(steps), rows \(g.lines.count)")
+let missingTiers = ["mini", "minor", "major", "grand"].filter { !tiersSeen.contains($0) }
+precondition(missingTiers.isEmpty, "golden never saw jackpot tiers: \(missingTiers)")
+precondition(grandRuns == 2, "the Grand hunt found \(grandRuns) runs")
 precondition(missingEvents.isEmpty, "golden never saw events: \(missingEvents)")
 precondition(missingErrors.isEmpty, "golden never saw errors: \(missingErrors)")
 try g.write()
