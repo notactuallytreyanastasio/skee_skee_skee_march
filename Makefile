@@ -6,7 +6,7 @@ SWIFT_FLAGS := -c release -Xswiftc -enable-testing
 GOLDEN_DIR := tools/golden
 GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
-.PHONY: test test-js test-native check check-purity format golden build selftest clean
+.PHONY: test test-js test-native check check-purity format golden build web serve playtest selftest clean
 
 # Native: every test block, plus the purity guard.
 test: check-purity
@@ -65,9 +65,36 @@ golden-%:
 	cd $(GOLDEN_DIR) && swift build $(SWIFT_FLAGS) --product golden-$*
 	$(GOLDEN_DIR)/.build/release/golden-$* $(CURDIR)
 
-# The browser build. opt.fold must stay off: see docs/PORT.md.
+# The browser build. opt.fold must stay off: see docs/PORT.md. forge puts only
+# lib/ on the module path, and the shell's modules are in shell/, so these
+# call march directly with lib:shell.
+MARCH := $(HOME)/.march/bin/march
+SHELL_LIB := lib:shell
+WEB_FILES := web/index.html web/style.css web/skee_glue.mjs
+PORT ?= 8137
+
 build:
-	MARCH_DISABLE_PASS=opt.fold $(FORGE) build --target js
+	mkdir -p .march/build/debug
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o .march/build/debug/skee.mjs shell/game.march
+	cp web/skee_glue.mjs .march/build/debug/
+
+# The game as a static site in dist/: skee.mjs, March's runtime modules, the
+# glue, index.html and style.css.
+web:
+	mkdir -p dist
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o dist/skee.mjs shell/game.march
+	cp $(WEB_FILES) dist/
+	@echo "web: dist/index.html"
+
+# Serve dist/ at http://127.0.0.1:$(PORT)/ (PORT=... to change). Node, not
+# python3 -m http.server, whose loopback connections time out on this machine.
+serve: web
+	node tools/serve/serve.mjs dist $(PORT)
+
+# Headless Chrome against a running `make serve`: screenshots in
+# tools/playtest/shots/. Needs `npm install` in tools/playtest once.
+playtest:
+	node tools/playtest/playtest.mjs http://127.0.0.1:$(PORT)/
 
 # Proves every guard goes red on a planted violation.
 selftest:

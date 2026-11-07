@@ -31,6 +31,7 @@ mod Glue do
     fn glue_fill_gradient(ctx : Js.Canvas.Context, g : Gradient) : Unit
     fn glue_queue_tap(i : Int) : Unit
     fn glue_drain_taps() : List(Int)
+    fn glue_mark(name : String, value : String) : Unit
   end
 
   -- ---- Public names: extern declarations are private to this module ----
@@ -120,6 +121,11 @@ mod Glue do
 
   fn drain_taps() : List(Int) do
     glue_drain_taps()
+  end
+
+  doc """Set a data-* attribute on <html>, for the playtest to read. Writes only on change."""
+  fn mark(name : String, value : String) : () do
+    glue_mark(name, value)
   end
 
 end

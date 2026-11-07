@@ -123,3 +123,9 @@ export function glue_fill_gradient(ctx, g) { ctx.fillStyle = g; }
 const taps = [];
 export function glue_queue_tap(i) { taps.push(i); }
 export function glue_drain_taps() { return listOf(taps.splice(0, taps.length)); }
+
+// ---- Read-only state for tests and the playtest: data-* on <html> ----
+export function glue_mark(name, value) {
+  const el = document.documentElement;
+  if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+}

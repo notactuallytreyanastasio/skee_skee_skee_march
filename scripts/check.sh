@@ -24,7 +24,7 @@ scan() {
 
 scan "forge check" forge check
 scan "forge lint" forge lint
-export MARCH_LIB_PATH="lib:test"
+export MARCH_LIB_PATH="lib:test:shell"
 files=$(find test shell -name '*.march' -not -path 'test/golden/*' | sort)
 for f in $files; do
   scan "march --check $f" march --check "$f"

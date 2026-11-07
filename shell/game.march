@@ -144,12 +144,23 @@ mod Game do
     dispatch(MsgResize(w, h))
   end
 
+  -- What the playtest reads off <html>: the top layer, whether a throw is
+  -- possible, whether the presentation is busy, and the crease's height.
+  fn mark(m : Skee.App.Model) : () do
+    let g = Skee.App.geometry(m)
+    Glue.mark("data-layer", show(Skee.App.top_layer(m)))
+    Glue.mark("data-can-throw", if Skee.App.can_throw(m) do "1" else "0" end)
+    Glue.mark("data-busy", if Skee.App.busy(m) do "1" else "0" end)
+    Glue.mark("data-crease-y", int_to_string(float_round(g.crease_y)))
+  end
+
   fn frame(t : Float) : () do
     follow_size()
     dispatch(MsgTick(t))
     let s = glue_cell_get()
     Paint.frame(s.ctx, s.k, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
     List.each(Hud.render(s.hud, s.model), dispatch)
+    mark(s.model)
     Glue.request_frame(fn next -> frame(next))
   end
 

@@ -1,0 +1,9 @@
+{
+  "name": "skee-playtest",
+  "private": true,
+  "type": "module",
+  "description": "Headless Chrome playtest of make serve (puppeteer-core, the system Chrome).",
+  "dependencies": {
+    "puppeteer-core": "23.11.1"
+  }
+}
