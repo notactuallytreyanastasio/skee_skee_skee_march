@@ -1,0 +1,35 @@
+pull took 1902 ms
+THROW 1 medium-straight thrown=true settle 2939 ms frames {"frames":175,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.5,"cbP95":2.1,"cbMax":3.9,"long":0,"audio":86}
+   audio: SndLaunch | CmdRumble(0.7974047798699174) | CmdRumble(0.7936018451538787) | CmdRumble(0.7900351950453788) | CmdRumble(0.7864772894241658) | CmdRumble(0.7826595869201556) | CmdRumble(0.779356402710097) | CmdRumble(0.775290949924659) | CmdRumble(0.7719715914706318) | CmdRumble(0.7681635201326895) | CmdRumble(0.7646097115789466) | CmdRumble(0.761069478383089)
+   hud: ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 8 BALLS match the · glowing rings pair it +12 EVERY HOLE HAS A PICTURE SKIP Your ball took the picture of the hole it landed in. Look fo
+THROW 2 hard-straight thrown=true settle 3103 ms frames {"frames":186,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.2,"cbP95":1.7,"cbMax":1.9,"long":0,"audio":47}
+   audio: SndLaunch | CmdRumble(1) | CmdRumble(0.999340000767762) | CmdRumble(0.9957760409067481) | CmdRumble(0.9919628329469019) | CmdRumble(0.9886582117057109) | CmdRumble(0.9845927043218291) | CmdRumble(0.9812748680725082) | CmdRumble(0.9774622104650088) | CmdRumble(0.9739068425796171) | CmdRumble(0.970351474694231) | CmdRumble(0.9665296445476096)
+   hud: ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 7 BALLS no match yet · glowing rings pair GUTTER THREE BALLS, ONE LINE SKIP Your three balls make a slot line, just like three reels. Tw
+THROW 3 soft thrown=true settle 7957 ms frames {"frames":476,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.5,"cbP95":1.9,"cbMax":2.2,"long":0,"audio":244}
+   audio: CmdRumble(0.18512267137884827) | CmdRumble(0.18181811128791994) | CmdRumble(0.1777843343375522) | CmdRumble(0.17445288196349917) | CmdRumble(0.17064608094943107) | CmdRumble(0.1670742942190259) | CmdRumble(0.16353846384193688) | CmdRumble(0.15970470939448908) | CmdRumble(0.15639550188374243) | CmdRumble(0.15233512456994383) | CmdRumble(0.14901686682061424) | CmdRumble(0.1452243887991615)
+   hud: ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 12 HOW SCORING WORKS SKIP Holes pay chips, and the far ones pay mos
+pull took 2394 ms
+THROW 4 left-angle thrown=true settle 3575 ms frames {"frames":213,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.3,"cbP95":1.8,"cbMax":2,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 5 BALLS gutter · the next two can still pair GUTTER AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your tar
+THROW 5 right-angle thrown=true settle 3669 ms frames {"frames":219,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.3,"cbP95":1.8,"cbMax":2,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 4 BALLS no match yet · glowing rings pair SO CLOSE! AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your tar
+THROW 6 very-hard thrown=true settle 4462 ms frames {"frames":267,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.4,"cbP95":2,"cbMax":2.4,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 37 / 60 4 TARGETS · hit one = combo WILD SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets 25 LAST TURN SKIP One more turn in this round. Pull the lever.
+RELOAD before: ANTE 1/8 WARM-UP 37 / 60 4 TARGETS · hit one = combo WILD SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's 
+       after:  SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HO
+       marks: {"layer":"LayerBase","canThrow":"0","busy":"0","crease":444,"audio":"none","live":["TapStart","TapOpenShop","TapHowToPlay","TapPickRoom(Boardwalk)"]}
+TITLE again: SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+END marks {"layer":"LayerBase","canThrow":"0","busy":"0","crease":444,"audio":"none","live":["TapStart","TapOpenShop","TapHowToPlay","TapPickRoom(Boardwalk)"]}
+SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+1 medium-straight thrown=true 2939ms  ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 8 BALLS match the · glowin
+2 hard-straight thrown=true 3103ms  ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 7 BALLS no match yet · glo
+3 soft thrown=true 7957ms  ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PU
+4 left-angle thrown=true 3575ms  ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 5 BALLS gutter · the next
+5 right-angle thrown=true 3669ms  ANTE 1/8 WARM-UP 12 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 4 BALLS no match yet · gl
+6 very-hard thrown=true 4462ms  ANTE 1/8 WARM-UP 37 / 60 4 TARGETS · hit one = combo WILD SPIN FRAME 3/3 · 3 BALLS PULL · 
+PERF over throws: gap p50 max 16.7 gap p95 max 16.8 cb p95 max 2.1 cb max 3.9 long frames total 0 of 1536
+CONSOLE:
+

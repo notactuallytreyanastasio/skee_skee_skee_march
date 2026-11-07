@@ -1,0 +1,52 @@
+pull took 1935 ms
+THROW 1 medium-straight thrown=true settle 2737 ms frames {"frames":161,"gapP50":16.7,"gapP95":16.7,"gapMax":50,"cbP50":1.6,"cbP95":2.1,"cbMax":4,"long":1,"audio":78}
+   audio: SndLaunch | CmdRumble(0.8525878585728647) | CmdRumble(0.8487695139911177) | CmdRumble(0.8452182737483265) | CmdRumble(0.8416451417121864) | CmdRumble(0.8378425738977124) | CmdRumble(0.8345344059414035) | CmdRumble(0.8304638776843218) | CmdRumble(0.827154670173579) | CmdRumble(0.8233311889699283) | CmdRumble(0.8197850853490406) | CmdRumble(0.8162068778412568)
+   hud: ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it FRAME 1/3 · 8 BALLS match the · glowing rings pair it +24 TOP SLOT! A COMBO! SKIP That ball matched one of your targets. Keep matching, ball af
+THROW 2 hard-straight thrown=true settle 3137 ms frames {"frames":187,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.3,"cbP95":1.8,"cbMax":2.2,"long":0,"audio":38}
+   audio: SndLaunch | CmdRumble(1) | CmdRumble(0.999266609874589) | CmdRumble(0.9951960816175011) | CmdRumble(0.9918879136612033) | CmdRumble(0.9880853458467217) | CmdRumble(0.9845122138105802) | CmdRumble(0.9809609735677867) | CmdRumble(0.9771426289860512) | CmdRumble(0.9738380383199867) | CmdRumble(0.9697882705764227) | CmdRumble(0.9664638366507682)
+   hud: ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 1/3 · 7 BALLS no match yet · glowing rings pair GUTTER
+THROW 3 soft thrown=true settle 8740 ms frames {"frames":523,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.2,"cbP95":1.5,"cbMax":1.7,"long":0,"audio":260}
+   audio: CmdRumble(0.17923943279692092) | CmdRumble(0.1751954437530089) | CmdRumble(0.1718743250450453) | CmdRumble(0.16805719036488778) | CmdRumble(0.1644956768782823) | CmdRumble(0.16094957325739015) | CmdRumble(0.15712609205375402) | CmdRumble(0.15381688454299855) | CmdRumble(0.1497571187318127) | CmdRumble(0.1464472997184602) | CmdRumble(0.14263562051514098) | CmdRumble(0.13907016283672508)
+   hud: ANTE 1/8 WARM-UP 68 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 2X WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 68
+pull took 1835 ms
+THROW 4 left-angle thrown=true settle 3410 ms frames {"frames":203,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.2,"cbP95":1.5,"cbMax":1.7,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 68 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 2/3 · 5 BALLS match the · glowing rings pair it +24 TOP SLOT!
+THROW 5 right-angle thrown=true settle 2860 ms frames {"frames":171,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.2,"cbP95":1.5,"cbMax":1.8,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 68 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 2/3 · 4 BALLS no match yet · glowing rings pair +48
+THROW 6 very-hard thrown=true settle 4411 ms frames {"frames":264,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.2,"cbP95":1.4,"cbMax":1.8,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 3X WILD BONUS SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets 108
+GUIDE:  TARGETS · hit one = combo NEW GAME GUIDE BONUS 3X WILD BONUS SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets 108 THE GUIDE more appears here as you play The Big Idea Rolling the Ball The Lever Scoring Tickets and the Counter Targets and Combos PLAY THE FIRST LOADOUT AGAIN DONE
+RELOAD before: ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 3X WILD BONUS SPIN FRAME 3/3 · 3 BALLS PULL 
+       after:  ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 3/3 · 3 BALLS PULL · t
+       marks: {"layer":"LayerBase","canThrow":"0","busy":"0","crease":421,"audio":"none","live":["TapAskNewGame","TapOpenGuide","TapPull","TapPull"]}
+pull took 2405 ms
+THROW 7 feeble thrown=false settle 1267 ms frames {"frames":75,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.5,"cbP95":2.7,"cbMax":2.8,"long":0,"audio":0}
+   audio: 
+   hud: ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 3 BALLS 3 balls = 1 line · match symbols for MULT
+THROW 8 medium-straight thrown=true settle 2894 ms frames {"frames":172,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.6,"cbP95":2.7,"cbMax":3,"long":0,"audio":79}
+   audio: SndLaunch | CmdRumble(0.8561624380145143) | CmdRumble(0.8523456833395463) | CmdRumble(0.8487852705576422) | CmdRumble(0.845234947568762) | CmdRumble(0.8414080419505103) | CmdRumble(0.8380937589681242) | CmdRumble(0.834033901431547) | CmdRumble(0.830729249615229) | CmdRumble(0.8269074194686171) | CmdRumble(0.8233520515832264) | CmdRumble(0.8197966836978328)
+   hud: ANTE 1/8 WARM-UP 176 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 3/3 · 2 BALLS match the · glowing rings pair it +24 TOP SLOT!
+THROW 9 hard-straight thrown=true settle 3139 ms frames {"frames":187,"gapP50":16.7,"gapP95":16.8,"gapMax":16.8,"cbP50":1.5,"cbP95":2.8,"cbMax":3.2,"long":0,"audio":38}
+   audio: SndLaunch | CmdRumble(1) | CmdRumble(0.9992559391540851) | CmdRumble(0.9952068440633961) | CmdRumble(0.9918908921884831) | CmdRumble(0.9880824543659132) | CmdRumble(0.9845197665957572) | CmdRumble(0.9809441572460822) | CmdRumble(0.9771365445351002) | CmdRumble(0.9738380383199867) | CmdRumble(0.969788270576432) | CmdRumble(0.9664638366507682)
+   hud: ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 1 BALLS no match yet · glowing rings pair GUTTER
+THROW 10 soft thrown=true settle 11009 ms frames {"frames":660,"gapP50":16.7,"gapP95":16.7,"gapMax":16.8,"cbP50":1.1,"cbP95":1.7,"cbMax":2.8,"long":0,"audio":260}
+   audio: CmdRumble(0.1873325589326965) | CmdRumble(0.18352962421666483) | CmdRumble(0.1799553306895554) | CmdRumble(0.17639137082853437) | CmdRumble(0.17258736598294117) | CmdRumble(0.16928418177287666) | CmdRumble(0.16521872898743523) | CmdRumble(0.16190551613462018) | CmdRumble(0.15809421693648548) | CmdRumble(0.15452217250141742) | CmdRumble(0.15098368208798035) | CmdRumble(0.14716020088433418)
+   hud: ANTE 1/8 WARM-UP 264 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 108 JACKPOTS 0 · RATTLES 2 +13 WINNINGS NEW RUN PRIZES 13 NOT TO WORRY SKIP Every game ends soone
+END marks {"layer":"LayerBase","canThrow":"0","busy":"0","crease":421,"audio":"running","live":["TapNewRun","TapOpenShop"]}
+ANTE 1/8 WARM-UP 264 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 108 JACKPOTS 0 · RATTLES 2 +13 WINNINGS NEW RUN PRIZES 13
+1 medium-straight thrown=true 2737ms  ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it FRAME 1/3 · 8 BALLS match the · g
+2 hard-straight thrown=true 3137ms  ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 1/3 · 7 BALLS no
+3 soft thrown=true 8740ms  ANTE 1/8 WARM-UP 68 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 2X WILD SPIN FR
+4 left-angle thrown=true 3410ms  ANTE 1/8 WARM-UP 68 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 2/3 · 5 BAL
+5 right-angle thrown=true 2860ms  ANTE 1/8 WARM-UP 68 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 2/3 · 4 BALLS n
+6 very-hard thrown=true 4411ms  ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 3X WILD BONUS 
+7 feeble thrown=false 1267ms  ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 3 BALLS 
+8 medium-straight thrown=true 2894ms  ANTE 1/8 WARM-UP 176 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 3/3 · 2 BA
+9 hard-straight thrown=true 3139ms  ANTE 1/8 WARM-UP 176 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 1 BALLS 
+10 soft thrown=true 11009ms  ANTE 1/8 WARM-UP 264 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 
+PERF over throws: gap p50 max 16.7 gap p95 max 16.8 cb p95 max 2.8 cb max 4 long frames total 1 of 2603
+CONSOLE:
+
