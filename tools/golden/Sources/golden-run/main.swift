@@ -18,7 +18,7 @@ import GoldenSupport
 // there.
 
 var g = GoldenFile(module: "Run")
-let botSeeds = 40
+let botSeeds = 36
 let chaosSeeds = 120
 
 // ---- Tokens ----

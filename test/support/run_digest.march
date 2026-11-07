@@ -144,11 +144,12 @@ mod RunDigest do
     bool(int(ints(bool(folded, b.foul), [b.slot_hits, b.record_combo]), ball_index(b.record_ball)), b.hot)
   end
 
+  -- The kind and the pay: see digest.swift for why not the symbol.
   fn payline(h : Int, p : Payline) : Int do
     match p do
     NoLine -> word(h, 0)
-    Pair(s) -> symbol(word(h, 1), s)
-    Triple(s) -> symbol(word(h, 2), s)
+    Pair(_) -> float(word(h, 1), Skee.Scoring.added_mult(p))
+    Triple(_) -> float(word(h, 2), Skee.Scoring.added_mult(p))
     end
   end
 

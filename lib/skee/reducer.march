@@ -229,6 +229,25 @@ mod Skee.Reducer do
     { run: paid, step_events: List.concat([[Pulled(p)], free_events, jackpot_events]) }
   end
 
+  doc """
+  Swift's Wallet.pulled: feed the meters for a pull and pay out a jackpot if it
+  hit one, returning what it paid. It is here because Rooms, which holds the rest
+  of the wallet, comes before the Scoring it needs. The shell calls it for every
+  `Pulled` event: a pull changes the run and the wallet, but only the run is
+  this reducer's to hold.
+  """
+  fn wallet_pulled(w : Wallet, p : Pull) : (Winnings, Wallet) needs () do
+    let fed =
+      if p.free do w else { w with progressive: Skee.Scoring.feed(w.progressive, p.bet) } end
+    match Skee.Scoring.jackpot(p) do
+    None -> (Winnings(0), fed)
+    Some(tier) -> do
+      let (won, reset) = Skee.Scoring.hit(fed.progressive, tier)
+      (won, Skee.Rooms.credit({ fed with progressive: reset }, won))
+    end
+    end
+  end
+
   -- ---- Throwing ----
   doc """The symbol a hole is showing right now; the next ball into it gets it."""
   fn showing(s : RunState, hole : Hole) : Symbol needs () do

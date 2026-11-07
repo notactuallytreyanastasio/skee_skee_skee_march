@@ -23,9 +23,9 @@ mod Skee.Maths do
     min_float(max_float(x, lo), hi)
   end
 
-  doc """min(max(x, lo), hi) on Ints."""
+  doc """Swift's min(max(x, lo), hi) on Ints: hi wins when hi < lo, unlike Math.clamp_int."""
   fn clamp_int(x : Int, lo : Int, hi : Int) : Int needs () do
-    Math.clamp_int(x, lo, hi)
+    Math.min_int(Math.max_int(x, lo), hi)
   end
 
   -- atan2 is the portable way to see a zero's sign: 1 /. x panics natively.

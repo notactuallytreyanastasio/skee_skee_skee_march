@@ -828,7 +828,402 @@ mod ReducerSuite do
     ])
   end
 
+  -- ---- Swift's clamp, on a range the wrong way round ----
+  fn clamp_row(row : List(String)) : Outcome do
+    match List.map(row, GoldenIo.int) do
+    Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> do
+      expect_int(Skee.Maths.clamp_int(x, lo, hi), want, "clamp_int " ++ String.join(row, " "))
+    end
+    _ -> Mismatch("bad clampi row")
+    end
+  end
+
+  -- ---- Wallet.pulled ----
+  type WalletWalk = { wallet : Wallet, rng : Skee.Rng.Rng, paid : Winnings, pulls : Int }
+
+  -- The same pulls as tools/golden/Sources/golden-run: mostly max bets, every
+  -- fourth one free.
+  fn walk_bet(n : Int) : Bet do
+    if n % 7 == 0 do
+      BetOne
+    else
+      if n % 5 == 0 do BetThree else BetFive end
+    end
+  end
+
+  fn walk_pull(w : WalletWalk, room : Room) : WalletWalk do
+    let n = w.pulls + 1
+    let (p, rng) = Skee.Scoring.spin(w.rng, walk_bet(n), n % 4 == 0, room)
+    let (won, wallet) = wallet_pulled(w.wallet, p)
+    { wallet: wallet, rng: rng, paid: Skee.Units.add_winnings(w.paid, won), pulls: n }
+  end
+
+  fn walk_to(w : WalletWalk, room : Room, n : Int) : WalletWalk do
+    if w.pulls >= n do w else walk_to(walk_pull(w, room), room, n) end
+  end
+
+  fn winnings_of(w : Winnings) : Int do
+    Skee.Units.winnings_int(w)
+  end
+
+  fn wallet_row(row : List(String)) : Outcome do
+    let n = List.map(row, GoldenIo.int)
+    match n do
+    Cons(room_at, Cons(pulls, Cons(paid, Cons(balance, Cons(lifetime, Cons(mini, Cons(minor, Cons(major, Cons(grand, Nil))))))))) -> do
+      let room = List.nth(Skee.Rooms.all_rooms(), room_at)
+      let start =
+        { wallet: Skee.Rooms.empty_wallet(), rng: Skee.Rng.seed(Skee.U64.of_int(room_at + 40)), paid: Winnings(0), pulls: 0 }
+      let done = walk_to(start, room, pulls)
+      let w = done.wallet
+      let meter = fn t -> winnings_of(Skee.Scoring.amount(w.progressive, t))
+      all([
+        expect_int(winnings_of(done.paid), paid, "paid"),
+        expect_int(winnings_of(w.balance), balance, "balance"),
+        expect_int(winnings_of(w.lifetime), lifetime, "lifetime"),
+        expect_int(meter(Mini), mini, "mini"),
+        expect_int(meter(Minor), minor, "minor"),
+        expect_int(meter(Major), major, "major"),
+        expect_int(meter(Grand), grand, "grand")
+      ])
+    end
+    _ -> Mismatch("bad wallet row")
+    end
+  end
+
+  fn a_jackpot_pull_pays_the_meter_into_the_wallet() : Outcome do
+    let w0 = Skee.Rooms.empty_wallet()
+    let meters = w0.progressive.meters
+    let w = { w0 with progressive: { meters: { meters with minor: Winnings(900) } } }
+    let (won, done) = wallet_pulled(w, pull_showing(ReelSeven, ReelSeven, ReelSeven, BetFive))
+    let growth = Skee.Units.winnings_int(Skee.Scoring.tier_growth(Minor))
+    all([
+      expect_int(winnings_of(won), 900 + 2 * growth, "won"),
+      expect_int(winnings_of(done.balance), winnings_of(won), "balance"),
+      expect_int(winnings_of(Skee.Scoring.amount(done.progressive, Minor)), winnings_of(Skee.Scoring.tier_seed(Minor)), "meter reset")
+    ])
+  end
+
+  fn free_games_do_not_feed_the_meters() : Outcome do
+    let w = Skee.Rooms.empty_wallet()
+    let p = { pull_showing(ReelLemon, ReelCherry, ReelBell, BetFive) with free: true }
+    let (won, done) = wallet_pulled(w, p)
+    all([
+      expect_int(winnings_of(won), 0, "won"),
+      expect_string(meters_text(done), meters_text(w), "meters")
+    ])
+  end
+
+  fn meters_text(w : Wallet) : String do
+    String.join(List.map([Mini, Minor, Major, Grand], fn t -> int_to_string(winnings_of(Skee.Scoring.amount(w.progressive, t)))), ",")
+  end
+
+  -- ---- Golden runs ----
+  -- test/golden/run.march holds runs the real Swift played, row by row: see
+  -- tools/golden/Sources/golden-run/main.swift. Replaying with Swift's recorded
+  -- shots tests the rules alone and must be exact everywhere. Replaying with this
+  -- target's physics also measures libm: a shot that lands differently makes the
+  -- run a different run from there on, so that run stops and is counted as parted.
+  -- Anything else that differs is a bug.
+  type Mode = RealPhysics | RecordedShots
+
+  type Live = { label : String, seed_token : String, at : Int, s : RunState }
+
+  type Tally = {
+    runs : Int,
+    steps : Int,
+    refused : Int,
+    shots : Int,
+    parted : Int,
+    floats_differ : Int,
+    bad : Int,
+    shown : List(String),
+    live : Option(Live)
+  }
+
+  fn golden_rows() : List(List(String)) do
+    GoldenIo.rows(Golden.Run.chunks())
+  end
+
+  fn config_of(row : List(String)) : RunConfig do
+    match row do
+    Cons(_, Cons(antes, Cons(frames, Cons(balls, Cons(start, Cons(charms, Cons(powers, Cons(fever, Cons(scale, Cons(step, Cons(cap, Cons(per, Cons(interest, Cons(offers, Cons(bases, Nil))))))))))))))) -> do
+      let n = GoldenIo.int
+      { Skee.Types.standard_config() with antes: n(antes), frames_per_round: n(frames), balls_per_frame: n(balls), start_tickets: Tickets(n(start)), charm_slots: n(charms), power_up_slots: n(powers), fever_heat: n(fever), target_scale: GoldenIo.float_of_bits(scale), overkill_step: GoldenIo.float_of_bits(step), overkill_cap: n(cap), interest_per: n(per), interest_cap: n(interest), offer_count: n(offers), ante_base: List.map(String.split(bases, ","), fn b -> Points(n(b))) }
+    end
+    _ -> panic("bad cfg row")
+    end
+  end
+
+  fn golden_float(token : String) : Float do
+    if token == "0" do 0.0 else GoldenIo.float_of_bits(token) end
+  end
+
+  fn hole_at(i : Int) : Hole do
+    List.nth(Skee.HoleMap.all_holes(), i)
+  end
+
+  fn bet_of(lines : String) : Bet do
+    if lines == "1" do
+      BetOne
+    else
+      if lines == "3" do BetThree else BetFive end
+    end
+  end
+
+  fn target_of(token : String) : Option(Hole) do
+    if token == "n" do None else Some(hole_at(GoldenIo.int(token))) end
+  end
+
+  fn action_of(k : Skee.Consts.Consts, token : String) : Action do
+    let f = golden_float
+    match String.split(token, ",") do
+    Cons("p", Cons(lines, Nil)) -> PullLever(bet_of(lines))
+    Cons("t", Cons(p, Cons(a, Cons(st, Cons(fo, Cons(sp, Cons(sk, Nil))))))) -> do
+      ThrowBall(Skee.Physics.launch_of_power(k, f(p), f(a), f(st), f(fo), f(sp), f(sk)))
+    end
+    Cons("v", Cons(v, Cons(from, Cons(a, Cons(st, Cons(fo, Cons(sp, Cons(sk, Nil)))))))) -> do
+      ThrowBall(Skee.Physics.launch_of_speed(k, f(v), f(from), f(a), f(st), f(fo), f(sp), f(sk)))
+    end
+    Cons("f", Nil) -> CommitFoul
+    Cons("c", Cons(i, Nil)) -> ChooseBall(List.nth(Skee.Items.all_balls(), GoldenIo.int(i)))
+    Cons("a", Cons(i, Nil)) -> Arm(GoldenIo.int(i))
+    Cons("b", Cons(i, Cons(target, Nil))) -> Buy(GoldenIo.int(i), target_of(target))
+    Cons("r", Nil) -> Reroll
+    Cons("s", Cons(i, Nil)) -> Sell(GoldenIo.int(i))
+    Cons("l", Nil) -> LeaveCounter
+    _ -> panic("bad action token: " ++ token)
+    end
+  end
+
+  fn digit_at(token : String, i : Int) : Int do
+    string_byte_at(token, i) - 48
+  end
+
+  -- The shot token back into events, last first.
+  fn shot_events(token : String, i : Int, acc : List(ShotEvent)) : List(ShotEvent) do
+    if i >= String.byte_size(token) do
+      List.reverse(acc)
+    else
+      do
+        let c = string_byte_at(token, i)
+        let pair = c == 108 || c == 100 || c == 115
+        let e =
+          if pair do
+            if c == 108 do
+              ShotLip(digit_at(token, i + 1))
+            else
+              if c == 100 do ShotDropped(hole_at(digit_at(token, i + 1))) else ShotSettled(hole_at(digit_at(token, i + 1))) end
+            end
+          else
+            if c == 68 do
+              ShotDud
+            else
+              if c == 82 do
+                ShotRail
+              else
+                if c == 76 do
+                  ShotLaunched
+                else
+                  if c == 78 do
+                    ShotLanded
+                  else
+                    if c == 66 do
+                      ShotBackwall
+                    else
+                      if c == 72 do
+                        ShotHop
+                      else
+                        if c == 71 do ShotGutter else panic("bad shot token: " ++ token) end
+                      end
+                    end
+                  end
+                end
+              end
+            end
+          end
+        let width = if pair do 2 else 1 end
+        shot_events(token, i + width, Cons(e, acc))
+      end
+    end
+  end
+
+  fn recorded_shot(token : String, l : Launch) : ShotResult do
+    let r : ShotResult =
+      {
+        launch: l,
+        hole: hole_at(digit_at(token, 0)),
+        events: List.map(shot_events(token, 1, []), fn e -> { event: e, at: 0.0 }),
+        path: [],
+        hinge_speed: None,
+        first_landing: None,
+        peak_height: 0.0,
+        duration: 0.0
+      }
+    r
+  end
+
+  -- The token Swift wrote for a shot.
+  fn event_token(e : ShotEvent) : String do
+    match e do
+    ShotDud -> "D"
+    ShotRail -> "R"
+    ShotLaunched -> "L"
+    ShotLanded -> "N"
+    ShotLip(ring) -> "l" ++ int_to_string(ring)
+    ShotBackwall -> "B"
+    ShotHop -> "H"
+    ShotDropped(h) -> "d" ++ int_to_string(RunDigest.hole_index(h))
+    ShotSettled(h) -> "s" ++ int_to_string(RunDigest.hole_index(h))
+    ShotGutter -> "G"
+    end
+  end
+
+  fn shot_token(r : ShotResult) : String do
+    int_to_string(RunDigest.hole_index(r.hole)) ++ String.join(List.map(r.events, fn x -> event_token(x.event)), "")
+  end
+
+  fn shot_in(events : List(GameEvent)) : Option(ShotResult) do
+    match events do
+    Nil -> None
+    Cons(Shot(r, _), _) -> Some(r)
+    Cons(_, rest) -> shot_in(rest)
+    end
+  end
+
+  fn step_with(k : Skee.Consts.Consts, mode : Mode, shot : String, a : Action, s : RunState) : Result(Step, ActionError) do
+    match mode do
+    RealPhysics -> apply(k, a, s)
+    RecordedShots -> apply_with(k, fn (l, _, _, _) -> recorded_shot(shot, l), a, s)
+    end
+  end
+
+  fn fail(t : Tally, l : Live, token : String, why : String) : Tally do
+    let where = "run " ++ l.label ++ " seed " ++ l.seed_token ++ ", first diverging action #" ++ int_to_string(l.at) ++ " " ++ token ++ ": " ++ why
+    let keep = if t.bad < 5 do Cons(where, t.shown) else t.shown end
+    { t with bad: t.bad + 1, shown: keep, live: None }
+  end
+
+  fn error_index(e : ActionError) : Int do
+    match e do
+    WrongPhase -> 0
+    NoSuchOffer -> 1
+    NoSuchItem -> 2
+    CantAfford -> 3
+    SlotsFull -> 4
+    NeedsTarget -> 5
+    AlreadyArmed -> 6
+    ReelTooShort -> 7
+    NeedsPull -> 8
+    AlreadyPulled -> 9
+    end
+  end
+
+  fn check_step(t : Tally, l : Live, token : String, step : Step, state_digest : String, event_digest : String) : Tally do
+    let got_state = int_to_string(RunDigest.run(step.run))
+    let got_events = int_to_string(RunDigest.events(step.step_events))
+    if got_events != event_digest do
+      fail(t, l, token, "event digest " ++ got_events ++ ", want " ++ event_digest)
+    else
+      if got_state != state_digest do
+        fail(t, l, token, "state digest " ++ got_state ++ ", want " ++ state_digest)
+      else
+        { t with steps: t.steps + 1, live: Some({ l with at: l.at + 1, s: step.run }) }
+      end
+    end
+  end
+
+  fn accepted(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, state_digest : String, event_digest : String) : Tally do
+    match apply(k, action_of(k, token), l.s) do
+    Err(e) -> fail(t, l, token, "refused with " ++ show(e) ++ ", Swift accepted it")
+    Ok(step) -> check_step(t, l, token, step, state_digest, event_digest)
+    end
+  end
+
+  fn refused(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, want : String) : Tally do
+    match apply(k, action_of(k, token), l.s) do
+    Ok(_) -> fail(t, l, token, "accepted, Swift refused it with error " ++ want)
+    Err(e) -> do
+      if int_to_string(error_index(e)) == want do
+        { t with steps: t.steps + 1, refused: t.refused + 1, live: Some({ l with at: l.at + 1 }) }
+      else
+        fail(t, l, token, "refused with " ++ show(e) ++ ", Swift's error was " ++ want)
+      end
+    end
+    end
+  end
+
+  fn thrown(k : Skee.Consts.Consts, mode : Mode, t0 : Tally, l : Live, token : String, shot : String, detail : String, state_digest : String, event_digest : String) : Tally do
+    let t = { t0 with shots: t0.shots + 1 }
+    match step_with(k, mode, shot, action_of(k, token), l.s) do
+    Err(e) -> fail(t, l, token, "refused with " ++ show(e) ++ ", Swift accepted it")
+    Ok(step) -> do
+      match (mode, shot_in(step.step_events)) do
+      (RecordedShots, _) -> check_step(t, l, token, step, state_digest, event_digest)
+      (RealPhysics, None) -> fail(t, l, token, "no shot event")
+      (RealPhysics, Some(r)) -> do
+        if shot_token(r) != shot do
+          { t with parted: t.parted + 1, live: None }
+        else
+          do
+            let differ = if int_to_string(RunDigest.detail(r)) != detail do 1 else 0 end
+            check_step({ t with floats_differ: t.floats_differ + differ }, l, token, step, state_digest, event_digest)
+          end
+        end
+      end
+      end
+    end
+    end
+  end
+
+  fn started(k : Skee.Consts.Consts, configs : List(RunConfig), t : Tally, label : String, seed : String, room : String, extra : String, cfg : String, digest : String) : Tally do
+    let s =
+      new_run(k, GoldenIo.u64(seed), List.nth(configs, GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(GoldenIo.int(extra)))
+    let l = { label: label, seed_token: seed, at: 0, s: s }
+    let opened = { t with runs: t.runs + 1 }
+    let got = int_to_string(RunDigest.run(s))
+    if got == digest do
+      { opened with live: Some(l) }
+    else
+      fail(opened, l, "new run", "state digest " ++ got ++ ", want " ++ digest)
+    end
+  end
+
+  fn replay_row(k : Skee.Consts.Consts, mode : Mode, configs : List(RunConfig), t : Tally, row : List(String)) : Tally do
+    match (t.live, row) do
+    (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> do
+      started(k, configs, t, label, seed, room, extra, cfg, digest)
+    end
+    (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Nil))))) -> do
+      accepted(k, t, l, token, state_digest, event_digest)
+    end
+    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Nil))))))) -> do
+      thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest)
+    end
+    (Some(l), Cons("e", Cons(token, Cons(want, Nil)))) -> refused(k, t, l, token, want)
+    (_, _) -> t
+    end
+  end
+
+  fn replay(k : Skee.Consts.Consts, mode : Mode, rows : List(List(String))) : Tally do
+    let configs = List.map(GoldenIo.of_kind(rows, "cfg"), config_of)
+    let empty =
+      { runs: 0, steps: 0, refused: 0, shots: 0, parted: 0, floats_differ: 0, bad: 0, shown: [], live: None }
+    List.fold_left(rows, empty, fn (t, row) -> replay_row(k, mode, configs, t, row))
+  end
+
+  fn counted(t : Tally) : Outcome do
+    if t.bad > 0 do
+      Mismatch(int_to_string(t.bad) ++ " of " ++ int_to_string(t.runs) ++ " runs diverged: " ++ String.join(List.reverse(t.shown), " | "))
+    else
+      all([expect(t.runs > 0 && t.steps > 0, "no runs"), Passed(t.steps)])
+    end
+  end
+
   fn cases() : List(Case) do
+    let k = consts()
+    let rows = golden_rows()
+    let recorded = replay(k, RecordedShots, rows)
+    let real = replay(k, RealPhysics, rows)
     [
       case("new run starts at the first warmup", fn -> new_run_starts_at_the_first_warmup()),
       case("same seed, same boss", fn -> same_seed_same_boss()),
@@ -873,7 +1268,13 @@ mod ReducerSuite do
       case("selling a charm refunds half", fn -> selling_a_charm_refunds_half()),
       case("reroll is deterministic and gets pricier", fn -> reroll_is_deterministic_and_gets_pricier()),
       case("counter actions outside are rejected", fn -> counter_actions_outside_are_rejected()),
-      case("leaving the counter advances round and ante", fn -> leaving_the_counter_advances_round_and_ante())
+      case("leaving the counter advances round and ante", fn -> leaving_the_counter_advances_round_and_ante()),
+      case("clamp_int is Swift's clamp, inverted ranges too", fn -> all(List.map(GoldenIo.of_kind(rows, "clampi"), clamp_row))),
+      case("a jackpot pull pays the meter into the wallet", fn -> a_jackpot_pull_pays_the_meter_into_the_wallet()),
+      case("free games do not feed the meters", fn -> free_games_do_not_feed_the_meters()),
+      case("wallet goldens", fn -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
+      case("golden runs, Swift's recorded shots", fn -> counted(recorded)),
+      case("golden runs, this target's physics", fn -> counted(real))
     ]
   end
 

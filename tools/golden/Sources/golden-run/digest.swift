@@ -59,11 +59,14 @@ extension Digest {
         bool(b.foul); int(b.slotHits); int(b.combo); ball(b.ball); bool(b.hot)
     }
 
+    /// The kind and the pay, not the symbol. `Payline.evaluate` breaks a tie
+    /// (Cherry, Lemon and a wild) in Set order, which Swift seeds per process,
+    /// so the symbol of a tied pair is not a fact about the run. Its pay is.
     mutating func payline(_ p: Payline) {
         switch p {
         case .none: word(0)
-        case .pair(let s): word(1); symbol(s)
-        case .triple(let s): word(2); symbol(s)
+        case .pair: word(1); float(p.addedMult)
+        case .triple: word(2); float(p.addedMult)
         }
     }
 
