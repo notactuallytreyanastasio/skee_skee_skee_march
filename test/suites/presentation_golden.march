@@ -1,0 +1,402 @@
+mod PresentationGolden do
+
+  -- Owned by the presentation piece. Replays test/golden/presentation.march: the
+  -- real Swift Presentation and HUDState, tick by tick, on runs the real reducer
+  -- played (tools/golden/Sources/golden-presentation/main.swift says what each
+  -- row holds). The March reducer replays the same actions, the March
+  -- presentation is fed the same steps and the same dt sequence, and every row
+  -- is compared field by field.
+  --
+  -- Tolerances. Times, clocks, flashes, ages, progress and every count are
+  -- exact: they only add and multiply. Reel and pull positions go through pow
+  -- and sin, so they get GoldenIo's libm tolerance. The ball's along, x and
+  -- height come from the physics, whose positions differ from Swift's in the
+  -- last bits on JS (and rarely natively, docs/PORT.md), so they get the
+  -- reducer suite's shot bound. A shot that parted from Swift's would change
+  -- times and cues and fail exactly.
+  import Harness
+
+  fn rows() : List(List(String)) do
+    GoldenIo.rows(Golden.Presentation.chunks())
+  end
+
+  -- One value of a row, with how it is compared.
+  type GoldenField =
+    FieldWord(String)
+    | FieldExact(Float)
+    | FieldLibm(Float)
+    | FieldShot(Float)
+
+  fn word(s : String) : GoldenField do
+    FieldWord(s)
+  end
+
+  fn num(n : Int) : GoldenField do
+    FieldWord(int_to_string(n))
+  end
+
+  fn flag(b : Bool) : GoldenField do
+    FieldWord(if b do "1" else "0" end)
+  end
+
+  fn hash(s : String) : GoldenField do
+    FieldWord(int_to_string(RunDigest.text(RunDigest.start(), s)))
+  end
+
+  -- As main.swift's shot bound: reducer_suite's float_bound_ulps.
+  fn shot_ulps() : Int do
+    16384
+  end
+
+  fn is_bits(token : String) : Bool do
+    match Skee.U64.of_hex(token) do
+    Some(_) -> String.byte_size(token) == 16
+    None -> false
+    end
+  end
+
+  fn compare(f : GoldenField, token : String, what : String) : Outcome do
+    match f do
+    FieldWord(w) -> expect_string(w, token, what)
+    FieldExact(x) -> if is_bits(token) do GoldenIo.expect_float(x, token, what) else Mismatch(what ++ ": a float where Swift wrote " ++ token) end
+    FieldLibm(x) -> if is_bits(token) do GoldenIo.expect_libm_float(x, token, what) else Mismatch(what ++ ": a float where Swift wrote " ++ token) end
+    FieldShot(x) -> if is_bits(token) do shot_float(x, token, what) else Mismatch(what ++ ": a float where Swift wrote " ++ token) end
+    end
+  end
+
+  fn shot_float(x : Float, token : String, what : String) : Outcome do
+    let got = GoldenIo.float_bits(x)
+    let want = GoldenIo.u64(token)
+    let ulps = GoldenIo.ulps_between(got, want)
+    if Skee.U64.equal(got, want) do
+      Passed(1)
+    else
+      if ulps <= shot_ulps() do
+        Drifted(1, 1, ulps)
+      else
+        Mismatch(what ++ ": " ++ int_to_string(ulps) ++ " ulp off, got " ++ show(got) ++ ", want " ++ token)
+      end
+    end
+  end
+
+  fn split_all(s : String) : List(String) do
+    List.flat_map(String.split(s, ";"), fn a -> List.flat_map(String.split(a, ":"), fn b -> List.flat_map(String.split(b, "/"), fn c -> String.split(c, ","))))
+  end
+
+  fn compare_row(fields : List(GoldenField), row : List(String), what : String) : Outcome do
+    let tokens = List.flat_map(row, split_all)
+    if List.length(tokens) != List.length(fields) do
+      Mismatch(what ++ ": " ++ int_to_string(List.length(fields)) ++ " values, Swift wrote " ++ int_to_string(List.length(tokens)) ++ ": " ++ String.join(row, " "))
+    else
+      all(List.map(List.enumerate(List.zip(fields, tokens)), fn ip -> compare_field(ip, what)))
+    end
+  end
+
+  fn compare_field(ip : (Int, (GoldenField, String)), what : String) : Outcome do
+    match ip do
+    (i, (f, token)) -> compare(f, token, what ++ " value " ++ int_to_string(i))
+    end
+  end
+
+  -- ---- Indexes, Swift's allCases order ----
+  fn phase_index(p : PathPhase) : Int do
+    match p do
+    OnLane -> 0
+    InAir -> 1
+    OnBoard -> 2
+    end
+  end
+
+  fn reel_symbol_index(r : ReelSymbol) : Int do
+    match r do
+    ReelCherry -> 0
+    ReelLemon -> 1
+    ReelBell -> 2
+    ReelBar -> 3
+    ReelSeven -> 4
+    ReelDiamond -> 5
+    ReelWild -> 6
+    ReelX2 -> 7
+    ReelX3 -> 8
+    ReelBonus -> 9
+    end
+  end
+
+  fn kind_index(k : PopupKind) : Int do
+    match k do
+    PopupChips -> 0
+    PopupMult -> 1
+    PopupTickets -> 2
+    PopupBad -> 3
+    PopupJackpot -> 4
+    end
+  end
+
+  fn anchor_token(a : PopupAnchor) : String do
+    match a do
+    AnchorHole(h) -> "h" ++ int_to_string(RunDigest.hole_index(h))
+    AnchorCenter -> "c"
+    AnchorHud -> "u"
+    end
+  end
+
+  fn cue_token(c : Cue) : String do
+    match c do
+    CueLaunch -> "launch"
+    CueRail -> "rail"
+    CueHump -> "hump"
+    CueLip -> "lip"
+    CueBackwall -> "backwall"
+    CueLanded -> "landed"
+    CueDrop(h) -> "drop" ++ int_to_string(RunDigest.hole_index(h))
+    CueGutter -> "gutter"
+    CueHop -> "hop"
+    CueWhoosh -> "whoosh"
+    CueHotSpot -> "hotSpot"
+    CueLever -> "lever"
+    CuePullWin(n) -> "pullWin" ++ int_to_string(n)
+    CueReelTick -> "reelTick"
+    CueReelStop -> "reelStop"
+    CueCombo(n) -> "combo" ++ int_to_string(n)
+    CueTallyChips(n) -> "tallyChips" ++ int_to_string(n)
+    CueTallyMult(n) -> "tallyMult" ++ int_to_string(n)
+    CueFrameDone -> "frameDone"
+    CueLineWon -> "lineWon"
+    CueJackpot -> "jackpot"
+    CueBanner(t) -> "banner" ++ int_to_string(RunDigest.text(RunDigest.start(), t))
+    CueFoul -> "foul"
+    end
+  end
+
+  fn beat_letter(b : Beat) : String do
+    match b do
+    BeatRoll(_, _) -> "R"
+    BeatSpin(_) -> "S"
+    BeatPull(_) -> "P"
+    BeatTally(_) -> "T"
+    BeatBanner(_, _, _) -> "B"
+    BeatCommit(_) -> "C"
+    BeatRestyle(_, _) -> "Y"
+    end
+  end
+
+  -- A list as fields, or the single word "-" when it is empty.
+  fn listed(xs : List(a), one : a -> List(GoldenField)) : List(GoldenField) do
+    match xs do
+    Nil -> [word("-")]
+    Cons(_, _) -> List.flat_map(xs, one)
+    end
+  end
+
+  fn optional(x : Option(a), one : a -> List(GoldenField)) : List(GoldenField) do
+    match x do
+    Some(v) -> one(v)
+    None -> [word("n")]
+    end
+  end
+
+  fn three_list(t : Three(a)) : List(a) do
+    match t do
+    Three(a, b, c) -> [a, b, c]
+    end
+  end
+
+  fn pull_fields(q : Pull) : List(GoldenField) do
+    List.append(List.map(three_list(q.stops), num), [num(Skee.Scoring.bet_lines(q.bet)), flag(q.free), num(Skee.Units.room_rank(q.pull_room))])
+  end
+
+  -- ---- The k row ----
+  fn tick(k : Skee.Consts.Consts, p : Presentation) : List(GoldenField) do
+    let current =
+      match Skee.Presentation.current(p) do
+      Some(b) -> beat_letter(b)
+      None -> "-"
+      end
+    let finished =
+      match p.finished do
+      Nil -> "-"
+      Cons(_, _) -> String.join(List.map(p.finished, beat_letter), "")
+      end
+    let ball =
+      optional(Skee.Presentation.ball(p), fn s -> [FieldShot(s.along), FieldShot(s.px), FieldShot(s.height), FieldExact(s.t), num(phase_index(s.phase))])
+    let reels =
+      List.map(Skee.HoleMap.reel_holes(), fn h -> FieldLibm(match Skee.HoleMap.reel_at(p.reel_positions, h) do
+      Some(x) -> x
+      None -> -1.0
+      end))
+    let popups =
+      listed(p.popups, fn pop -> [num(kind_index(pop.popup_kind)), word(anchor_token(pop.anchor)), FieldExact(pop.life), FieldExact(pop.age), hash(pop.popup_text)])
+    let throws =
+      listed(p.recent_throws, fn m -> [FieldExact(m.mark_power), num(RunDigest.hole_index(m.mark_hole))])
+    let resting =
+      optional(p.resting_ball, fn r -> [FieldExact(r.until), FieldShot(r.rest_sample.along)])
+    List.concat([[word("k"), num(List.length(p.beats)), word(current), FieldExact(p.beat_time), FieldExact(p.clock)], listed(p.cues, fn c -> [word(cue_token(c))]), [word(finished), FieldExact(p.flash), FieldExact(p.shake), FieldExact(p.celebration), num(Skee.Units.points_int(p.tallied_bonus)), num(RunDigest.run(p.shown))], ball, [num(List.length(p.trail))], reels, List.map(three_list(p.pull_positions), fn x -> FieldLibm(x)), optional(p.last_pull, pull_fields), popups, throws, [FieldExact(Skee.Presentation.anticipation(k, p)), FieldExact(Skee.Presentation.time_scale(k, p))], resting, [flag(Skee.Presentation.teasing(p))]])
+  end
+
+  -- ---- The h row ----
+  fn on_screen(h : Hole) : ScreenPoint do
+    let n = int_to_float(RunDigest.hole_index(h))
+    { sx: n *. 41.5 +. 3.0, sy: 700.0 -. n *. 55.25 }
+  end
+
+  fn inputs(bet : Bet) : HudInputs do
+    {
+      hole_on_screen: {
+        gutter: on_screen(Gutter),
+        ring10: on_screen(Ring10),
+        ring20: on_screen(Ring20),
+        ring30: on_screen(Ring30),
+        ring40: on_screen(Ring40),
+        ring50: on_screen(Ring50),
+        pocket_left: on_screen(PocketLeft),
+        pocket_right: on_screen(PocketRight)
+      },
+      center: { sx: 195.0, sy: 422.0 },
+      selected_offer: None,
+      selected_charm: None,
+      screen: GameScreen,
+      bet: bet
+    }
+  end
+
+  fn point(q : ScreenPoint) : List(GoldenField) do
+    [FieldExact(q.sx), FieldExact(q.sy)]
+  end
+
+  fn machine_fields(m : Machine) : List(GoldenField) do
+    let wins =
+      listed(m.wins, fn w -> [num(w.line), num(reel_symbol_index(w.symbol)), num(Skee.Units.chips_int(w.line_chips)), num(w.multiplier)])
+    List.concat([List.map(three_list(m.positions), fn x -> FieldLibm(x)), [num(Skee.Scoring.bet_lines(m.machine_bet))], listed(m.affordable, fn b -> [num(Skee.Scoring.bet_lines(b))]), [flag(m.can_pull), flag(m.machine_free), num(m.free_left)], wins, [flag(m.machine_teasing), num(Skee.Units.room_rank(m.machine_room))]])
+  end
+
+  fn hud(p : Presentation, bet : Bet) : List(GoldenField) do
+    let h = Skee.HudState.make(p, inputs(bet))
+    let frame =
+      List.map(three_list(h.frame), fn x -> match x do
+      Some(s) -> num(RunDigest.symbol_index(s))
+      None -> word("n")
+      end)
+    let tally =
+      optional(h.tally, fn t -> [num(Skee.Units.chips_int(t.tally_chips)), FieldExact(t.tally_mult), hash(t.label)])
+    let banner = optional(h.hud_banner, fn b -> [hash(b.title), hash(b.sub), FieldExact(b.progress)])
+    let popups =
+      listed(h.hud_popups, fn pop -> List.concat([[hash(pop.screen_text), num(kind_index(pop.screen_kind))], point(pop.at), [FieldExact(pop.screen_age)]]))
+    let hint =
+      optional(h.hint, fn t -> [hash(t.hint_text), optional_word(t.hint_symbol), hash(t.after), flag(t.hint_hot)])
+    let counter =
+      match h.counter do
+      Some(_) -> true
+      None -> false
+      end
+    let over =
+      match h.over do
+      Some(o) -> flag(o.won)
+      None -> word("n")
+      end
+    let armed =
+      match h.hud_armed do
+      Some(a) -> num(RunDigest.power_up_index(a))
+      None -> word("n")
+      end
+    let head =
+      [word("h"), num(Skee.Units.points_int(h.score)), num(Skee.Units.points_int(h.hud_target)), num(Skee.Units.tickets_int(h.hud_tickets)), num(h.hud_heat), num(h.heat_max), flag(h.hud_fever), num(h.frame_number), num(h.frames_total), num(h.balls_left), flag(h.busy), num(h.hud_combo)]
+    let tail =
+      [flag(h.first_throw), flag(h.rack), flag(counter), over, FieldExact(h.shower), FieldExact(h.hud_clock), num(RunDigest.ball_index(h.hud_ball)), hash(h.round_title), flag(h.is_boss), hash(h.boss_name), hash(h.boss_blurb), num(h.hud_ante), num(h.antes), num(List.length(h.throws_meter))]
+    List.concat([head, List.map(three_list(h.targets), fn s -> num(RunDigest.symbol_index(s))), frame, optional(h.machine, machine_fields), tally, banner, popups, hint, optional(h.hot_at, point), tail, listed(h.hud_charms, fn c -> [num(RunDigest.charm_index(c))]), listed(h.hud_power_ups, fn x -> [num(RunDigest.power_up_index(x))]), [armed, word(if h.hud_screen == GameScreen do "1" else "0" end)]])
+  end
+
+  fn optional_word(s : Option(Symbol)) : GoldenField do
+    match s do
+    Some(x) -> num(RunDigest.symbol_index(x))
+    None -> word("n")
+    end
+  end
+
+  -- ---- Actions ----
+  fn floats_of(xs : List(String)) : List(Float) do
+    List.map(xs, GoldenIo.float_of_bits)
+  end
+
+  fn bet_of(lines : String) : Bet do
+    if lines == "1" do BetOne else if lines == "3" do BetThree else BetFive end end
+  end
+
+  fn action_of(k : Skee.Consts.Consts, token : String) : Action do
+    match String.split(token, ",") do
+    ["p", lines] -> PullLever(bet_of(lines))
+    Cons("t", rest) -> do
+      match floats_of(rest) do
+      [power, aim, start, fold, spin, skid] -> ThrowBall(Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid))
+      _ -> panic("bad throw token " ++ token)
+      end
+    end
+    ["f"] -> CommitFoul
+    ["c", i] -> ChooseBall(List.nth(Skee.Items.all_balls(), GoldenIo.int(i)))
+    ["a", i] -> Arm(GoldenIo.int(i))
+    ["b", i, target] -> do
+      let hole = if target == "n" do None else Some(List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(target))) end
+      Buy(GoldenIo.int(i), hole)
+    end
+    ["r"] -> Reroll
+    ["s", i] -> Sell(GoldenIo.int(i))
+    ["l"] -> LeaveCounter
+    _ -> panic("bad action token " ++ token)
+    end
+  end
+
+  -- ---- PresentationReplay ----
+  type PresentationReplay = {
+    k : Skee.Consts.Consts,
+    label : String,
+    s : RunState,
+    p : Presentation,
+    line : Int,
+    outcomes : List(Outcome)
+  }
+
+  fn noted(r : PresentationReplay, o : Outcome) : PresentationReplay do
+    { r with outcomes: Cons(o, r.outcomes) }
+  end
+
+  fn config_of(antes : String, scale : String, tickets : String, frames : String) : RunConfig do
+    let c = Skee.Types.standard_config()
+    { c with antes: GoldenIo.int(antes), target_scale: GoldenIo.float_of_bits(scale), start_tickets: Tickets(GoldenIo.int(tickets)), frames_per_round: GoldenIo.int(frames) }
+  end
+
+  fn where(r : PresentationReplay) : String do
+    r.label ++ " row " ++ int_to_string(r.line)
+  end
+
+  fn play_row(r0 : PresentationReplay, row : List(String)) : PresentationReplay do
+    let r = { r0 with line: r0.line + 1 }
+    match row do
+    ["run", label, seed, room, antes, scale, tickets, frames] -> do
+      let s = Skee.Reducer.new_run(r.k, GoldenIo.u64(seed), config_of(antes, scale, tickets, frames), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(0))
+      { r with label: label, s: s, p: Skee.Presentation.make(s) }
+    end
+    ["a", token, along, digest] -> do
+      match Skee.Reducer.apply(r.k, action_of(r.k, token), r.s) do
+      Ok(step) -> do
+        let checked = noted(r, expect_string(int_to_string(RunDigest.run(step.run)), digest, where(r) ++ " state after " ++ token))
+        { checked with s: step.run, p: Skee.Presentation.enqueue(r.p, step, GoldenIo.float_of_bits(along)) }
+      end
+      Err(e) -> noted(r, Mismatch(where(r) ++ ": " ++ token ++ " refused: " ++ show(e)))
+      end
+    end
+    ["d", dt] -> { r with p: Skee.Presentation.advance(r.k, r.p, GoldenIo.float_of_bits(dt)) }
+    ["x"] -> { r with p: Skee.Presentation.skip(r.k, r.p) }
+    Cons("k", _) -> noted(r, compare_row(tick(r.k, r.p), row, where(r) ++ " presentation"))
+    Cons("h", _) -> noted(r, compare_row(hud(r.p, r.s.round.last_bet), row, where(r) ++ " hud"))
+    _ -> noted(r, Mismatch("bad golden row " ++ String.join(row, " ")))
+    end
+  end
+
+  fn replay() : Outcome do
+    let k = Skee.Consts.make()
+    let s = Skee.Reducer.new_run(k, Skee.U64.of_int(0), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+    let start = { k: k, label: "", s: s, p: Skee.Presentation.make(s), line: 0, outcomes: [] }
+    let done = List.fold_left(rows(), start, play_row)
+    all([expect(done.line == Golden.Presentation.line_count(), "read every row"), all(List.reverse(done.outcomes))])
+  end
+
+end

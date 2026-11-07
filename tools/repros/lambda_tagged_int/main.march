@@ -1,0 +1,33 @@
+mod Main do
+
+  needs IO.Console
+
+  -- Native only (march --compile --opt 0, main b7c963d74):
+  --  1. a let-bound two-argument lambda that captures a record and puts its
+  --     Int argument into a record returns the tagged form: prints 15, not 7;
+  --  2. a let-bound lambda over a record argument that builds a record
+  --     segfaults (addr = the bits of a Float field).
+  -- JS prints 7 and 0.93. Found by the scene piece (Skee.Scene.reel_layout);
+  -- worked around with named functions.
+  type Layout = { count : Int, size : Float }
+
+  type P = { x : Float, y : Float }
+
+  fn layout(c : Int, centre : P) : Layout do
+    let ring = fn (count, size) -> { count: count, size: size +. centre.x }
+    ring(c, 0.5)
+  end
+
+  fn shifted(p : P) : P do
+    let up = fn q -> { x: q.x, y: q.y +. 0.07 }
+    up(p)
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let l = layout(7, { x: 0.25, y: 0.5 })
+    println(int_to_string(l.count))
+    let s = shifted({ x: -0.2, y: 0.86 })
+    println(float_to_string(s.y))
+  end
+
+end

@@ -9,7 +9,7 @@ import GoldenSupport
 // test/suites/presentation_suite.march replays through Skee.Presentation and
 // Skee.HudState:
 //
-//   run <label> <seed> <room> <antes> <targetScale> <startTickets>
+//   run <label> <seed> <room> <antes> <targetScale> <startTickets> <framesPerRound>
 //       a fresh Presentation on newRun(seed, config, room); a k and h row follow
 //   a <action> <releaseAlong> <state digest>
 //       apply the action (it is always accepted) and enqueue the step
@@ -258,7 +258,7 @@ let releases: [Double] = [0, 0, 0.3, 0.8, 0, 1.5, 0.05]
     var s = newRun(seed: seed, config: config, room: room)
     var p = Presentation(state: s)
     var rng = SplitMix64(seed: seed &+ 0x5EED)
-    g.line("run", label, u64(seed), i(index(room)), i(config.antes), f64(config.targetScale), i(config.startTickets))
+    g.line("run", label, u64(seed), i(index(room)), i(config.antes), f64(config.targetScale), i(config.startTickets), i(config.framesPerRound))
     emit(p, bet: s.round.lastBet)
     for n in 0..<steps {
         guard let a = choose(s, &rng, maxBet: maxBet) else { break }

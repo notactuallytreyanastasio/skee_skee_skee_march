@@ -123,6 +123,13 @@ mod Skee.Synth do
     }
   end
 
+  -- Swift's Float.pi is pi rounded toward zero (0x40490FDA), one ulp below
+  -- the nearest Float. Float ulps between 2 and 4 are 2^-22.
+  pfn pi_toward_zero(r : SynthConsts, pi : Float) : Float needs () do
+    let nearest = f32(r, pi)
+    if nearest > pi do nearest -. pow2(-22, 1.0) else nearest end
+  end
+
   doc """The synth's constants. Build once: `new` does."""
   fn consts() : SynthConsts needs () do
     let r = rounding()
@@ -130,7 +137,7 @@ mod Skee.Synth do
     {
       r with
       dt: f32(r, 1.0 /. rate()),
-      pi: f32(r, k.pi),
+      pi: pi_toward_zero(r, k.pi),
       rumble_follow: f32(r, 0.0008),
       lowpass_follow: f32(r, 0.035),
       rumble_gain: f32(r, 0.9),
@@ -491,13 +498,19 @@ mod Skee.Synth do
     end
   end
 
+  -- Swift's `0 + x`: +0 when x is -0. March folds `0.0 +. x` to x on every
+  -- target, losing that (tools/repros/synth/fold_probe.march).
+  pfn plus_zero(x : Float) : Float needs () do
+    if x == 0.0 do 0.0 else x end
+  end
+
   pfn next_sample(s : Synth) : (Float, Synth) needs () do
     let c = s.c
     -- Rolling rumble: low-passed noise that follows the ball's speed.
     let rumble = f32(c, s.rumble +. f32(c, f32(c, s.rumble_target -. s.rumble) *. c.rumble_follow))
     let seed = next_seed(s.seed)
     let lowpass = f32(c, s.lowpass +. f32(c, f32(c, noise_of(seed) -. s.lowpass) *. c.lowpass_follow))
-    let level = f32(c, 0.0 +. f32(c, f32(c, lowpass *. rumble) *. c.rumble_gain))
+    let level = plus_zero(f32(c, f32(c, lowpass *. rumble) *. c.rumble_gain))
     let drummed = drum_roll({ s with rumble: rumble, lowpass: lowpass, seed: seed })
     let m = mix_voices(c, drummed.voices, { level: level, mix_seed: seed, kept: [] })
     let out = Skee.Maths.max_float(-1.0, Skee.Maths.min_float(1.0, m.level))

@@ -1,0 +1,348 @@
+mod PresentationSuite do
+
+  -- Owned by the presentation piece. Swift's PresentationTests, case for case,
+  -- then the goldens that tools/golden/Sources/golden-presentation writes from
+  -- the real SkeeRender Presentation and SkeeHUD HUDState.
+  import Harness
+
+  fn consts() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  -- ---- Runs, as PresentationTests builds them ----
+  fn new_run(seed : Int) : RunState do
+    Skee.Reducer.new_run(consts(), Skee.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+  end
+
+  fn step_of(r : Result(Step, ActionError)) : Step do
+    match r do
+    Ok(step) -> step
+    Err(e) -> panic("action refused: " ++ show(e))
+    end
+  end
+
+  fn act(a : Action, s : RunState) : Step do
+    step_of(Skee.Reducer.apply(consts(), a, s))
+  end
+
+  -- A fresh run with the first frame's lever already pulled.
+  fn pulled_run(seed : Int) : RunState do
+    let step = act(PullLever(BetOne), new_run(seed))
+    step.run
+  end
+
+  fn launch(power : Float, aim : Float) : Launch do
+    Skee.Physics.launch_of_power(consts(), power, aim, 0.0, 0.0, 0.0, 0.0)
+  end
+
+  fn throw_once(s : RunState) : Step do
+    act(ThrowBall(launch(0.6, 0.0)), s)
+  end
+
+  fn advance(p : Presentation, dt : Float) : Presentation do
+    Skee.Presentation.advance(consts(), p, dt)
+  end
+
+  fn busy(p : Presentation) : Bool do
+    Skee.Presentation.is_busy(p)
+  end
+
+  fn same_run(a : RunState, b : RunState) : Bool do
+    RunDigest.run(a) == RunDigest.run(b)
+  end
+
+  fn along_of(p : Presentation) : Float do
+    match Skee.Presentation.ball(p) do
+    Some(s) -> s.along
+    None -> -1.0
+    end
+  end
+
+  -- Advance by `dt` until idle, collecting every frame's cues in order.
+  fn play_out(p : Presentation, dt : Float, acc : List(Cue)) : (Presentation, List(Cue)) do
+    if busy(p) do
+      let q = advance(p, dt)
+      play_out(q, dt, List.append(acc, q.cues))
+    else
+      (p, acc)
+    end
+  end
+
+  fn is_drop(c : Cue) : Bool do
+    match c do
+    CueDrop(_) -> true
+    CueGutter -> true
+    CueLaunch -> false
+    CueRail -> false
+    CueHump -> false
+    CueLip -> false
+    CueBackwall -> false
+    CueLanded -> false
+    CueHop -> false
+    CueWhoosh -> false
+    CueHotSpot -> false
+    CueLever -> false
+    CuePullWin(_) -> false
+    CueReelTick -> false
+    CueReelStop -> false
+    CueCombo(_) -> false
+    CueTallyChips(_) -> false
+    CueTallyMult(_) -> false
+    CueFrameDone -> false
+    CueLineWon -> false
+    CueJackpot -> false
+    CueBanner(_) -> false
+    CueFoul -> false
+    end
+  end
+
+  fn same_reels(a : PerReel(Float), b : PerReel(Float)) : Bool do
+    List.all(Skee.HoleMap.reel_holes(), fn h -> Skee.HoleMap.reel_at(a, h) == Skee.HoleMap.reel_at(b, h))
+  end
+
+  fn same_three(a : Three(Float), b : Three(Float)) : Bool do
+    match (a, b) do
+    (Three(a0, a1, a2), Three(b0, b1, b2)) -> a0 == b0 && a1 == b1 && a2 == b2
+    end
+  end
+
+  -- ---- Presentation ----
+  fn shows_old_state_until_the_ball_lands() : Outcome do
+    let s = pulled_run(3)
+    let p = Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.0)
+    let was_busy = busy(p)
+    let q = advance(p, 0.3)
+    let has_ball =
+      match Skee.Presentation.ball(q) do
+      Some(_) -> true
+      None -> false
+      end
+    all([expect(was_busy, "busy after enqueue"), expect(same_run(q.shown, s), "still shows the old state"), expect(has_ball, "a ball is rolling")])
+  end
+
+  fn ends_on_the_real_state() : Outcome do
+    let s = pulled_run(3)
+    let step = throw_once(s)
+    let p = Skee.Presentation.skip(consts(), Skee.Presentation.enqueue(Skee.Presentation.make(s), step, 0.0))
+    all([expect(!busy(p), "idle after skip"), expect(same_run(p.shown, step.run), "shows the real state"), expect(same_reels(p.reel_positions, Skee.Presentation.reel_floats(step.run.reel_stops)), "reels on the real stops")])
+  end
+
+  fn ball_moves_forward_while_rolling() : Outcome do
+    let s = pulled_run(3)
+    let p = advance(Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.0), 0.1)
+    let a = along_of(p)
+    let q = advance(p, 0.2)
+    all([expect(a >= 0.0, "a ball at 0.1 s"), expect(along_of(q) > a, "moved forward")])
+  end
+
+  fn three_throws(s : RunState, p : Presentation, n : Int, last : Option(Step)) : (Presentation, RunState, Option(Step)) do
+    if n == 0 do
+      (p, s, last)
+    else
+      let step = throw_once(s)
+      three_throws(step.run, Skee.Presentation.enqueue(p, step, 0.0), n - 1, Some(step))
+    end
+  end
+
+  fn saw_tally(p : Presentation, dt : Float) : Bool do
+    if busy(p) do
+      match Skee.Presentation.tally_progress(p) do
+      Some(_) -> true
+      None -> saw_tally(advance(p, dt), dt)
+      end
+    else
+      false
+    end
+  end
+
+  fn a_frame_is_tallied_after_its_third_ball() : Outcome do
+    let s = pulled_run(3)
+    let (p, _, _) = three_throws(s, Skee.Presentation.make(s), 3, None)
+    expect(saw_tally(p, 1.0 /. 30.0), "a tally beat played")
+  end
+
+  fn until_tally(p : Presentation, want : Bool) : Presentation do
+    let has =
+      match Skee.Presentation.tally_progress(p) do
+      Some(_) -> true
+      None -> false
+      end
+    if has == want || !busy(p) do p else until_tally(advance(p, 1.0 /. 60.0), want) end
+  end
+
+  fn tally_score_stays_on_screen_until_commit() : Outcome do
+    let s = pulled_run(3)
+    let (p, _, last) = three_throws(s, Skee.Presentation.make(s), 3, None)
+    let after = until_tally(until_tally(p, true), false)
+    match last do
+    Some(step) -> do
+      let shown = Skee.Units.points_int(Skee.Units.add_points(Skee.Reducer.round_score(after.shown.round), after.tallied_bonus))
+      all([expect(busy(after), "the commit is still queued"), expect_int(shown, Skee.Units.points_int(Skee.Reducer.round_score(step.run.round)), "shown score plus tallied bonus")])
+    end
+    None -> Mismatch("no throw")
+    end
+  end
+
+  fn roll_starts_where_the_thumb_let_go() : Outcome do
+    let s = pulled_run(3)
+    let p = advance(Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.8), 1.0 /. 120.0)
+    let a = along_of(p)
+    all([expect(a >= 0.8, "at least the release point, got " ++ float_to_string(a)), expect(a < 0.9, "not far past it, got " ++ float_to_string(a))])
+  end
+
+  fn index_where(xs : List(Cue), pred : Cue -> Bool) : Int do
+    match List.find_index(xs, pred) do
+    Some(i) -> i
+    None -> -1
+    end
+  end
+
+  fn shot_events_become_timed_cues() : Outcome do
+    let s = pulled_run(3)
+    let (_, cues) =
+      play_out(Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.0), 1.0 /. 60.0, [])
+    let hump = index_where(cues, fn c -> c == CueHump)
+    let land = index_where(cues, is_drop)
+    all([expect(hump >= 0, "a hump cue"), expect(land >= 0, "a drop or gutter cue"), expect(List.any(cues, fn c -> c == CueReelStop), "a reel stop"), expect(hump < land, "hump before landing")])
+  end
+
+  fn bell_ball() : BallRecord do
+    Skee.Scoring.ball_record(Ring30, Bell, Chips(30))
+  end
+
+  fn watch_slow(k : Skee.Consts.Consts, p : Presentation, slow : Bool, eager : Bool, fast_only : Bool) : (Bool, Bool, Bool) do
+    if busy(p) do
+      let q = advance(p, 1.0 /. 60.0)
+      let scale = Skee.Presentation.time_scale(k, q)
+      watch_slow(k, q, slow || scale < 1.0, eager || Skee.Presentation.anticipation(k, q) > 0.0, fast_only && scale == 1.0)
+    else
+      (slow, eager, fast_only)
+    end
+  end
+
+  fn a_pair_with_the_third_ball_in_the_air_slows_time() : Outcome do
+    let s0 = pulled_run(3)
+    let s = { s0 with round: { s0.round with current_balls: [bell_ball(), bell_ball()] } }
+    let p = Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.0)
+    let (slow, eager, _) = watch_slow(consts(), p, false, false, true)
+    all([expect(slow, "time slowed"), expect(eager, "anticipation rose")])
+  end
+
+  fn no_pair_no_slow_motion() : Outcome do
+    let s = pulled_run(3)
+    let p = Skee.Presentation.enqueue(Skee.Presentation.make(s), throw_once(s), 0.0)
+    let (_, _, fast) = watch_slow(consts(), p, false, false, true)
+    expect(fast, "time scale stayed 1")
+  end
+
+  fn path_sample(t : Float, along : Float) : PathSample do
+    { t: t, phase: OnLane, px: 0.0, along: along, height: 0.0 }
+  end
+
+  fn sampled_along(path : List(PathSample), t : Float) : Float do
+    match Skee.Presentation.sample(path, t) do
+    Some(s) -> s.along
+    None -> -1.0
+    end
+  end
+
+  fn sampling_interpolates() : Outcome do
+    let path = [path_sample(0.0, 0.0), path_sample(1.0, 2.0)]
+    all([expect(sampled_along(path, 0.25) == 0.5, "a quarter of the way"), expect(sampled_along(path, 9.0) == 2.0, "past the end holds the last")])
+  end
+
+  -- ---- Presentation: top slot ----
+  fn pull_moves(p : Presentation, want : Three(Float), moved : Bool, cues : List(Cue)) : (Presentation, Bool, List(Cue)) do
+    if busy(p) do
+      let q = advance(p, 1.0 /. 60.0)
+      pull_moves(q, want, moved || !same_three(q.pull_positions, want), List.append(cues, q.cues))
+    else
+      (p, moved, cues)
+    end
+  end
+
+  fn same_pull(a : Option(Pull), b : Pull) : Bool do
+    match a do
+    Some(q) -> q.stops == b.stops && q.bet == b.bet && q.free == b.free && q.pull_room == b.pull_room
+    None -> false
+    end
+  end
+
+  fn the_pull_spins_the_machine_to_its_stops_and_holds_the_win() : Outcome do
+    let s = new_run(2)
+    let step = act(PullLever(BetOne), s)
+    match step.run.round.round_pull do
+    Some(q) -> do
+      let want = Skee.Presentation.three_floats(q.stops)
+      let (p, moved, cues) =
+        pull_moves(Skee.Presentation.enqueue(Skee.Presentation.make(s), step, 0.0), want, false, [])
+      all([expect(moved, "the reels moved"), expect(same_three(p.pull_positions, want), "on the pull's stops"), expect(same_pull(p.last_pull, q), "the pull is on show"), expect(List.head_opt(cues) == Some(CueLever), "the lever goes first"), expect_int(List.length(List.filter(cues, fn c -> c == CueReelStop)), 3, "reel stops")])
+    end
+    None -> Mismatch("no pull")
+    end
+  end
+
+  fn first_bonus(strip : List(ReelSymbol)) : Int do
+    match List.find_index(strip, fn r -> r == ReelBonus) do
+    Some(i) -> i
+    None -> -1
+    end
+  end
+
+  fn two_bonus_on_the_first_reels_make_the_last_one_hang_on() : Outcome do
+    let plain = { stops: Three(0, 0, 0), bet: BetOne, free: false, pull_room: Boardwalk }
+    let tease =
+      match Skee.Rooms.base_strips() do
+      Three(a, b, _) -> { plain with stops: Three(first_bonus(a), first_bonus(b), 0) }
+      end
+    expect(Skee.Presentation.pull_stop(2, tease) > Skee.Presentation.pull_stop(2, plain) +. 0.5, "the last reel hangs on")
+  end
+
+  fn a_matching_ball_calls_out_the_combo() : Outcome do
+    let k = consts()
+    let s = pulled_run(2)
+    let ball = { bell_ball() with slot_hits: 2, record_combo: 3 }
+    let after = { s with round: { s.round with current_balls: [ball] } }
+    let shot =
+      Skee.Physics.simulate_shot(k, launch(0.5, 0.0), Skee.Types.standard_table(k), ClassicBall, Skee.U64.of_int(0))
+    let step = { run: after, step_events: [Shot(shot, ball)] }
+    let (_, cues) = play_out(Skee.Presentation.enqueue(Skee.Presentation.make(s), step, 0.0), 1.0 /. 60.0, [])
+    expect(List.any(cues, fn c -> c == CueCombo(3)), "a combo x3 cue")
+  end
+
+  -- ---- HUD words and palette ----
+  fn hud_words() : Outcome do
+    let pair = Skee.HudState.hint([Bell, Bell])
+    let one = Skee.HudState.hint([Clover])
+    let gutter = Skee.HudState.hint([Blank])
+    all([expect_string(Skee.HudState.num(3.0), "3", "num 3"), expect_string(Skee.HudState.num(1.5), "1.5", "num 1.5"), expect_string(Skee.HudState.num(0.25), "0.2", "num 0.25 ties to even"), expect_string(Skee.HudState.num(0.75), "0.8", "num 0.75 ties to even"), expect_string(Skee.HudState.num(-2.5), "-2.5", "num -2.5"), expect_string(pair.after, "= ×5", "pair hint"), expect(pair.hint_hot, "pair hint is hot"), expect(one.hint_symbol == None, "a wild shows no symbol"), expect_string(gutter.hint_text, "gutter · the next two can still pair", "gutter hint")])
+  end
+
+  fn palette_channels() : Outcome do
+    let c = Skee.Palette.of_hex(16744448)
+    let half = Skee.Palette.mix(Skee.Palette.of_hex(0), Skee.Palette.of_hex(16777215), 0.5)
+    all([expect(c.red == 1.0, "red"), expect(c.green == 128.0 /. 255.0, "green"), expect(c.blue == 0.0, "blue"), expect(half.red == 0.5, "mix"), expect_string(Skee.Palette.style_title(Skee.Palette.style_for_ante(7)), "CARTOON ALLEY", "style")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("shows old state until the ball lands", fn -> shows_old_state_until_the_ball_lands()),
+      case("ends on the real state", fn -> ends_on_the_real_state()),
+      case("ball moves forward while rolling", fn -> ball_moves_forward_while_rolling()),
+      case("a frame is tallied after its third ball", fn -> a_frame_is_tallied_after_its_third_ball()),
+      case("tally score stays on screen until commit", fn -> tally_score_stays_on_screen_until_commit()),
+      case("roll starts where the thumb let go", fn -> roll_starts_where_the_thumb_let_go()),
+      case("shot events become timed cues", fn -> shot_events_become_timed_cues()),
+      case("a pair with the third ball in the air slows time", fn -> a_pair_with_the_third_ball_in_the_air_slows_time()),
+      case("no pair, no slow motion", fn -> no_pair_no_slow_motion()),
+      case("sampling interpolates", fn -> sampling_interpolates()),
+      case("the pull spins the machine to its stops and holds the win", fn -> the_pull_spins_the_machine_to_its_stops_and_holds_the_win()),
+      case("two bonus on the first reels make the last one hang on", fn -> two_bonus_on_the_first_reels_make_the_last_one_hang_on()),
+      case("a matching ball calls out the combo", fn -> a_matching_ball_calls_out_the_combo()),
+      case("hud words", fn -> hud_words()),
+      case("palette", fn -> palette_channels()),
+      case("goldens: presentation and HUD, tick by tick", fn -> PresentationGolden.replay())
+    ]
+  end
+
+end

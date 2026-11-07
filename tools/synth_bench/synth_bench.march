@@ -1,0 +1,63 @@
+mod SynthBench do
+
+  -- How long Skee.Synth.render takes, natively and under node, against the
+  -- real-time budget (128 samples = 2.90 ms at 44.1 kHz), and the measured
+  -- parity with Swift. Not a test: see tools/synth_bench/run.sh.
+  needs IO.Console
+  needs IO.Clock
+
+  fn busy() : Synth do
+    let s = Skee.Synth.set_drum(Skee.Synth.set_rumble(Skee.Synth.new(), 0.6), true)
+    List.fold_left([SndJackpot, SndBanner("MEGA JACKPOT"), SndHotSpot], s, fn (acc, c) -> Skee.Synth.play(acc, c))
+  end
+
+  fn typical() : Synth do
+    let s = Skee.Synth.set_rumble(Skee.Synth.new(), 0.5)
+    List.fold_left([SndLaunch, SndHump, SndDrop(Ring40)], s, fn (acc, c) -> Skee.Synth.play(acc, c))
+  end
+
+  fn idle() : Synth do
+    Skee.Synth.new()
+  end
+
+  -- Render `n` samples `times` times from the same state, so the load stays put.
+  fn repeat(s : Synth, n : Int, times : Int, sink : Float) : Float do
+    if times > 0 do
+      do
+        let (out, _) = Skee.Synth.render(s, n)
+        let first =
+          match out do
+          Cons(x, _) -> x
+          Nil -> 0.0
+          end
+        repeat(s, n, times - 1, sink +. first)
+      end
+    else
+      sink
+    end
+  end
+
+  fn time_it(label : String, s : Synth, n : Int, times : Int) : () do
+    let t0 = unix_time_ms()
+    let sink = repeat(s, n, times, 0.0)
+    let ms = unix_time_ms() - t0
+    let per_call_us = int_to_float(ms) *. 1000.0 /. int_to_float(times)
+    let budget_us = int_to_float(n) /. 44100.0 *. 1000000.0
+    println(label ++ " voices=" ++ int_to_string(Skee.Synth.voice_count(s)) ++ " render(" ++ int_to_string(n) ++ ") x" ++ int_to_string(times) ++ ": " ++ float_to_string(per_call_us) ++ " us per call, " ++ float_to_string(per_call_us /. budget_us *. 100.0) ++ "% of real time (sink " ++ float_to_string(sink) ++ ")")
+  end
+
+  fn main(_c : Cap(IO.Console), _clock : Cap(IO.Clock)) : () do
+    time_it("idle", idle(), 128, 2000)
+    time_it("typical", typical(), 128, 2000)
+    time_it("busy", busy(), 128, 2000)
+    time_it("idle", idle(), 44100, 5)
+    time_it("typical", typical(), 44100, 5)
+    time_it("busy", busy(), 44100, 5)
+    let one_time = Skee.Synth.consts()
+    let t0 = unix_time_ms()
+    let s = List.fold_left(List.range(0, 1000), Skee.Synth.new(), fn (acc, _) -> Skee.Synth.play(acc, SndReelTick))
+    println("play(reelTick) x1000 with consts built once per synth: " ++ int_to_string(unix_time_ms() - t0) ++ " ms (voices " ++ int_to_string(Skee.Synth.voice_count(s)) ++ ", pi " ++ float_to_string(one_time.pi) ++ ")")
+    println(SynthSuite.measure())
+  end
+
+end

@@ -22,8 +22,6 @@ mod Skee.Presentation do
     | BeatCommit(RunState)
     | BeatRestyle(ArtStyle, ArtStyle)
 
-  derive Show for Beat
-
   -- A moment worth a sound or an effect.
   type Cue =
     CueLaunch
@@ -107,8 +105,6 @@ mod Skee.Presentation do
     shown_steps : Int
   }
 
-  derive Show for Presentation
-
   -- Swift's restyleProgress tuple.
   type Restyling = { restyle_from : ArtStyle, restyle_to : ArtStyle, restyle_progress : Float }
 
@@ -116,8 +112,6 @@ mod Skee.Presentation do
 
   -- Swift's tallyProgress tuple: the frame and how many of its steps are shown.
   type TallyShown = { tally_frame : FrameScore, revealed : Int }
-
-  derive Show for TallyShown
 
   -- Swift's banner tuple.
   type BannerShown = { banner_title : String, banner_sub : String, banner_progress : Float }
@@ -177,7 +171,7 @@ mod Skee.Presentation do
     a.reel10 == b.reel10 && a.reel20 == b.reel20 && a.reel30 == b.reel30 && a.reel40 == b.reel40 && a.reel50 == b.reel50 && a.reel_left == b.reel_left && a.reel_right == b.reel_right
   end
 
-  pfn three_floats(t : Three(Int)) : Three(Float) needs () do
+  fn three_floats(t : Three(Int)) : Three(Float) needs () do
     match t do
     Three(a, b, c) -> Three(int_to_float(a), int_to_float(b), int_to_float(c))
     end
@@ -283,6 +277,34 @@ mod Skee.Presentation do
     match p.beats do
     Nil -> None
     Cons(b, _) -> Some(b)
+    end
+  end
+
+  doc """The shot of the roll on screen, if one is."""
+  fn rolling(p : Presentation) : Option(ShotResult) needs () do
+    match current(p) do
+    Some(BeatRoll(r, _)) -> Some(r)
+    Some(BeatSpin(_)) -> None
+    Some(BeatPull(_)) -> None
+    Some(BeatTally(_)) -> None
+    Some(BeatBanner(_, _, _)) -> None
+    Some(BeatCommit(_)) -> None
+    Some(BeatRestyle(_, _)) -> None
+    None -> None
+    end
+  end
+
+  doc """The pull spinning on screen, if one is."""
+  fn pulling(p : Presentation) : Option(Pull) needs () do
+    match current(p) do
+    Some(BeatPull(q)) -> Some(q)
+    Some(BeatRoll(_, _)) -> None
+    Some(BeatSpin(_)) -> None
+    Some(BeatTally(_)) -> None
+    Some(BeatBanner(_, _, _)) -> None
+    Some(BeatCommit(_)) -> None
+    Some(BeatRestyle(_, _)) -> None
+    None -> None
     end
   end
 
@@ -471,9 +493,9 @@ mod Skee.Presentation do
 
   doc """Where the ball is right now, if one is rolling or resting."""
   fn ball(p : Presentation) : Option(PathSample) needs () do
-    match p.beats do
-    Cons(BeatRoll(r, _), _) -> sample(r.path, p.beat_time /. roll_speed())
-    _ -> do
+    match rolling(p) do
+    Some(r) -> sample(r.path, p.beat_time /. roll_speed())
+    None -> do
       match p.resting_ball do
       Some(rest) -> Some(rest.rest_sample)
       None -> None
@@ -510,8 +532,8 @@ mod Skee.Presentation do
   the slot's "will it land" moment.
   """
   fn anticipation(k : Skee.Consts.Consts, p : Presentation) : Float needs () do
-    match p.beats do
-    Cons(BeatRoll(r, _), _) -> do
+    match rolling(p) do
+    Some(r) -> do
       let have = List.map(p.shown.round.current_balls, fn b -> b.record_symbol)
       if List.length(have) == 2 && is_pair(Skee.Scoring.evaluate(have)) do
         match ball(p) do
@@ -534,7 +556,7 @@ mod Skee.Presentation do
         0.0
       end
     end
-    _ -> 0.0
+    None -> 0.0
     end
   end
 
@@ -545,19 +567,31 @@ mod Skee.Presentation do
 
   doc """Progress through a restyle, if one is running."""
   fn restyle_progress(p : Presentation) : Option(Restyling) needs () do
-    match p.beats do
-    Cons(BeatRestyle(a, b), _) -> do
+    match current(p) do
+    Some(BeatRestyle(a, b)) -> do
       Some({ restyle_from: a, restyle_to: b, restyle_progress: p.beat_time /. duration(BeatRestyle(a, b)) })
     end
-    _ -> None
+    Some(BeatRoll(_, _)) -> None
+    Some(BeatSpin(_)) -> None
+    Some(BeatPull(_)) -> None
+    Some(BeatTally(_)) -> None
+    Some(BeatBanner(_, _, _)) -> None
+    Some(BeatCommit(_)) -> None
+    None -> None
     end
   end
 
   doc """The frame being tallied and how many of its steps are revealed."""
   fn tally_progress(p : Presentation) : Option(TallyShown) needs () do
-    match p.beats do
-    Cons(BeatTally(f), _) -> Some({ tally_frame: f, revealed: revealed_steps(f, p.beat_time) })
-    _ -> None
+    match current(p) do
+    Some(BeatTally(f)) -> Some({ tally_frame: f, revealed: revealed_steps(f, p.beat_time) })
+    Some(BeatRoll(_, _)) -> None
+    Some(BeatSpin(_)) -> None
+    Some(BeatPull(_)) -> None
+    Some(BeatBanner(_, _, _)) -> None
+    Some(BeatCommit(_)) -> None
+    Some(BeatRestyle(_, _)) -> None
+    None -> None
     end
   end
 
@@ -567,16 +601,22 @@ mod Skee.Presentation do
 
   doc """The pull machine's last reel is teasing right now."""
   fn teasing(p : Presentation) : Bool needs () do
-    match p.beats do
-    Cons(BeatPull(q), _) -> teases(q) && p.beat_time > pull_stop(1, q) && p.beat_time < pull_stop(2, q)
-    _ -> false
+    match pulling(p) do
+    Some(q) -> teases(q) && p.beat_time > pull_stop(1, q) && p.beat_time < pull_stop(2, q)
+    None -> false
     end
   end
 
   fn banner(p : Presentation) : Option(BannerShown) needs () do
-    match p.beats do
-    Cons(BeatBanner(a, b, s), _) -> Some({ banner_title: a, banner_sub: b, banner_progress: p.beat_time /. s })
-    _ -> None
+    match current(p) do
+    Some(BeatBanner(a, b, s)) -> Some({ banner_title: a, banner_sub: b, banner_progress: p.beat_time /. s })
+    Some(BeatRoll(_, _)) -> None
+    Some(BeatSpin(_)) -> None
+    Some(BeatPull(_)) -> None
+    Some(BeatTally(_)) -> None
+    Some(BeatCommit(_)) -> None
+    Some(BeatRestyle(_, _)) -> None
+    None -> None
     end
   end
 

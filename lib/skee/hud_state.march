@@ -1,0 +1,473 @@
+mod Skee.HudState do
+
+  -- SkeeHUD's HUDState.swift: everything the HUD draws, derived purely from the
+  -- presentation plus the few facts only the shell knows. Swift's `holeOnScreen`
+  -- closure is data here, a PerHole of screen points (a closure in a record is
+  -- not callable under `needs ()`, docs/PORT.md).
+  --
+  -- Ported: `make`, `hint`, `fold`, `stepLabel`, `num`, and every field `make`
+  -- sets. HUDState's fields that `make` never touches (wallet, coach card, shop,
+  -- guide, known tips, Sal's arrival line, safe-area insets, the thumb trail and
+  -- the aim guide) belong to the shell and to the pieces that port them. The
+  -- host's table is out of scope for now: `host` is the seam it will fill.
+  cap pure
+
+  -- A CGPoint on screen.
+  type ScreenPoint = { sx : Float, sy : Float }
+
+  derive Show for ScreenPoint
+
+  type HudScreen = TitleScreen | GameScreen
+
+  derive Eq, Show for HudScreen
+
+  -- Where the host's table will go. Nothing opens it yet: the host is not ported
+  -- (an LLM feature, see docs/PORT.md), and the shell shows a labelled placeholder.
+  type HostSeam = HostClosed | HostPlaceholder
+
+  derive Eq, Show for HostSeam
+
+  -- The pull machine, while it wants a pull or is spinning one.
+  type Machine = {
+    positions : Three(Float),
+    machine_bet : Bet,
+    affordable : List(Bet),
+    can_pull : Bool,
+    machine_free : Bool,
+    free_left : Int,
+    wins : List(LineWin),
+    machine_teasing : Bool,
+    machine_room : Room,
+    machine_progressive : Progressive,
+    show_bets : Bool
+  }
+
+  type HudTally = { tally_chips : Chips, tally_mult : Float, label : String }
+
+  derive Show for HudTally
+
+  type HudBanner = { title : String, sub : String, progress : Float }
+
+  derive Show for HudBanner
+
+  type ScreenPopup = {
+    screen_text : String,
+    screen_kind : PopupKind,
+    at : ScreenPoint,
+    screen_age : Float
+  }
+
+  derive Show for ScreenPopup
+
+  -- Plain words about the slot right now, with an optional symbol between them.
+  type Hint = {
+    hint_text : String,
+    hint_symbol : Option(Symbol),
+    after : String,
+    hint_hot : Bool
+  }
+
+  derive Show for Hint
+
+  type RunOver = { won : Bool, over_stats : RunStats }
+
+  -- Swift's fold result.
+  type TallyFold = { folded_chips : Chips, folded_mult : Float }
+
+  derive Show for TallyFold
+
+  -- What only the shell knows: Swift's other arguments to `make`.
+  type HudInputs = {
+    hole_on_screen : PerHole(ScreenPoint),
+    center : ScreenPoint,
+    selected_offer : Option(Int),
+    selected_charm : Option(Int),
+    screen : HudScreen,
+    bet : Bet
+  }
+
+  derive Show for HudInputs
+
+  type HudState = {
+    hud_screen : HudScreen,
+    hud_ante : Int,
+    antes : Int,
+    round_title : String,
+    is_boss : Bool,
+    boss_name : String,
+    boss_blurb : String,
+    score : Points,
+    hud_target : Points,
+    hud_tickets : Tickets,
+    hud_heat : Int,
+    heat_max : Int,
+    hud_fever : Bool,
+    targets : Three(Symbol),
+    hud_combo : Int,
+    machine : Option(Machine),
+    frame : Three(Option(Symbol)),
+    frame_number : Int,
+    frames_total : Int,
+    balls_left : Int,
+    hud_charms : List(Charm),
+    hud_power_ups : List(PowerUp),
+    hud_armed : Option(PowerUp),
+    counter : Option(PrizeCounter),
+    over : Option(RunOver),
+    tally : Option(HudTally),
+    hud_banner : Option(HudBanner),
+    hud_popups : List(ScreenPopup),
+    hud_selected_offer : Option(Int),
+    hud_selected_charm : Option(Int),
+    busy : Bool,
+    first_throw : Bool,
+    hint : Option(Hint),
+    throws_meter : List(ThrowMark),
+    hud_ball : BallKind,
+    rack : Bool,
+    hot_at : Option(ScreenPoint),
+    hud_clock : Float,
+    shower : Float,
+    host : HostSeam
+  }
+
+  -- ---- Helpers ----
+  pfn is_throwing(ph : Phase) : Bool needs () do
+    match ph do
+    Throwing -> true
+    AtCounter(_) -> false
+    Lost -> false
+    Won -> false
+    end
+  end
+
+  pfn all_bets() : List(Bet) needs () do
+    [BetOne, BetThree, BetFive]
+  end
+
+  pfn symbols_of(t : Three(Symbol)) : Three(Symbol) needs () do
+    t
+  end
+
+  pfn blanks() : Three(Symbol) needs () do
+    Three(Blank, Blank, Blank)
+  end
+
+  pfn frame_symbol(balls : List(BallRecord), i : Int) : Option(Symbol) needs () do
+    match List.nth_opt(balls, i) do
+    Some(b) -> Some(b.record_symbol)
+    None -> None
+    end
+  end
+
+  doc """`x == x.rounded() ? "\\(Int(x))" : String(format: "%.1f", x)`."""
+  fn num(x : Float) : String needs () do
+    if x == int_to_float(float_floor(x)) do int_to_string(float_floor(x)) else fixed1(x) end
+  end
+
+  doc """
+  `%.1f`. Ties round to even, as printf does on an exact binary half (0.25,
+  0.75); every multiplier in the game is a multiple of 0.5, so none is near one.
+  """
+  fn fixed1(x : Float) : String needs () do
+    let negative = x < 0.0
+    let a = if negative do 0.0 -. x else x end
+    let scaled = a *. 10.0
+    let down = float_floor(scaled)
+    let frac = scaled -. int_to_float(down)
+    let tenths = if frac > 0.5 do down + 1 else if frac < 0.5 do down else down + down % 2 end end
+    let sign = if negative && tenths > 0 do "-" else "" end
+    sign ++ int_to_string(tenths / 10) ++ "." ++ int_to_string(tenths % 10)
+  end
+
+  doc """What the slot needs next, in words."""
+  fn hint(have : List(Symbol)) : Hint needs () do
+    let plain = { hint_text: "", hint_symbol: None, after: "", hint_hot: false }
+    match have do
+    Nil -> { plain with hint_text: "3 balls = 1 line · match symbols for MULT" }
+    Cons(s, Nil) -> do
+      if s == Blank do
+        { plain with hint_text: "gutter · the next two can still pair" }
+      else
+        let shown = if Skee.Scoring.is_wild(s) do None else Some(s) end
+        { plain with hint_text: "match the", hint_symbol: shown, after: "· glowing rings pair it" }
+      end
+    end
+    Cons(_, Cons(_, Nil)) -> do
+      match Skee.Scoring.evaluate(have) do
+      Pair(s) -> do
+        { hint_text: "PAIR! one more", hint_symbol: Some(s), after: "= ×" ++ num(1.0 +. Skee.Scoring.triple_mult(s)), hint_hot: true }
+      end
+      NoLine -> { plain with hint_text: "no match yet · glowing rings pair" }
+      Triple(_) -> { plain with hint_text: "no match yet · glowing rings pair" }
+      end
+    end
+    Cons(_, Cons(_, Cons(_, _))) -> plain
+    end
+  end
+
+  pfn fold_step(acc : TallyFold, st : ScoreStep) : TallyFold needs () do
+    match st.effect do
+    SetBase(c, m) -> { folded_chips: c, folded_mult: m }
+    AddChips(c) -> { acc with folded_chips: Skee.Units.add_chips(acc.folded_chips, c) }
+    AddMult(m) -> { acc with folded_mult: acc.folded_mult +. m }
+    TimesMult(x) -> { acc with folded_mult: acc.folded_mult *. x }
+    AddTickets(_) -> acc
+    Note(_) -> acc
+    end
+  end
+
+  doc """Chips and mult after these steps."""
+  fn fold(steps : List(ScoreStep)) : TallyFold needs () do
+    List.fold_left(steps, { folded_chips: Chips(0), folded_mult: 1.0 }, fold_step)
+  end
+
+  pfn effect_words(e : ScoreEffect) : String needs () do
+    match e do
+    SetBase(_, _) -> ""
+    AddChips(c) -> "+" ++ int_to_string(Skee.Units.chips_int(c)) ++ " chips"
+    AddMult(m) -> "+" ++ num(m) ++ " mult"
+    TimesMult(x) -> "x" ++ num(x) ++ " mult"
+    AddTickets(t) -> "+" ++ int_to_string(Skee.Units.tickets_int(t)) ++ " tickets"
+    Note(n) -> n
+    end
+  end
+
+  doc """A tally step in words."""
+  fn step_label(f : FrameScore, st : ScoreStep) : String needs () do
+    let what = effect_words(st.effect)
+    match st.source do
+    FromBase -> "frame"
+    FromPull -> "pull wins  " ++ what
+    FromFreeGame -> "free game  " ++ what
+    FromBall(i) -> "ball " ++ int_to_string(i + 1) ++ "  " ++ what
+    FromSlot(i) -> do
+      match List.nth_opt(f.balls, i) do
+      Some(b) -> do
+        if b.record_combo > 1 do
+          "top slot combo x" ++ int_to_string(b.record_combo) ++ "  " ++ what
+        else
+          "top slot  " ++ what
+        end
+      end
+      None -> "top slot  " ++ what
+      end
+    end
+    FromPayline -> do
+      match f.payline do
+      NoLine -> what
+      Pair(s) -> "pair of " ++ Skee.Presentation.symbol_raw(s) ++ "s  " ++ what
+      Triple(s) -> "three " ++ Skee.Presentation.symbol_raw(s) ++ "s  " ++ what
+      end
+    end
+    FromCharm(c) -> Skee.Items.charm_name(c) ++ "  " ++ what
+    FromFever -> "fever  " ++ what
+    end
+  end
+
+  pfn popup_at(inputs : HudInputs, a : PopupAnchor) : ScreenPoint needs () do
+    match a do
+    AnchorHole(h) -> Skee.HoleMap.at(inputs.hole_on_screen, h)
+    AnchorCenter -> inputs.center
+    -- Below the centre, so two at once can both be read.
+    AnchorHud -> { sx: inputs.center.sx, sy: inputs.center.sy +. 52.0 }
+    end
+  end
+
+  pfn screen_popup(inputs : HudInputs, pop : Popup) : ScreenPopup needs () do
+    { screen_text: pop.popup_text, screen_kind: pop.popup_kind, at: popup_at(inputs, pop.anchor), screen_age: pop.age }
+  end
+
+  pfn machine_of(p : Presentation, s : RunState, inputs : HudInputs, pulling : Option(Pull), wants_pull : Bool) : Option(Machine) needs () do
+    let bet =
+      match pulling do
+      Some(q) -> q.bet
+      None -> inputs.bet
+      end
+    let free =
+      match pulling do
+      Some(q) -> q.free
+      None -> false
+      end
+    let wins =
+      match (pulling, p.last_pull) do
+      (Some(_), Some(shown)) -> Skee.Scoring.line_wins(shown)
+      (Some(_), None) -> []
+      (None, Some(_)) -> []
+      (None, None) -> []
+      end
+    let spinning =
+      match pulling do
+      Some(_) -> true
+      None -> false
+      end
+    if spinning || wants_pull do
+      Some({
+        positions: p.pull_positions,
+        machine_bet: bet,
+        affordable: List.filter(all_bets(), fn b -> Skee.Units.tickets_at_least(s.tickets, Skee.Scoring.bet_cost(b))),
+        can_pull: wants_pull,
+        machine_free: free,
+        free_left: s.round.free_left,
+        wins: wins,
+        machine_teasing: Skee.Presentation.teasing(p),
+        machine_room: s.room,
+        machine_progressive: Skee.Scoring.new_progressive(),
+        show_bets: true
+      })
+    else
+      None
+    end
+  end
+
+  pfn tally_of(t : TallyShown) : HudTally needs () do
+    let f = t.tally_frame
+    let folded = fold(List.take(f.steps, t.revealed))
+    let label =
+      if t.revealed > 0 do
+        match List.nth_opt(f.steps, t.revealed - 1) do
+        Some(st) -> step_label(f, st)
+        None -> ""
+        end
+      else
+        ""
+      end
+    { tally_chips: folded.folded_chips, tally_mult: folded.folded_mult, label: label }
+  end
+
+  pfn tallied_points(t : TallyShown) : Points needs () do
+    let f = t.tally_frame
+    if t.revealed >= List.length(f.steps) do
+      Skee.Scoring.frame_total(f)
+    else
+      let folded = fold(List.take(f.steps, t.revealed))
+      Points(float_to_int(int_to_float(Skee.Units.chips_int(folded.folded_chips)) *. folded.folded_mult))
+    end
+  end
+
+  doc """Build the HUD from a presentation and what only the shell knows."""
+  fn make(p : Presentation, inputs : HudInputs) : HudState needs () do
+    let s = p.shown
+    let busy = Skee.Presentation.is_busy(p)
+    let pulling = Skee.Presentation.pulling(p)
+    let throwing = is_throwing(s.phase)
+    let has_pull =
+      match s.round.round_pull do
+      Some(_) -> true
+      None -> false
+      end
+    let is_pulling =
+      match pulling do
+      Some(_) -> true
+      None -> false
+      end
+    let wants_pull = !busy && throwing && !has_pull
+    let targets =
+      match p.last_pull do
+      Some(q) -> Skee.Scoring.targets(q)
+      None -> if wants_pull || is_pulling do blanks() else symbols_of(s.top_slot.targets) end
+      end
+    let hot : Option(ScreenPoint) =
+      if throwing && has_pull && !is_pulling do
+        match s.round.round_hot do
+        Some(h) -> Some(Skee.HoleMap.at(inputs.hole_on_screen, h))
+        None -> None
+        end
+      else
+        None
+      end
+    let counter =
+      match s.phase do
+      AtCounter(c) -> if busy do None else Some(c) end
+      Throwing -> None
+      Lost -> None
+      Won -> None
+      end
+    let over =
+      if busy do
+        None
+      else
+        match s.phase do
+        Lost -> Some({ won: false, over_stats: s.stats })
+        Won -> Some({ won: true, over_stats: s.stats })
+        Throwing -> None
+        AtCounter(_) -> None
+        end
+      end
+    let shown_tally = Skee.Presentation.tally_progress(p)
+    let balls =
+      match shown_tally do
+      Some(t) -> t.tally_frame.balls
+      None -> s.round.current_balls
+      end
+    let base = Skee.Units.add_points(Skee.Reducer.round_score(s.round), p.tallied_bonus)
+    let score =
+      match shown_tally do
+      Some(t) -> Skee.Units.add_points(base, tallied_points(t))
+      None -> base
+      end
+    let tally =
+      match shown_tally do
+      Some(t) -> Some(tally_of(t))
+      None -> None
+      end
+    let banner =
+      match Skee.Presentation.banner(p) do
+      Some(b) -> Some({ title: b.banner_title, sub: b.banner_sub, progress: b.banner_progress })
+      None -> None
+      end
+    let hint =
+      if !busy && throwing do
+        if has_pull do
+          Some(hint(List.map(s.round.current_balls, fn b -> b.record_symbol)))
+        else
+          Some({ hint_text: "PULL · the middle row = this frame's targets", hint_symbol: None, after: "", hint_hot: false })
+        end
+      else
+        None
+      end
+    {
+      hud_screen: inputs.screen,
+      hud_ante: s.ante,
+      antes: s.config.antes,
+      round_title: String.to_uppercase(Skee.Items.round_title(s.round.kind)),
+      is_boss: s.round.kind == BossRound,
+      boss_name: String.to_uppercase(Skee.Items.boss_name(s.boss)),
+      boss_blurb: Skee.Items.boss_blurb(s.boss),
+      score: score,
+      hud_target: s.round.target,
+      hud_tickets: s.tickets,
+      hud_heat: s.heat,
+      heat_max: s.config.fever_heat,
+      hud_fever: s.fever,
+      targets: targets,
+      hud_combo: s.round.combo,
+      machine: machine_of(p, s, inputs, pulling, wants_pull),
+      frame: Three(frame_symbol(balls, 0), frame_symbol(balls, 1), frame_symbol(balls, 2)),
+      frame_number: Math.min_int(List.length(s.round.frames) + 1, s.round.frames_total),
+      frames_total: s.round.frames_total,
+      balls_left: Skee.Reducer.balls_left(s.round),
+      hud_charms: s.charms,
+      hud_power_ups: s.power_ups,
+      hud_armed: s.round.armed,
+      counter: counter,
+      over: over,
+      tally: tally,
+      hud_banner: banner,
+      hud_popups: List.map(p.popups, fn pop -> screen_popup(inputs, pop)),
+      hud_selected_offer: inputs.selected_offer,
+      hud_selected_charm: inputs.selected_charm,
+      busy: busy,
+      first_throw: s.ante == 1 && s.round.kind == Warmup && List.is_empty(s.round.frames) && List.is_empty(s.round.current_balls),
+      hint: hint,
+      throws_meter: p.recent_throws,
+      hud_ball: s.ball,
+      rack: !busy && throwing && has_pull,
+      hot_at: hot,
+      hud_clock: p.clock,
+      shower: p.celebration,
+      host: HostClosed
+    }
+  end
+
+end

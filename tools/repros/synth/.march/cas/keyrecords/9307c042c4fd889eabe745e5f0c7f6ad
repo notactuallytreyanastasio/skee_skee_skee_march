@@ -1,0 +1,20 @@
+march-keyrecord v1
+target	native
+compiler	4974042838601f64da9bf17e9527be06c43b7fed931e7c6b69195d315ed0b6d0
+runtime_dir	/Users/bobdawg/.march/versions/main-b7c963d74/runtime
+runtime	221a139aba7c042e68ebb450e931f383776e77b219a97b3f83f0083da59eb17e
+stdlib	b916f7d2be10cac077e098629c859bab
+entry	/Users/bobdawg/code/skee_skee_skee_march/tools/repros/synth/fold_probe.march
+mode	depend
+source_key	00306ce7fd2b933c42ec9e7977db8821e850b8697afaddcdb97d55dc16a57c11
+tir_hash	a6a556c52e83b4170169974f1df53f844252fb2ac626d7801e84f7078000b1ad
+post_key	e93928493e50c10fb07c4717f4becfad88ac97d8c0ad518ad21d20b5067f54e5
+flag	O0
+flag	pmt1024
+flag	rtcflags2
+flag	mimalloc
+flag	capstrip
+flag	capstrict
+flag	z3:4.16.0/rl-3000000-50000/darwin-arm64
+flag	libprobe:9e7db9bffeead495
+file	/Users/bobdawg/code/skee_skee_skee_march/tools/repros/synth/fold_probe.march	22c136a1a1ae8f6782c81381d2c0977d

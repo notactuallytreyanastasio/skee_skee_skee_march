@@ -356,18 +356,21 @@ mod Skee.Camera do
   """
   fn hole_on_screen(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport) : PerHole(Vec2) needs () do
     let l = lens(k, rig, v)
-    let b = w.table.board
-    let at = fn h -> pixel(k, l, board(w, Skee.Physics.hole_center(b, h), 0.0))
     {
-      gutter: at(Gutter),
-      ring10: at(Ring10),
-      ring20: at(Ring20),
-      ring30: at(Ring30),
-      ring40: at(Ring40),
-      ring50: at(Ring50),
-      pocket_left: at(PocketLeft),
-      pocket_right: at(PocketRight)
+      gutter: hole_pixel(k, w, l, Gutter),
+      ring10: hole_pixel(k, w, l, Ring10),
+      ring20: hole_pixel(k, w, l, Ring20),
+      ring30: hole_pixel(k, w, l, Ring30),
+      ring40: hole_pixel(k, w, l, Ring40),
+      ring50: hole_pixel(k, w, l, Ring50),
+      pocket_left: hole_pixel(k, w, l, PocketLeft),
+      pocket_right: hole_pixel(k, w, l, PocketRight)
     }
+  end
+
+  -- Named, not a let-bound lambda: see tools/repros/lambda_tagged_int.
+  pfn hole_pixel(k : Skee.Consts.Consts, w : World, l : Lens, h : Hole) : Vec2 needs () do
+    pixel(k, l, board(w, Skee.Physics.hole_center(w.table.board, h), 0.0))
   end
 
   doc """
@@ -375,8 +378,7 @@ mod Skee.Camera do
   """
   fn tapped_hole(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport, tap : Vec2) : Option(Hole) needs () do
     let spots = hole_on_screen(k, w, rig, v)
-    let dist = fn h -> length(sub(Skee.HoleMap.at(spots, h), tap))
-    let nearest = List.fold_left(Skee.HoleMap.reel_holes(), None, fn (acc, h) -> closer(acc, h, dist(h)))
+    let nearest = List.fold_left(Skee.HoleMap.reel_holes(), None, fn (acc, h) -> closer(acc, h, length(sub(Skee.HoleMap.at(spots, h), tap))))
     match nearest do
     Some((h, d)) -> if d < 44.0 do Some(h) else None end
     None -> None

@@ -1,0 +1,9 @@
+mod PresentationMain do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Harness.report("presentation", PresentationSuite.cases())
+  end
+
+end

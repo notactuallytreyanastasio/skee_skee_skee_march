@@ -1,0 +1,28 @@
+mod FoldProbe do
+
+  needs IO.Console
+
+  fn split() : Float do
+    536870913.0
+  end
+
+  fn round24(x : Float) : Float do
+    let p = x *. split()
+    p -. (p -. x)
+  end
+
+  fn sign_of_zero(x : Float) : String do
+    if Math.atan2(x, -1.0) < 0.0 do "-0" else "+0" end
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let third = 1.0 /. 3.0
+    println("round24(1/3) == 1/3: " ++ (if round24(third) == third do "true (not rounded)" else "false (rounded)" end))
+    let y = 0.0 -. 0.0 *. 1.0
+    let neg = (0.0 -. 1.0) *. 0.0
+    println("neg zero: " ++ sign_of_zero(neg))
+    println("0.0 + -0.0: " ++ sign_of_zero(0.0 +. neg) ++ " (IEEE: +0)")
+    println("y: " ++ sign_of_zero(y))
+  end
+
+end

@@ -31,6 +31,11 @@ mod SceneSuite do
     0.001
   end
 
+  -- A lane point is a 32-bit ray cast about a metre: measured worst 1.43e-6 m.
+  fn ray_tol() : Float do
+    0.000002
+  end
+
   fn unit_tol() : Float do
     0.000001
   end
@@ -283,7 +288,7 @@ mod SceneSuite do
     [w, h, fx, fy, hit, x, y, z] -> do
       let got = Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy)))
       match got do
-      Some(p) -> if hit == "1" do near3(p, x, y, z, metres_tol(), "lanePoint") else Mismatch("lanePoint hit, Swift missed") end
+      Some(p) -> if hit == "1" do near3(p, x, y, z, ray_tol(), "lanePoint") else Mismatch("lanePoint hit, Swift missed") end
       None -> Mismatch("lanePoint missed, Swift hit")
       end
     end
@@ -377,6 +382,198 @@ mod SceneSuite do
     ]
   end
 
+  -- ---- The cabinet model against the real node tree ----
+  fn fresh_stage(r : Room) : Skee.Scene.Scenery do
+    let w = Skee.World.make(k(), Skee.Rooms.table(k(), r))
+    let rad = ball_radius(w)
+    let place = { centre: plus(lane(w, 0.0, 0.15), times(lane_normal(w), rad)), scale: 1.0, normal: lane_normal(w), airborne: false, visible: true, sink: 0.0, over_board: false }
+    let motion = { orientation: Skee.Scene.quat_identity(), last: None, spin: origin(), pop: 0.0 }
+    let shadow = { spot: origin(), facing: v3(0.0, 0.0, 1.0), size: 1.0, fade: 1.0, shown: true }
+    let look = { symbol: Blank, turn: 0.0, glow: 0.0, slot_match: false, pulse: 1.0 }
+    {
+      world: w,
+      palette: Skee.Rooms.palette(r),
+      viewport: Skee.Camera.viewport(390.0, 844.0),
+      camera: Skee.Camera.initial(),
+      ball: { place: place, motion: motion, kind: ClassicBall, shadow: shadow },
+      waiting: 12,
+      reels: Skee.HoleMap.fill_reels(look),
+      bulbs: { chase: 0, level: 0.0 },
+      waves: []
+    }
+  end
+
+  fn solid_tokens(s : Skee.Scene.Solid) : List(Float) do
+    match s do
+    Slab(a, b, c, d) -> [a, b, c, d]
+    Drum(a, b) -> [a, b]
+    Orb(a) -> [a]
+    Hoop(a, b) -> [a, b]
+    Card(a, b) -> [a, b]
+    Band(a, b) -> [a, b]
+    LipArc(_, _, _, _, _) -> []
+    end
+  end
+
+  fn solid_kind(s : Skee.Scene.Solid) : String do
+    match s do
+    Slab(_, _, _, _) -> "box"
+    Drum(_, _) -> "cylinder"
+    Orb(_) -> "sphere"
+    Hoop(_, _) -> "torus"
+    Card(_, _) -> "plane"
+    Band(_, _) -> "tube"
+    LipArc(_, _, _, _, _) -> "mesh"
+    end
+  end
+
+  fn colour_token(c : Option(Skee.Scene.Rgba)) : String do
+    match c do
+    Some(x) -> int_to_string(x.red * 65536 + x.green * 256 + x.blue)
+    None -> "-"
+    end
+  end
+
+  fn is_coin(p : Skee.Scene.Part) : Bool do
+    match p.role do
+    CoinPart(_) -> true
+    _ -> false
+    end
+  end
+
+  fn is_halo(p : Skee.Scene.Part) : Bool do
+    match p.role do
+    HaloPart(_) -> true
+    _ -> false
+    end
+  end
+
+  fn frame_floats(f : Skee.Scene.Frame) : List(Float) do
+    [f.ax.x, f.ax.y, f.ax.z, f.ay.x, f.ay.y, f.ay.z, f.az.x, f.az.y, f.az.z, f.at.x, f.at.y, f.at.z]
+  end
+
+  fn compare_floats(got : List(Float), want : List(String), tol : Float, what : String) : Outcome do
+    if List.length(got) == List.length(want) do
+      all(List.zip_with(got, want, fn (g, t) -> near(g, t, tol, what)))
+    else
+      Mismatch(what ++ ": " ++ int_to_string(List.length(got)) ++ " values, want " ++ int_to_string(List.length(want)))
+    end
+  end
+
+  fn node_row(p : Skee.Scene.Part, row : List(String)) : Outcome do
+    match row do
+    Cons(_, Cons(i, Cons(kind, rest))) -> do
+      let what = "node " ++ i ++ " " ++ kind
+      let dims = List.length(solid_tokens(p.solid))
+      let mesh = if kind == "mesh" do 1 else 0 end
+      let dim_tokens = List.take(rest, dims + mesh)
+      let after = List.drop(rest, dims + mesh)
+      match after do
+      Cons(colour, Cons(thick, Cons(hidden, Cons(opacity, frame)))) -> do
+        let kind_ok = expect_string(solid_kind(p.solid), kind, what ++ " kind")
+        let dims_ok = if mesh == 1 do Passed(1) else compare_floats(solid_tokens(p.solid), dim_tokens, metres_tol(), what ++ " size") end
+        let colour_ok = if is_halo(p) do Passed(0) else expect_string(colour_token(p.colour), colour, what ++ " colour") end
+        let thick_ok = near(p.outline, thick, unit_tol(), what ++ " outline")
+        let hidden_ok = if is_coin(p) do Passed(0) else expect_string(if p.hidden do "1" else "0" end, hidden, what ++ " hidden") end
+        let opacity_ok = near(p.opacity, opacity, unit_tol(), what ++ " opacity")
+        let frame_ok = if is_coin(p) do Passed(0) else compare_floats(frame_floats(p.frame), frame, metres_tol(), what ++ " transform") end
+        all([kind_ok, dims_ok, colour_ok, thick_ok, hidden_ok, opacity_ok, frame_ok])
+      end
+      _ -> Mismatch("bad node row")
+      end
+    end
+    _ -> Mismatch("bad node row")
+    end
+  end
+
+  fn room_model(r : Room) : Outcome do
+    let parts = Skee.Scene.model(k(), fresh_stage(r))
+    let want = List.filter(rows("node"), fn row -> List.take(row, 1) == [room_token(r)])
+    let count = List.filter(rows("nodecount"), fn row -> List.take(row, 1) == [room_token(r)])
+    let count_ok = match count do
+    [[_, n]] -> expect_int(List.length(parts), GoldenIo.int(n), room_token(r) ++ " node count")
+    _ -> Mismatch("no nodecount row")
+    end
+    if List.length(parts) == List.length(want) do
+      all(Cons(count_ok, List.zip_with(parts, want, node_row)))
+    else
+      Mismatch(room_token(r) ++ ": " ++ int_to_string(List.length(parts)) ++ " parts, Swift has " ++ int_to_string(List.length(want)))
+    end
+  end
+
+  fn model_cases() : List(Case) do
+    List.map(Skee.Rooms.all_rooms(), fn r -> case("Cabinet node tree, " ++ room_token(r), fn () -> room_model(r)))
+  end
+
+  -- ---- Cabinet.setReel and lightBulbs ----
+  fn look_of(turn : String, glow : String, slot : String, pulse : String) : Skee.Scene.ReelLook do
+    { symbol: Bell, turn: fl(turn), glow: fl(glow), slot_match: slot == "1", pulse: fl(pulse) }
+  end
+
+  fn reel_parts_for(h : Hole, look : Skee.Scene.ReelLook) : List(Skee.Scene.Part) do
+    let st = { fresh_stage(Boardwalk) with reels: Skee.HoleMap.fill_reels(look) }
+    List.filter(Skee.Scene.model(k(), st), fn p -> p.role == Skee.Scene.CoinPart(h) || p.role == Skee.Scene.HaloPart(h))
+  end
+
+  fn decal_row(row : List(String)) : Outcome do
+    match row do
+    [h, turn, glow, slot, pulse, i, hidden, scale, lx, ly, lz, wx, wy, wz] -> do
+      let hole = hole_of(h)
+      let look = look_of(turn, glow, slot, pulse)
+      let table = Skee.Rooms.table(k(), Boardwalk)
+      let layout = Skee.Scene.reel_layout(k(), table.board, hole)
+      let c = Skee.Scene.coin(k(), layout, look, GoldenIo.int(i))
+      let what = "decal " ++ h ++ " " ++ i ++ " turn " ++ float_to_string(fl(turn))
+      let coins = List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.CoinPart(hole))
+      let world_ok = match List.nth_opt(coins, GoldenIo.int(i)) do
+      Some(p) -> near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world")
+      None -> Mismatch(what ++ ": no such coin")
+      end
+      all([expect_string(if c.coin_hidden do "1" else "0" end, hidden, what ++ " hidden"), near(c.swell, scale, unit_tol(), what ++ " scale"), near3(c.local, lx, ly, lz, metres_tol(), what ++ " local"), world_ok])
+    end
+    _ -> Mismatch("bad decal row")
+    end
+  end
+
+  fn halo_row(row : List(String)) : Outcome do
+    match row do
+    [h, turn, glow, slot, pulse, opacity, colour, wx, wy, wz] -> do
+      let hole = hole_of(h)
+      let look = look_of(turn, glow, slot, pulse)
+      let (o, c) = Skee.Scene.halo(look)
+      let halos = List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.HaloPart(hole))
+      let what = "halo " ++ h
+      let at_ok = match halos do
+      [p] -> all([near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world"), near(p.opacity, opacity, unit_tol(), what ++ " part opacity")])
+      _ -> Mismatch(what ++ ": want one halo")
+      end
+      all([near(o, opacity, unit_tol(), what ++ " opacity"), expect_string(colour_token(Some(c)), colour, what ++ " colour"), at_ok])
+    end
+    _ -> Mismatch("bad halo row")
+    end
+  end
+
+  fn bulbs_row(row : List(String)) : Outcome do
+    match row do
+    Cons(phase, Cons(level, lit)) -> do
+      let light = { chase: GoldenIo.int(phase), level: fl(level) }
+      let st = { fresh_stage(Boardwalk) with bulbs: light }
+      let bulbs = List.filter(Skee.Scene.model(k(), st), fn p -> p.role == Skee.Scene.BulbPart)
+      let got = List.map(bulbs, fn p -> p.emission.glow_r)
+      compare_floats(got, lit, unit_tol(), "bulbs phase " ++ phase)
+    end
+    _ -> Mismatch("bad bulbs row")
+    end
+  end
+
+  fn reel_cases() : List(Case) do
+    [
+      case("Cabinet.setReel: coins", fn () -> all(List.map(rows("decal"), decal_row))),
+      case("Cabinet.setReel: halos", fn () -> all(List.map(rows("halo"), halo_row))),
+      case("Cabinet.lightBulbs", fn () -> all(List.map(rows("bulbs"), bulbs_row)))
+    ]
+  end
+
   -- ---- Measured error, printed by the runner ----
   fn off(actual : Float, token : String) : Float do
     Math.abs(actual -. fl(token))
@@ -430,7 +627,7 @@ mod SceneSuite do
 
   fn cases() : List(Case) do
     let rig = fitted()
-    List.concat([world_cases(), camera_cases(rig)])
+    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases()])
   end
 
 end

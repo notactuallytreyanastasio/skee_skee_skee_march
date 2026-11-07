@@ -215,6 +215,8 @@ for _ in 0..<1000 {
 for x in [0.0, -0.0, 1.0, -1.0, 0.0008, 0.035, 0.9, 0.055, 0.0001, 0.003, 1.0 / 44100, Double.pi, 2.76, 1.0595, 1.06] {
     g.line("fround", f64(x), f64(Double(Float(x))))
 }
+// Swift rounds Float.pi toward zero, not to nearest.
+g.line("floatpi", f64(Double(Float.pi)))
 for _ in 0..<3000 {
     let phase = Float(unit())
     let a = phase * 2 * .pi

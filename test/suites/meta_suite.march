@@ -1,0 +1,1118 @@
+mod MetaSuite do
+
+  -- The meta piece: Skee.Guide, Skee.Walkthrough (steps, coach cards, tips) and
+  -- Skee.Save. Golden rows come from tools/golden/Sources/golden-meta. The
+  -- ported WalkthroughTests are named after their Swift functions.
+  import Harness
+
+  fn k() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  fn rows(kind : String) : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Meta.chunks()), kind)
+  end
+
+  -- ---- Text as hex, as the generator writes it ----
+  fn hex_digit(d : Int) : String do
+    String.slice("0123456789abcdef", d, 1)
+  end
+
+  fn hex_go(s : String, i : Int, acc : List(String)) : String do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      String.join(List.reverse(acc), "")
+    else
+      hex_go(s, i + 1, Cons(hex_digit(c / 16) ++ hex_digit(c % 16), acc))
+    end
+  end
+
+  fn hex(s : String) : String do
+    if s == "" do "-" else hex_go(s, 0, []) end
+  end
+
+  fn nibble(c : Int) : Int do
+    if c >= 97 do c - 87 else c - 48 end
+  end
+
+  fn unhex_go(h : String, i : Int, acc : List(String)) : String do
+    if i >= string_byte_length(h) do
+      String.join(List.reverse(acc), "")
+    else
+      do
+        let code = nibble(string_byte_at(h, i)) * 16 + nibble(string_byte_at(h, i + 1))
+        let ch =
+          match String.from_codepoint(code) do
+          Some(c) -> c
+          None -> panic("bad golden byte")
+          end
+        unhex_go(h, i + 2, Cons(ch, acc))
+      end
+    end
+  end
+
+  -- ASCII only: the golden save strings are.
+  fn unhex(h : String) : String do
+    if h == "-" do "" else unhex_go(h, 0, []) end
+  end
+
+  fn bit(b : Bool) : String do
+    if b do "1" else "0" end
+  end
+
+  fn csv_or_dash(xs : List(String)) : String do
+    if List.is_empty(xs) do "-" else String.join(xs, ",") end
+  end
+
+  fn tips_token(ts : List(Tip)) : String do
+    csv_or_dash(List.map(Skee.Walkthrough.tip_set(ts), Skee.Save.tip_name))
+  end
+
+  fn tips_of_token(token : String) : List(Tip) do
+    if token == "-" do
+      []
+    else
+      List.map(String.split(token, ","), fn name ->
+        match Skee.Save.tip_of_name(name) do
+        Some(t) -> t
+        None -> panic("bad golden tip " ++ name)
+        end)
+    end
+  end
+
+  fn step_of(token : String) : WalkthroughStep do
+    match Skee.Walkthrough.step_of_index(GoldenIo.int(token)) do
+    Some(s) -> s
+    None -> panic("bad golden step " ++ token)
+    end
+  end
+
+  fn card_outcome(c : CoachCard, title : String, body : String, tap : String, high : String, what : String) : Outcome do
+    all([expect_string(hex(c.coach_title), title, what ++ " title"), expect_string(hex(c.coach_body), body, what ++ " body"), expect_string(bit(c.coach_needs_tap), tap, what ++ " needsTap"), expect_string(bit(c.coach_high), high, what ++ " high")])
+  end
+
+  -- ---- Guide goldens ----
+  fn topic_at(i : Int) : GuideTopic do
+    match List.nth_opt(Skee.Guide.all(), i) do
+    Some(t) -> t
+    None -> panic("no topic " ++ int_to_string(i))
+    end
+  end
+
+  fn topic_row(row : List(String)) : Outcome do
+    match row do
+    [ti, title, unlocks, count] -> do
+      let t = topic_at(GoldenIo.int(ti))
+      all([expect_string(hex(t.topic_title), title, "topic " ++ ti ++ " title"), expect_string(tips_token(t.topic_unlocks), unlocks, "topic " ++ ti ++ " unlocks"), expect_int(List.length(t.topic_pages), GoldenIo.int(count), "topic " ++ ti ++ " pages")])
+    end
+    _ -> Mismatch("bad topic row")
+    end
+  end
+
+  fn page_row(row : List(String)) : Outcome do
+    match row do
+    [ti, pi, text] -> do
+      let t = topic_at(GoldenIo.int(ti))
+      match List.nth_opt(t.topic_pages, GoldenIo.int(pi)) do
+      Some(page) -> expect_string(hex(page), text, "topic " ++ ti ++ " page " ++ pi)
+      None -> Mismatch("topic " ++ ti ++ " has no page " ++ pi)
+      end
+    end
+    _ -> Mismatch("bad page row")
+    end
+  end
+
+  fn index_of_title(title : String) : String do
+    let titles = List.map(Skee.Guide.all(), fn t -> t.topic_title)
+    match List.find_index(titles, fn x -> x == title) do
+    Some(i) -> int_to_string(i)
+    None -> "?"
+    end
+  end
+
+  fn topics_row(row : List(String)) : Outcome do
+    match row do
+    [seen, want] -> do
+      let got = List.map(Skee.Guide.topics(tips_of_token(seen)), fn t -> index_of_title(t.topic_title))
+      expect_string(String.join(got, ","), want, "topics seen " ++ seen)
+    end
+    _ -> Mismatch("bad topics row")
+    end
+  end
+
+  fn tip_order() : Outcome do
+    let want = String.join(List.flat_map(rows("tiporder"), fn r -> r), ",")
+    expect_string(String.join(List.map(Skee.Walkthrough.all_tips(), Skee.Save.tip_name), ","), want, "Tip.allCases")
+  end
+
+  fn guide_golden_cases() : List(Case) do
+    [
+      case("Tip.allCases in Swift's order", fn () -> tip_order()),
+      case("every Guide topic: title, unlocks, page count", fn () -> all(List.map(rows("topic"), topic_row))),
+      case("every Guide page, word for word", fn () -> all(List.map(rows("page"), page_row))),
+      case("Guide.topics(seen:) for each seen set", fn () -> all(List.map(rows("topics"), topics_row)))
+    ]
+  end
+
+  -- ---- Walkthrough goldens ----
+  fn card_row(row : List(String)) : Outcome do
+    match row do
+    [step, foul, title, body, tap, high] -> do
+      let w = { Skee.Walkthrough.start_at(step_of(step)) with walk_last_foul: foul == "1" }
+      card_outcome(Skee.Walkthrough.card(w), title, body, tap, high, "step " ++ step ++ " foul " ++ foul)
+    end
+    _ -> Mismatch("bad card row")
+    end
+  end
+
+  fn tip_card_row(row : List(String)) : Outcome do
+    match row do
+    [name, wait, title, body, tap, high] -> do
+      match Skee.Save.tip_of_name(name) do
+      Some(t) -> all([expect_string(bit(Skee.Walkthrough.can_wait(t)), wait, name ++ " canWait"), card_outcome(Skee.Walkthrough.tip_card(t), title, body, tap, high, name)])
+      None -> Mismatch("unknown tip " ++ name)
+      end
+    end
+    _ -> Mismatch("bad tipcard row")
+    end
+  end
+
+  fn practice_row(row : List(String)) : Outcome do
+    match row do
+    [target, gap] -> all([expect_int(Skee.Units.points_int(Skee.Walkthrough.practice_target()), GoldenIo.int(target), "practiceTarget"), expect_int(Skee.Walkthrough.gap(), GoldenIo.int(gap), "Tip.gap")])
+    _ -> Mismatch("bad practice row")
+    end
+  end
+
+  fn kind_name(r : RoundKind) : String do
+    match r do
+    Warmup -> "warmup"
+    Feature -> "feature"
+    BossRound -> "boss"
+    end
+  end
+
+  fn practice_run_row(row : List(String)) : Outcome do
+    match row do
+    [room, seed, target, tickets, kind, ante] -> do
+      match Skee.Save.room_of_name(room) do
+      Some(r) -> do
+        let s = Skee.Walkthrough.practice_run(k(), r)
+        all([GoldenIo.expect_u64(s.seed, seed, room ++ " seed"), expect_int(Skee.Units.points_int(s.round.target), GoldenIo.int(target), room ++ " target"), expect_int(Skee.Units.tickets_int(s.tickets), GoldenIo.int(tickets), room ++ " tickets"), expect_string(kind_name(s.round.kind), kind, room ++ " kind"), expect_int(s.ante, GoldenIo.int(ante), room ++ " ante"), expect(s.room == r, room ++ " room")])
+      end
+      None -> Mismatch("unknown room " ++ room)
+      end
+    end
+    _ -> Mismatch("bad practicerun row")
+    end
+  end
+
+  fn shot_with(hot : Bool, slot : Int) : GameEvent do
+    let kk = k()
+    let launch = Skee.Physics.launch_of_power(kk, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let shot = Skee.Physics.simulate_shot(kk, launch, Skee.Types.standard_table(kk), ClassicBall, Skee.U64.of_int(0))
+    let ball = Skee.Scoring.ball_record(Ring30, Bell, Chips(30))
+    Shot(shot, { ball with hot: hot, slot_hits: slot })
+  end
+
+  fn pulled() : GameEvent do
+    Pulled({ stops: Three(0, 0, 0), bet: BetOne, free: false, pull_room: Boardwalk })
+  end
+
+  fn frame() : GameEvent do
+    FrameScored(Skee.Scoring.score_frame([], Skee.Scoring.default_context()))
+  end
+
+  -- The generator's events, by name.
+  fn event(name : String) : GameEvent do
+    if name == "pulled" do pulled()
+    else if name == "freeGamesWon" do FreeGamesWon(3)
+    else if name == "jackpot" do JackpotHit(Mini)
+    else if name == "shot" do shot_with(false, 0)
+    else if name == "shotHot" do shot_with(true, 0)
+    else if name == "shotSlot" do shot_with(false, 1)
+    else if name == "shotBoth" do shot_with(true, 2)
+    else if name == "fouled" do Fouled
+    else if name == "frameScored" do frame()
+    else if name == "feverLit" do FeverLit
+    else if name == "roundCleared" do RoundCleared(Points(70), Points(60), { base: Tickets(3), overkill: Tickets(0), interest: Tickets(0) })
+    else if name == "roundFailed" do RoundFailed(Points(0), Points(60))
+    else if name == "counterOpened" do CounterOpened
+    else if name == "boughtCharm" do Bought(OfferCharm(MultBall))
+    else if name == "boughtPowerUp" do Bought(OfferPowerUp(Hold))
+    else if name == "boughtStamp" do Bought(OfferStamp(Cherry))
+    else if name == "boughtGild" do Bought(OfferGild)
+    else if name == "boughtPurge" do Bought(OfferPurge)
+    else if name == "sold" do Sold(LuckyPenny)
+    else if name == "rerolled" do Rerolled
+    else if name == "armed" do Armed(Feather)
+    else if name == "ballChosen" do BallChosen(Comet)
+    else if name == "roundStartedWarmup" do RoundStarted(Warmup, Points(9))
+    else if name == "roundStartedFeature" do RoundStarted(Feature, Points(9))
+    else if name == "roundStartedBoss" do RoundStarted(BossRound, Points(9))
+    else if name == "anteStarted" do AnteStarted(2, Miser)
+    else if name == "runWon" do RunWon
+    else panic("unknown golden event " ++ name)
+    end end end end end end end end end end end end end end end end end end end end end end end end end end end
+  end
+
+  fn events(names : String) : List(GameEvent) do
+    List.map(String.split(names, ","), event)
+  end
+
+  fn walk_of(step : String, finished : String, foul : String, ahead : String) : Walkthrough do
+    { walk_step: step_of(step), walk_finished: finished == "1", walk_last_foul: foul == "1", walk_pulled_ahead: ahead == "1" }
+  end
+
+  fn walk_token(w : Walkthrough) : String do
+    String.join([int_to_string(Skee.Walkthrough.step_index(w.walk_step)), bit(w.walk_finished), bit(w.walk_last_foul), bit(w.walk_pulled_ahead)], " ")
+  end
+
+  fn walk_op(w : Walkthrough, op : String) : Walkthrough do
+    if op == "gotIt" do
+      Skee.Walkthrough.got_it(w)
+    else
+      if op == "skip" do Skee.Walkthrough.skip(w) else Skee.Walkthrough.observe(w, events(op)) end
+    end
+  end
+
+  fn walk_row(row : List(String)) : Outcome do
+    match row do
+    [s, f, l, a, op, s2, f2, l2, a2] -> do
+      let w0 = walk_of(s, f, l, a)
+      let want = String.join([s2, f2, l2, a2], " ")
+      expect_string(walk_token(walk_op(w0, op)), want, walk_token(w0) ++ " " ++ op)
+    end
+    _ -> Mismatch("bad walk row")
+    end
+  end
+
+  fn walk_golden_cases() : List(Case) do
+    [
+      case("every step's coach card", fn () -> all(List.map(rows("card"), card_row))),
+      case("every tip's card and canWait", fn () -> all(List.map(rows("tipcard"), tip_card_row))),
+      case("practice target and tip gap", fn () -> all(List.map(rows("practice"), practice_row))),
+      case("practiceRun in every room", fn () -> all(List.map(rows("practicerun"), practice_run_row))),
+      case("every walkthrough transition: observe, gotIt, skip", fn () -> all(List.map(rows("walk"), walk_row))),
+      case("walkthrough event lists fold in order", fn () -> all(List.map(rows("walks"), walk_row)))
+    ]
+  end
+
+  -- ---- Tip goldens ----
+  fn game_of(name : String) : RunState do
+    let s = Skee.Walkthrough.practice_run(k(), Boardwalk)
+    let at = fn (kind, ante) -> { s with ante: ante, round: { s.round with kind: kind } }
+    if name == "warmup1" do at(Warmup, 1)
+    else if name == "feature1" do at(Feature, 1)
+    else if name == "boss1" do at(BossRound, 1)
+    else if name == "warmup2" do at(Warmup, 2)
+    else panic("unknown golden game " ++ name)
+    end end end end
+  end
+
+  fn since_of(token : String) : SinceTip do
+    if token == "max" do NoTipYet else BallsSince(GoldenIo.int(token)) end
+  end
+
+  fn tip_option_token(t : Option(Tip)) : String do
+    match t do
+    Some(x) -> Skee.Save.tip_name(x)
+    None -> "-"
+    end
+  end
+
+  fn tip_row(row : List(String)) : Outcome do
+    match row do
+    [game, seen, since, names, want] -> do
+      let got = Skee.Walkthrough.next_tip(events(names), game_of(game), tips_of_token(seen), since_of(since))
+      expect_string(tip_option_token(got), want, game ++ " seen " ++ seen ++ " since " ++ since ++ " " ++ names)
+    end
+    _ -> Mismatch("bad tip row")
+    end
+  end
+
+  fn tip_golden_cases() : List(Case) do
+    [
+      case("Tip.next for every event, game, seen set and gap", fn () -> all(List.map(rows("tip"), tip_row))),
+      case("Tip.next over event lists", fn () -> all(List.map(rows("tips"), tip_row)))
+    ]
+  end
+
+  -- ---- Save goldens ----
+  fn comp_token(r : Room, c : Option(Comp)) : String do
+    match c do
+    Some(x) -> String.join([Skee.Save.room_name(x.comp_room), int_to_string(x.nights), int_to_string(Skee.Units.tickets_int(x.comp_tickets)), int_to_string(Skee.Units.winnings_int(x.credit))], ":")
+    None -> do
+      let _ = r
+      "-"
+    end
+    end
+  end
+
+  fn wallet_tokens(w : Wallet) : String do
+    let rooms = Skee.Rooms.all_rooms()
+    let meters = List.map(Skee.Save.all_tiers(), fn t -> int_to_string(Skee.Units.winnings_int(Skee.Scoring.amount(w.progressive, t))))
+    let held = List.filter(rooms, fn r -> Skee.Rooms.room_at(w.rooms, r))
+    String.join([int_to_string(Skee.Units.winnings_int(w.balance)), int_to_string(Skee.Units.winnings_int(w.lifetime)), csv_or_dash(List.map(w.owned, Skee.Save.prize_name)), String.join(meters, ","), csv_or_dash(List.map(held, Skee.Save.room_name)), Skee.Save.room_name(w.wallet_room), String.join(List.map(rooms, fn r -> comp_token(r, Skee.Rooms.room_at(w.comps, r))), ","), int_to_string(w.games_since_host), int_to_string(w.host_visits)], " ")
+  end
+
+  fn error_token(r : Result(a, SaveError)) : String do
+    match r do
+    Ok(_) -> "ok"
+    Err(e) -> "error: " ++ Skee.Save.describe(e)
+    end
+  end
+
+  fn err_is(r : Result(a, Skee.Save.SaveError), want : Skee.Save.SaveError) : Bool do
+    match r do
+    Ok(_) -> false
+    Err(e) -> e == want
+    end
+  end
+
+  fn wallet_row(row : List(String)) : Outcome do
+    match row do
+    Cons(label, Cons(json, Cons(status, want))) -> do
+      let text = unhex(json)
+      match Skee.Save.decode_wallet(text) do
+      Ok(w) -> do
+        let again = Skee.Save.decode_wallet(Skee.Save.encode_wallet(w))
+        let round_trip =
+          match again do
+          Ok(w2) -> expect_string(wallet_tokens(w2), wallet_tokens(w), label ++ " round trip")
+          Err(e) -> Mismatch(label ++ " round trip: " ++ Skee.Save.describe(e))
+          end
+        all([expect_string("ok", status, label), expect_string(wallet_tokens(w), String.join(want, " "), label), round_trip])
+      end
+      Err(e) -> expect_string("error", status, label ++ " (" ++ Skee.Save.describe(e) ++ ")")
+      end
+    end
+    _ -> Mismatch("bad wallet row")
+    end
+  end
+
+  -- Swift writes these with one room and no comps, so there is one order and
+  -- the encoder must reproduce the file byte for byte.
+  fn wallet_bytes() : Outcome do
+    all(List.filter_map(rows("wallet"), fn row ->
+      match row do
+      Cons(label, Cons(json, _)) -> do
+        if label == "default" || label == "lone" do
+          do
+            let text = unhex(json)
+            match Skee.Save.decode_wallet(text) do
+            Ok(w) -> Some(expect_string(Skee.Save.encode_wallet(w), text, label ++ " bytes"))
+            Err(e) -> Some(Mismatch(label ++ ": " ++ Skee.Save.describe(e)))
+            end
+          end
+        else
+          None
+        end
+      end
+      _ -> None
+      end))
+  end
+
+  fn load_wallet_defaults() : Outcome do
+    let fresh = wallet_tokens(Skee.Rooms.empty_wallet())
+    all([expect_string(wallet_tokens(Skee.Save.load_wallet(None)), fresh, "nothing saved"), expect_string(wallet_tokens(Skee.Save.load_wallet(Some("{\"balance\":"))), fresh, "corrupt"), expect_string(wallet_tokens(Skee.Save.load_wallet(Some("{\"balance\":3,\"lifetime\":4,\"owned\":[]}"))), "3 4 - 50,150,600,2500 boardwalk boardwalk -,-,-,- 0 0", "oldest save")])
+  end
+
+  fn float_hex(x : Float) : String do
+    Skee.Save.u64_hex(Skee.Save.float_bits(x))
+  end
+
+  fn launch_token(l : Launch) : String do
+    String.join(List.map([l.power, l.speed, l.from, l.aim, l.start, l.fold, l.spin, l.skid], float_hex), ":")
+  end
+
+  fn action_token(a : Action) : String do
+    match a do
+    PullLever(b) -> "pull:" ++ int_to_string(Skee.Save.bet_raw(b))
+    ThrowBall(l) -> "throw:" ++ launch_token(l)
+    CommitFoul -> "foul"
+    ChooseBall(b) -> "choose:" ++ Skee.Save.ball_name(b)
+    Arm(n) -> "arm:" ++ int_to_string(n)
+    Buy(n, h) -> do
+      let target =
+        match h do
+        Some(x) -> Skee.Save.hole_name(x)
+        None -> "-"
+        end
+      "buy:" ++ int_to_string(n) ++ ":" ++ target
+    end
+    Reroll -> "reroll"
+    Sell(n) -> "sell:" ++ int_to_string(n)
+    LeaveCounter -> "leave"
+    end
+  end
+
+  fn file_tokens(f : Skee.Save.RunFile) : String do
+    let room =
+      match f.file_room do
+      Some(r) -> Skee.Save.room_name(r)
+      None -> "-"
+      end
+    let extra =
+      match f.file_extra do
+      Some(t) -> int_to_string(Skee.Units.tickets_int(t))
+      None -> "-"
+      end
+    String.join([Skee.Save.u64_hex(f.file_seed), room, extra, csv_or_dash(List.map(f.file_actions, action_token))], " ")
+  end
+
+  fn phase_name(p : Phase) : String do
+    match p do
+    Throwing -> "throwing"
+    AtCounter(_) -> "counter"
+    Lost -> "lost"
+    Won -> "won"
+    end
+  end
+
+  fn replay_tokens(r : Skee.Save.Replayed) : String do
+    let s = r.replayed_run
+    String.join([int_to_string(List.length(r.replayed_actions)), phase_name(s.phase), int_to_string(s.ante), int_to_string(Skee.Units.tickets_int(s.tickets)), int_to_string(Skee.Units.points_int(Skee.Reducer.round_score(s.round))), int_to_string(List.length(s.round.frames)), int_to_string(List.length(s.round.current_balls)), int_to_string(Skee.Units.points_int(s.stats.points)), int_to_string(s.stats.stat_balls), Skee.Save.ball_name(s.ball)], " ")
+  end
+
+  fn replay_want(label : String) : Option(String) do
+    match List.find(rows("replay"), fn r -> List.head_opt(r) == Some(label)) do
+    Some(r) -> Some(String.join(List.drop(r, 1), " "))
+    None -> None
+    end
+  end
+
+  -- A save read back once is fixed from then on. The first trip can move a
+  -- power-only launch's `power` by an ulp, because Launch.init(from:) rebuilds
+  -- it from the speed when there is one, exactly as Swift's own reload does;
+  -- the replay, which runs on the speed, is checked against Swift's.
+  fn round_trip_run(label : String, f : Skee.Save.RunFile) : Outcome do
+    match Skee.Save.decode_run(k(), Skee.Save.encode_run(f)) do
+    Ok(f2) -> do
+      let replay_same =
+        match replay_want(label) do
+        Some(w) -> expect_string(replay_tokens(Skee.Save.replay(k(), f2)), w, label ++ " replay after a round trip")
+        None -> Mismatch(label ++ " has no replay row")
+        end
+      match Skee.Save.decode_run(k(), Skee.Save.encode_run(f2)) do
+      Ok(f3) -> all([expect_string(file_tokens(f3), file_tokens(f2), label ++ " round trip"), replay_same])
+      Err(e) -> Mismatch(label ++ " second round trip: " ++ Skee.Save.describe(e))
+      end
+    end
+    Err(e) -> Mismatch(label ++ " round trip: " ++ Skee.Save.describe(e))
+    end
+  end
+
+  -- The one place this port reads differently: a seed of 2^53 or more as a
+  -- JSON number cannot be held exactly, so it is refused, not misread.
+  fn run_row(row : List(String)) : Outcome do
+    match row do
+    Cons(label, Cons(json, Cons(status, want))) -> do
+      let text = unhex(json)
+      match Skee.Save.decode_run(k(), text) do
+      Ok(f) -> do
+        let round_trip = round_trip_run(label, f)
+        let replayed =
+          match replay_want(label) do
+          Some(w) -> expect_string(replay_tokens(Skee.Save.replay(k(), f)), w, label ++ " replay")
+          None -> Mismatch(label ++ " has no replay row")
+          end
+        all([expect_string("ok", status, label), expect_string(file_tokens(f), String.join(want, " "), label), round_trip, replayed])
+      end
+      Err(e) -> do
+        if label == "bigSeed" do
+          expect(e == SaveOutOfRange("seed"), "bigSeed: " ++ Skee.Save.describe(e))
+        else
+          expect_string("error", status, label ++ " (" ++ Skee.Save.describe(e) ++ ")")
+        end
+      end
+      end
+    end
+    _ -> Mismatch("bad runfile row")
+    end
+  end
+
+  fn tipstore_row(row : List(String)) : Outcome do
+    match row do
+    [names, want] -> do
+      let list = if names == "-" do [] else String.split(names, ",") end
+      let text = "[" ++ String.join(List.map(list, fn n -> "\"" ++ n ++ "\""), ",") ++ "]"
+      expect_string(tips_token(Skee.Save.load_tips(Some(text))), want, "tips " ++ names)
+    end
+    _ -> Mismatch("bad tipstore row")
+    end
+  end
+
+  fn save_golden_cases() : List(Case) do
+    [
+      case("Wallet decoded as Swift decodes it, defaults and refusals", fn () -> all(List.map(rows("wallet"), wallet_row))),
+      case("Wallet encoded as Swift's JSONEncoder writes it", fn () -> wallet_bytes()),
+      case("WalletStore.load falls back to Wallet()", fn () -> load_wallet_defaults()),
+      case("run files decoded and replayed as GameModel does", fn () -> all(List.map(rows("runfile"), run_row))),
+      case("TipStore drops names it does not know", fn () -> all(List.map(rows("tipstore"), tipstore_row)))
+    ]
+  end
+
+  fn tap_needed(w : Walkthrough) : Bool do
+    let c = Skee.Walkthrough.card(w)
+    c.coach_needs_tap
+  end
+
+  fn card_body(w : Walkthrough) : String do
+    let c = Skee.Walkthrough.card(w)
+    c.coach_body
+  end
+
+  fn step_body(s : WalkthroughStep) : String do
+    card_body(Skee.Walkthrough.start_at(s))
+  end
+
+  fn tip_body(t : Tip) : String do
+    let c = Skee.Walkthrough.tip_card(t)
+    c.coach_body
+  end
+
+  fn is_finished(w : Walkthrough) : Bool do
+    w.walk_finished
+  end
+
+  -- ---- WalkthroughTests.swift, ported ----
+  fn throw_at(power : Float) : Action do
+    ThrowBall(Skee.Physics.launch_of_power(k(), power, 0.0, 0.0, 0.0, 0.0, 0.0))
+  end
+
+  fn action_for(w : Walkthrough) : Action do
+    match w.walk_step do
+    WalkPull -> PullLever(BetOne)
+    WalkPullAgain -> PullLever(BetOne)
+    WalkLastPull -> PullLever(BetOne)
+    WalkCounter -> LeaveCounter
+    WalkWelcome -> throw_at(0.62)
+    WalkFlick -> throw_at(0.62)
+    WalkSymbols -> throw_at(0.62)
+    WalkLine -> throw_at(0.62)
+    WalkScore -> throw_at(0.62)
+    WalkTopSlot -> throw_at(0.62)
+    WalkFinish -> throw_at(0.62)
+    WalkPrizes -> throw_at(0.62)
+    end
+  end
+
+  fn note_step(seen : List(WalkthroughStep), w : Walkthrough) : List(WalkthroughStep) do
+    match List.head_opt(List.reverse(seen)) do
+    Some(s) -> if s == w.walk_step do seen else List.append(seen, [w.walk_step]) end
+    None -> [w.walk_step]
+    end
+  end
+
+  -- Play the lesson through the real reducer, doing what each card asks.
+  fn play(w : Walkthrough, s : RunState, seen : List(WalkthroughStep), moves : Int) : Result((Walkthrough, List(WalkthroughStep)), String) do
+    if w.walk_finished || moves >= 200 do
+      Ok((w, seen))
+    else
+      if tap_needed(w) do
+        do
+          let w2 = Skee.Walkthrough.got_it(w)
+          play(w2, s, note_step(seen, w2), moves + 1)
+        end
+      else
+        do
+          let a = action_for(w)
+          match Skee.Reducer.apply(k(), a, s) do
+          Ok(step) -> do
+            let w2 = Skee.Walkthrough.observe(w, step.step_events)
+            play(w2, step.run, note_step(seen, w2), moves + 1)
+          end
+          Err(_) -> Err("step " ++ int_to_string(Skee.Walkthrough.step_index(w.walk_step)) ++ " asked for an action the rules refused")
+          end
+        end
+      end
+    end
+  end
+
+  fn steps_token(xs : List(WalkthroughStep)) : String do
+    String.join(List.map(xs, fn s -> int_to_string(Skee.Walkthrough.step_index(s))), ",")
+  end
+
+  fn a_practice_game_touches_every_step_in_order() : Outcome do
+    let w = Skee.Walkthrough.new_walkthrough()
+    match play(w, Skee.Walkthrough.practice_run(k(), Boardwalk), [w.walk_step], 0) do
+    Ok((done, seen)) -> all([expect(done.walk_finished, "finished"), expect_string(steps_token(seen), steps_token(Skee.Walkthrough.all_steps()), "steps seen")])
+    Err(m) -> Mismatch(m)
+    end
+  end
+
+  fn one_idea_per_card_short_enough_to_read_at_eighteen_points() : Outcome do
+    let steps = List.map(Skee.Walkthrough.all_steps(), fn s -> expect(String.codepoint_count(step_body(s)) <= 170, "step " ++ int_to_string(Skee.Walkthrough.step_index(s))))
+    let tips = List.map(Skee.Walkthrough.all_tips(), fn t -> expect(String.codepoint_count(tip_body(t)) <= 170, Skee.Save.tip_name(t)))
+    all(List.append(steps, tips))
+  end
+
+  fn nothing_happens_until_the_welcome_is_read() : Outcome do
+    let w = Skee.Walkthrough.new_walkthrough()
+    let once = Skee.Walkthrough.got_it(w)
+    let twice = Skee.Walkthrough.got_it(once)
+    all([expect(w.walk_step == WalkWelcome && tap_needed(w), "starts on the welcome"), expect(once.walk_step == WalkPull, "then the pull"), expect(twice.walk_step == WalkPull, "the pull waits for the lever")])
+  end
+
+  fn a_foul_stays_on_the_flick_and_says_why() : Outcome do
+    let w = Skee.Walkthrough.observe(Skee.Walkthrough.start_at(WalkFlick), [Fouled])
+    let after = Skee.Walkthrough.observe(w, [shot_with(false, 0)])
+    all([expect(w.walk_step == WalkFlick, "still the flick"), expect(String.contains(String.to_lowercase(card_body(w)), "line"), "says why"), expect(after.walk_step == WalkSymbols, "a shot moves on")])
+  end
+
+  fn three_fouls_still_reach_scoring() : Outcome do
+    let w0 = Skee.Walkthrough.start_at(WalkFlick)
+    let w = Skee.Walkthrough.observe(Skee.Walkthrough.observe(Skee.Walkthrough.observe(w0, [Fouled]), [Fouled]), [Fouled, frame()])
+    expect(w.walk_step == WalkScore, "reached scoring")
+  end
+
+  fn a_free_game_that_pulls_the_lever_is_not_waited_for() : Outcome do
+    let w = Skee.Walkthrough.observe(Skee.Walkthrough.start_at(WalkLine), [frame(), pulled()])
+    let after = Skee.Walkthrough.got_it(w)
+    all([expect(w.walk_step == WalkScore, "scoring"), expect(after.walk_step == WalkTopSlot, "past the pull")])
+  end
+
+  fn a_round_that_ends_early_still_ends_the_lesson() : Outcome do
+    let w = Skee.Walkthrough.observe(Skee.Walkthrough.start_at(WalkTopSlot), [RoundFailed(Points(0), Points(60))])
+    all([expect(w.walk_step == WalkPrizes, "on to the last card"), expect(is_finished(Skee.Walkthrough.got_it(w)), "then done")])
+  end
+
+  fn got_it_only_works_on_cards_without_a_task() : Outcome do
+    let w = Skee.Walkthrough.got_it(Skee.Walkthrough.start_at(WalkFlick))
+    expect(w.walk_step == WalkFlick && !w.walk_finished, "the flick waits for a throw")
+  end
+
+  fn skip_ends_it_anywhere() : Outcome do
+    expect(is_finished(Skee.Walkthrough.skip(Skee.Walkthrough.start_at(WalkSymbols))), "skipped")
+  end
+
+  fn practice_run_is_an_easy_warmup() : Outcome do
+    let s = Skee.Walkthrough.practice_run(k(), Boardwalk)
+    expect_int(Skee.Units.points_int(s.round.target), Skee.Units.points_int(Skee.Walkthrough.practice_target()), "target")
+  end
+
+  fn the_lesson_is_only_the_basics() : Outcome do
+    let words =
+      String.to_lowercase(String.join(List.map(Skee.Walkthrough.all_steps(), fn s -> step_body(s)), " "))
+    let later = List.map(["hot spot", "fever", "jackpot", "boss", "combo", "marshmallow"], fn x -> expect(!String.contains(words, x), x))
+    all(Cons(expect(List.length(Skee.Walkthrough.all_steps()) <= 12, "at most 12 steps"), later))
+  end
+
+  fn game() : RunState do
+    Skee.Walkthrough.practice_run(k(), Boardwalk)
+  end
+
+  fn next(es : List(GameEvent), s : RunState, seen : List(Tip)) : Option(Tip) do
+    Skee.Walkthrough.next_tip(es, s, seen, NoTipYet)
+  end
+
+  fn expect_tip(got : Option(Tip), want : Option(Tip), what : String) : Outcome do
+    expect_string(tip_option_token(got), tip_option_token(want), what)
+  end
+
+  fn tips_come_once_each() : Outcome do
+    let es = [FeverLit, RoundFailed(Points(0), Points(1))]
+    all([expect_tip(next(es, game(), []), Some(TipFever), "fever first"), expect_tip(next(es, game(), [TipFever]), Some(TipGameOver), "then game over"), expect_tip(next(es, game(), [TipFever, TipGameOver]), None, "then nothing")])
+  end
+
+  fn the_first_match_teaches_the_combo() : Outcome do
+    all([expect_tip(next([shot_with(false, 0)], game(), []), None, "a plain hit"), expect_tip(next([shot_with(false, 1)], game(), []), Some(TipCombo), "a match")])
+  end
+
+  fn the_hot_spot_waits_for_the_second_round_unless_it_is_hit() : Outcome do
+    let g = game()
+    let later = { g with round: { g.round with kind: Feature } }
+    all([expect_tip(next([pulled()], g, []), None, "warm-up pull"), expect_tip(next([pulled()], later, []), Some(TipHotSpot), "feature pull"), expect_tip(next([shot_with(true, 0)], g, []), Some(TipHotSpot), "a hot hit")])
+  end
+
+  fn bets_come_on_the_second_ante_or_the_second_game_and_balls_a_round_later() : Outcome do
+    let g = game()
+    let ante2 = { g with ante: 2 }
+    let round = RoundStarted(Feature, Points(9))
+    all([expect_tip(next([frame()], g, []), None, "ante 1"), expect_tip(next([frame()], ante2, []), Some(TipBets), "ante 2"), expect_tip(next([frame()], g, [TipGameOver]), Some(TipBets), "second game"), expect_tip(next([round], ante2, []), None, "round before bets"), expect_tip(next([round], ante2, [TipBets]), Some(TipBalls), "round after bets")])
+  end
+
+  fn cards_that_can_wait_do_not_crowd_each_other() : Outcome do
+    let g = game()
+    all([expect_tip(Skee.Walkthrough.next_tip([shot_with(false, 1)], g, [], BallsSince(2)), None, "too soon"), expect_tip(Skee.Walkthrough.next_tip([shot_with(false, 1)], g, [], BallsSince(Skee.Walkthrough.gap())), Some(TipCombo), "after the gap"), expect_tip(Skee.Walkthrough.next_tip([JackpotHit(Mini)], g, [], BallsSince(0)), Some(TipJackpot), "a jackpot happens when it happens")])
+  end
+
+  fn buying_things_explains_them() : Outcome do
+    all([expect_tip(next([Bought(OfferCharm(MultBall))], game(), []), Some(TipCharm), "charm"), expect_tip(next([Bought(OfferPowerUp(Hold))], game(), []), Some(TipSpecialty), "power-up"), expect_tip(next([Bought(OfferGild)], game(), []), Some(TipBoardEdit), "gild")])
+  end
+
+  -- ArrivalTests: the Wallet half of the two first-deal tests. The Haggle half
+  -- (its budget and offers) waits for the Haggle port.
+  fn the_first_deal_does_not_count_as_a_visit() : Outcome do
+    let w = Skee.Rooms.game_played(Skee.Rooms.empty_wallet())
+    let deal = { comp_room: Boardwalk, nights: 2, comp_tickets: Tickets(1), credit: Winnings(0) }
+    let after = Skee.Rooms.close_deal(w, deal, VisitArrival)
+    let nights =
+      match after.comps.boardwalk do
+      Some(c) -> c.nights
+      None -> 0
+      end
+    all([expect_int(nights, 2, "nights banked"), expect_int(after.host_visits, 0, "hostVisits"), expect_int(after.games_since_host, 1, "gamesSinceHost")])
+  end
+
+  fn the_first_deal_leaves_a_player_in_their_room() : Outcome do
+    let w0 = Skee.Rooms.empty_wallet()
+    let w = { w0 with rooms: { w0.rooms with neon_lounge: true }, wallet_room: NeonLounge }
+    let after = Skee.Rooms.close_deal(w, Skee.Rooms.comp_opening(Boardwalk), VisitArrival)
+    expect(after.wallet_room == NeonLounge, "still in the Neon Lounge")
+  end
+
+  fn the_guide_starts_small_and_grows() : Outcome do
+    let more = Skee.Guide.topics([TipCombo])
+    let last =
+      match List.head_opt(List.reverse(more)) do
+      Some(t) -> t.topic_title
+      None -> "-"
+      end
+    all([expect_int(List.length(Skee.Guide.topics([])), 5, "from the start"), expect(List.length(Skee.Guide.all()) <= 13, "at most 13"), expect_int(List.length(more), 6, "after a combo"), expect_string(last, "Targets and Combos", "the combo topic"), expect_int(List.length(Skee.Guide.topics(Skee.Walkthrough.all_tips())), List.length(Skee.Guide.all()), "everything seen")])
+  end
+
+  fn every_guide_page_fits_on_one_screen() : Outcome do
+    all(List.flat_map(Skee.Guide.all(), fn t -> Cons(expect(!List.is_empty(t.topic_pages), t.topic_title ++ " has pages"), List.map(t.topic_pages, fn p -> expect(String.codepoint_count(p) <= 330, t.topic_title ++ ": " ++ int_to_string(String.codepoint_count(p)))))))
+  end
+
+  fn the_guide_lists_every_item_by_name() : Outcome do
+    let text = String.join(List.flat_map(Skee.Guide.all(), fn t -> t.topic_pages), " ")
+    let has = fn name -> expect(String.contains(text, name), name)
+    all(List.concat([List.map(Skee.Items.all_charms(), fn c -> has(Skee.Items.charm_name(c))), List.map(Skee.Items.all_power_ups(), fn p -> has(Skee.Items.power_up_name(p))), List.map(Skee.Items.all_balls(), fn b -> has(Skee.Items.ball_name(b))), List.map(Skee.Items.all_bosses(), fn b -> has(Skee.Items.boss_name(b))), List.map(List.drop(Skee.Rooms.all_rooms(), 1), fn r -> has(Skee.Rooms.name(r)))]))
+  end
+
+  fn walkthrough_test_cases() : List(Case) do
+    [
+      case("aPracticeGameTouchesEveryStepInOrder", fn () -> a_practice_game_touches_every_step_in_order()),
+      case("oneIdeaPerCardShortEnoughToReadAtEighteenPoints", fn () -> one_idea_per_card_short_enough_to_read_at_eighteen_points()),
+      case("nothingHappensUntilTheWelcomeIsRead", fn () -> nothing_happens_until_the_welcome_is_read()),
+      case("aFoulStaysOnTheFlickAndSaysWhy", fn () -> a_foul_stays_on_the_flick_and_says_why()),
+      case("threeFoulsStillReachScoring", fn () -> three_fouls_still_reach_scoring()),
+      case("aFreeGameThatPullsTheLeverIsNotWaitedFor", fn () -> a_free_game_that_pulls_the_lever_is_not_waited_for()),
+      case("aRoundThatEndsEarlyStillEndsTheLesson", fn () -> a_round_that_ends_early_still_ends_the_lesson()),
+      case("gotItOnlyWorksOnCardsWithoutATask", fn () -> got_it_only_works_on_cards_without_a_task()),
+      case("skipEndsItAnywhere", fn () -> skip_ends_it_anywhere()),
+      case("practiceRunIsAnEasyWarmup", fn () -> practice_run_is_an_easy_warmup()),
+      case("theLessonIsOnlyTheBasics", fn () -> the_lesson_is_only_the_basics()),
+      case("tipsComeOnceEach", fn () -> tips_come_once_each()),
+      case("theFirstMatchTeachesTheCombo", fn () -> the_first_match_teaches_the_combo()),
+      case("theHotSpotWaitsForTheSecondRoundUnlessItIsHit", fn () -> the_hot_spot_waits_for_the_second_round_unless_it_is_hit()),
+      case("betsComeOnTheSecondAnteOrTheSecondGameAndBallsARoundLater", fn () -> bets_come_on_the_second_ante_or_the_second_game_and_balls_a_round_later()),
+      case("cardsThatCanWaitDoNotCrowdEachOther", fn () -> cards_that_can_wait_do_not_crowd_each_other()),
+      case("buyingThingsExplainsThem", fn () -> buying_things_explains_them()),
+      case("theFirstDealIsGenerousAndDoesNotCountAsAVisit (Wallet half)", fn () -> the_first_deal_does_not_count_as_a_visit()),
+      case("theFirstDealLeavesAPlayerInTheirRoom (Wallet half)", fn () -> the_first_deal_leaves_a_player_in_their_room()),
+      case("theGuideStartsSmallAndGrows", fn () -> the_guide_starts_small_and_grows()),
+      case("everyGuidePageFitsOnOneScreen", fn () -> every_guide_page_fits_on_one_screen()),
+      case("theGuideListsEveryItemByName", fn () -> the_guide_lists_every_item_by_name())
+    ]
+  end
+
+  -- ---- GameModel's tip bookkeeping (no Swift test; written first here) ----
+  fn step_of_events(es : List(GameEvent)) : Step do
+    { run: game(), step_events: es }
+  end
+
+  fn tracker_counts_balls_and_shows_one_tip() : Outcome do
+    let t0 = Skee.Walkthrough.new_tracker([TipFever, TipFever])
+    let t1 = Skee.Walkthrough.track(t0, throw_at(0.5), step_of_events([shot_with(false, 1)]))
+    let t2 = Skee.Walkthrough.track(t1, throw_at(0.5), step_of_events([FeverLit, JackpotHit(Mini)]))
+    let t3 = Skee.Walkthrough.track(Skee.Walkthrough.dismiss_tip(t2), throw_at(0.5), step_of_events([shot_with(true, 0)]))
+    let t4 = Skee.Walkthrough.track(t3, PullLever(BetOne), step_of_events([JackpotHit(Mini)]))
+    all([expect_string(tips_token(t0.tips_seen), "fever", "a set from the store"), expect_tip(t1.tip_showing, Some(TipCombo), "first card"), expect(t1.since_tip == BallsSince(0), "the gap restarts"), expect_tip(t2.tip_showing, Some(TipCombo), "one card at a time"), expect(t2.since_tip == BallsSince(1), "a throw counts"), expect_tip(t3.tip_showing, None, "a card that can wait waits for the gap"), expect(t3.since_tip == BallsSince(2), "two throws"), expect_tip(t4.tip_showing, Some(TipJackpot), "a jackpot does not wait"), expect_string(tips_token(t4.tips_seen), "combo,fever,jackpot", "seen grows")])
+  end
+
+  fn tracker_cases() : List(Case) do
+    [case("tips: one card at a time, the gap counted in throws", fn () -> tracker_counts_balls_and_shows_one_tip())]
+  end
+
+  -- ---- Save properties ----
+  fn draw(r : Skee.Rng.Rng, n : { Int | _ > 0 }) : (Int, Skee.Rng.Rng) do
+    Skee.Rng.next_int_below(r, n)
+  end
+
+  fn pick_some(r : Skee.Rng.Rng, xs : List(a), acc : List(a)) : (List(a), Skee.Rng.Rng) do
+    match xs do
+    Nil -> (List.reverse(acc), r)
+    Cons(x, rest) -> do
+      let (n, r2) = draw(r, 2)
+      pick_some(r2, rest, if n == 1 do Cons(x, acc) else acc end)
+    end
+    end
+  end
+
+  fn random_comp(r : Skee.Rng.Rng, room : Room) : (Option(Comp), Skee.Rng.Rng) do
+    let (has, r1) = draw(r, 2)
+    let (nights, r2) = draw(r1, 9)
+    let (tickets, r3) = draw(r2, 9)
+    let (credit, r4) = draw(r3, 5000)
+    let c = { comp_room: room, nights: nights, comp_tickets: Tickets(tickets), credit: Winnings(credit) }
+    let out = if has == 1 do Some(c) else None end
+    (out, r4)
+  end
+
+  fn random_wallet(r0 : Skee.Rng.Rng) : (Wallet, Skee.Rng.Rng) do
+    let (balance, r1) = draw(r0, 1000000)
+    let (lifetime, r2) = draw(r1, 1000000000)
+    let (owned, r3) = pick_some(r2, Skee.Rooms.all_prizes(), [])
+    let (shuffled, r4) = Skee.Rng.shuffled(r3, owned)
+    let (rooms, r5) = pick_some(r4, Skee.Rooms.all_rooms(), [])
+    let (room_i, r6) = draw(r5, 4)
+    let (c1, r7) = random_comp(r6, Boardwalk)
+    let (c2, r8) = random_comp(r7, NeonLounge)
+    let (c3, r9) = random_comp(r8, HighRoller)
+    let (c4, r10) = random_comp(r9, Penthouse)
+    let (m, r11) = draw(r10, 100000)
+    let (since, r12) = draw(r11, 10)
+    let (visits, r13) = draw(r12, 10)
+    let room =
+      match List.nth_opt(Skee.Rooms.all_rooms(), room_i) do
+      Some(x) -> x
+      None -> Boardwalk
+      end
+    let w =
+      {
+        balance: Winnings(balance - 500000),
+        lifetime: Winnings(lifetime),
+        owned: shuffled,
+        progressive: { meters: { mini: Winnings(m), minor: Winnings(m + 1), major: Winnings(m * 3), grand: Winnings(m * 7) } },
+        rooms: { boardwalk: List.any(rooms, fn x -> x == Boardwalk), neon_lounge: List.any(rooms, fn x -> x == NeonLounge), high_roller: List.any(rooms, fn x -> x == HighRoller), penthouse: List.any(rooms, fn x -> x == Penthouse) },
+        wallet_room: room,
+        comps: { boardwalk: c1, neon_lounge: c2, high_roller: c3, penthouse: c4 },
+        games_since_host: since,
+        host_visits: visits
+      }
+    let rest = r13
+    (w, rest)
+  end
+
+  fn wallet_trips(r : Skee.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
+    if n == 0 do
+      acc
+    else
+      do
+        let (w, r2) = random_wallet(r)
+        let text = Skee.Save.encode_wallet(w)
+        let o =
+          match Skee.Save.decode_wallet(text) do
+          Ok(w2) -> expect_string(wallet_tokens(w2), wallet_tokens(w), "wallet " ++ int_to_string(n))
+          Err(e) -> Mismatch("wallet " ++ int_to_string(n) ++ ": " ++ Skee.Save.describe(e) ++ " in " ++ text)
+          end
+        wallet_trips(r2, n - 1, Cons(o, acc))
+      end
+    end
+  end
+
+  fn seed_rng(n : Int) : Skee.Rng.Rng do
+    Skee.Rng.seed(Skee.U64.of_int(n))
+  end
+
+  fn wallet_round_trip() : Outcome do
+    all(wallet_trips(seed_rng(11), 200, []))
+  end
+
+  fn unit(r : Skee.Rng.Rng) : (Float, Skee.Rng.Rng) do
+    Skee.Rng.next_unit(k(), r)
+  end
+
+  fn random_action(r0 : Skee.Rng.Rng) : (Action, Skee.Rng.Rng) do
+    let (kind, r1) = draw(r0, 10)
+    let (n, r2) = draw(r1, 7)
+    let (a, r3) = unit(r2)
+    let (b, r4) = unit(r3)
+    let (c, r5) = unit(r4)
+    let (d, r6) = unit(r5)
+    let (e, r7) = unit(r6)
+    let (f, r8) = unit(r7)
+    let holes = Skee.HoleMap.all_holes()
+    let hole = List.nth_opt(holes, n)
+    let ball =
+      match List.nth_opt(Skee.Items.all_balls(), n % 5) do
+      Some(x) -> x
+      None -> ClassicBall
+      end
+    let bet = if n % 3 == 0 do BetOne else if n % 3 == 1 do BetThree else BetFive end end
+    let kk = k()
+    let action =
+      if kind == 0 do PullLever(bet)
+      else if kind == 1 do ThrowBall(Skee.Physics.launch_of_speed(kk, a *. 6.0, b *. 2.4, c *. 2.0 -. 1.0, d *. 2.0 -. 1.0, e, f *. 2.0 -. 1.0, a *. b))
+      else if kind == 2 do ThrowBall(Skee.Physics.launch_of_speed(kk, a *. 6.0, 0.0, -0.0, -0.0, 0.0, -0.0, 0.0))
+      else if kind == 3 do CommitFoul
+      else if kind == 4 do ChooseBall(ball)
+      else if kind == 5 do Arm(n)
+      else if kind == 6 do Buy(n, hole)
+      else if kind == 7 do Reroll
+      else if kind == 8 do Sell(n)
+      else LeaveCounter
+      end end end end end end end end end
+    (action, r8)
+  end
+
+  fn random_actions(r : Skee.Rng.Rng, n : Int, acc : List(Action)) : (List(Action), Skee.Rng.Rng) do
+    if n == 0 do
+      (acc, r)
+    else
+      do
+        let (a, r2) = random_action(r)
+        random_actions(r2, n - 1, Cons(a, acc))
+      end
+    end
+  end
+
+  fn run_trips(r : Skee.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
+    if n == 0 do
+      acc
+    else
+      do
+        let (hi, r1) = draw(r, 65536 * 65536)
+        let (lo, r2) = draw(r1, 65536 * 65536)
+        let (count, r3) = draw(r2, 40)
+        let (actions, r4) = random_actions(r3, count, [])
+        let seed = if n % 2 == 0 do Skee.U64.make(hi, lo) else Skee.U64.make(hi % 2097152, lo) end
+        let f = Skee.Save.run_file(seed, Boardwalk, Tickets(n % 4), actions)
+        let o =
+          match Skee.Save.decode_run(k(), Skee.Save.encode_run(f)) do
+          Ok(f2) -> expect_string(file_tokens(f2), file_tokens(f), "run " ++ int_to_string(n))
+          Err(e) -> Mismatch("run " ++ int_to_string(n) ++ ": " ++ Skee.Save.describe(e))
+          end
+        run_trips(r4, n - 1, Cons(o, acc))
+      end
+    end
+  end
+
+  -- A launch built from a speed survives exactly: every bit, -0.0 included.
+  fn run_round_trip() : Outcome do
+    all(run_trips(seed_rng(12), 100, []))
+  end
+
+  fn tip_subsets(n : Int, acc : List(Outcome)) : List(Outcome) do
+    if n < 0 do
+      acc
+    else
+      do
+        let picked = List.filter(Skee.Walkthrough.all_tips(), fn t -> int_and(int_shr(n, Skee.Walkthrough.gap() * 0 + tip_bit(t)), 1) == 1)
+        let back = Skee.Save.load_tips(Some(Skee.Save.encode_tips(List.reverse(picked))))
+        tip_subsets(n - 1, Cons(expect_string(tips_token(back), tips_token(picked), "tips " ++ int_to_string(n)), acc))
+      end
+    end
+  end
+
+  fn tip_bit(t : Tip) : Int do
+    match List.find_index(Skee.Walkthrough.all_tips(), fn x -> x == t) do
+    Some(i) -> i
+    None -> 0
+    end
+  end
+
+  fn tips_round_trip() : Outcome do
+    all(tip_subsets(4095, []))
+  end
+
+  fn flags() : Outcome do
+    all([expect(Skee.Save.load_flag(Some(Skee.Save.encode_flag(true))), "true"), expect(!Skee.Save.load_flag(Some(Skee.Save.encode_flag(false))), "false"), expect(!Skee.Save.load_flag(None), "unset"), expect(!Skee.Save.load_flag(Some("yes")), "corrupt"), expect(!Skee.Save.load_flag(Some("1")), "a number")])
+  end
+
+  fn mutate(text : String, r : Skee.Rng.Rng) : (String, Skee.Rng.Rng) do
+    let len = string_byte_length(text)
+    let (how, r1) = draw(r, 3)
+    let (at, r2) = draw(r1, Math.max_int(len, 1))
+    let (ch, r3) = draw(r2, 6)
+    let junk = String.slice("{}[]\",", ch, 1)
+    let cut =
+      if how == 0 do
+        String.slice(text, 0, at)
+      else
+        if how == 1 do
+          String.slice(text, 0, at) ++ junk ++ String.slice(text, at, len - at)
+        else
+          String.slice(text, 0, at) ++ String.slice(text, at + 1, Math.max_int(len - at - 1, 0))
+        end
+      end
+    (cut, r3)
+  end
+
+  fn fuzz(r : Skee.Rng.Rng, n : Int, samples : List(String), done : Int) : Int do
+    if n == 0 do
+      done
+    else
+      do
+        let (i, r1) = draw(r, List.length(samples))
+        let base =
+          match List.nth_opt(samples, i) do
+          Some(s) -> s
+          None -> ""
+          end
+        let (text, r2) = mutate(base, r1)
+        let a = error_token(Skee.Save.decode_wallet(text))
+        let b = error_token(Skee.Save.decode_run(k(), text))
+        let c = error_token(Skee.Save.decode_tips(text))
+        let counted = if string_byte_length(a ++ b ++ c) > 0 do 1 else 0 end
+        fuzz(r2, n - 1, samples, done + counted)
+      end
+    end
+  end
+
+  -- Total: a damaged save gives Ok or a SaveError, never a crash.
+  fn damaged_saves_never_crash() : Outcome do
+    let (w, r) = random_wallet(seed_rng(13))
+    let (actions, r2) = random_actions(r, 12, [])
+    let samples = [Skee.Save.encode_wallet(w), Skee.Save.encode_run(Skee.Save.run_file(Skee.U64.of_int(5), Penthouse, Tickets(2), actions)), Skee.Save.encode_tips(Skee.Walkthrough.all_tips())]
+    expect_int(fuzz(r2, 1500, samples, 0), 1500, "decoded every damaged save")
+  end
+
+  fn nest(n : Int, acc : String) : String do
+    if n == 0 do acc else nest(n - 1, acc ++ "[") end
+  end
+
+  fn deep_nesting_is_refused() : Outcome do
+    let deep = nest(5000, "")
+    let deep_object = "{\"balance\":" ++ nest(40, "") ++ "1"
+    all([expect(err_is(Skee.Save.decode_wallet(deep), SaveTooDeep), "wallet"), expect(err_is(Skee.Save.decode_tips(deep), SaveTooDeep), "tips"), expect(err_is(Skee.Save.decode_wallet(deep_object), SaveTooDeep), "inside an object"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":\"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\",\"lifetime\":1,\"owned\":[]}"), SaveWrongType("balance")), "brackets inside a string are text")])
+  end
+
+  fn typed_errors() : Outcome do
+    all([expect(err_is(Skee.Save.decode_wallet("{\"lifetime\":9,\"owned\":[]}"), SaveMissing("balance")), "missing"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":1,\"lifetime\":9,\"owned\":[\"kazoo\",\"spaceship\"]}"), SaveUnknownName("owned[1]", "spaceship")), "unknown prize"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":1e300,\"lifetime\":9,\"owned\":[]}"), SaveOutOfRange("balance")), "too big for JS"), expect(err_is(Skee.Save.decode_run(k(), "{\"seed\":1,\"actions\":[{\"pull\":{\"_0\":2}}]}"), SaveUnknownName("actions[0].pull._0", "2")), "bad bet"), expect(err_is(Skee.Save.decode_run(k(), "{\"seed\":1,\"actions\":[{\"throwBall\":{\"_0\":{\"power\":\"7ff0000000000000\",\"aim\":0}}}]}"), SaveOutOfRange("actions[0].throwBall._0.power")), "an infinite float")])
+  end
+
+  fn resume_cases() : Outcome do
+    let kk = k()
+    let f = Skee.Save.run_file(Skee.U64.of_int(2024), NeonLounge, Tickets(1), [PullLever(BetOne), throw_at(0.6)])
+    let text = Skee.Save.encode_run(f)
+    let here =
+      match Skee.Save.resume(kk, Some(text), NeonLounge) do
+      Some(r) -> expect_int(List.length(r.replayed_actions), 2, "resumed in its room")
+      None -> Mismatch("did not resume")
+      end
+    let started = Skee.Save.start_run(kk, { Skee.Rooms.empty_wallet() with comps: { boardwalk: Some({ comp_room: Boardwalk, nights: 1, comp_tickets: Tickets(2), credit: Winnings(0) }), neon_lounge: None, high_roller: None, penthouse: None } }, Skee.U64.of_int(9))
+    all([here, expect(Option.is_none(Skee.Save.resume(kk, Some(text), Boardwalk)), "another room starts fresh"), expect(Option.is_none(Skee.Save.resume(kk, Some("garbage"), NeonLounge)), "garbage starts fresh"), expect(Option.is_none(Skee.Save.resume(kk, None, NeonLounge)), "nothing saved"), expect_int(Skee.Units.tickets_int(started.started_run.tickets), 6, "a comped night's tickets"), expect(Option.is_none(started.started_wallet.comps.boardwalk), "the night is used"), expect_string(Skee.Save.encode_run(started.started_file), "{\"actions\":[],\"extraTickets\":2,\"room\":\"boardwalk\",\"seed\":9}", "the file saved at once")])
+  end
+
+  fn bank_cases() : Outcome do
+    let s = game()
+    let lost = { run: { s with stats: { s.stats with points: Points(400), rounds_cleared: 1 } }, step_events: [RoundFailed(Points(0), Points(60))] }
+    let w = Skee.Save.bank_step(Skee.Rooms.empty_wallet(), lost)
+    let pulled_w = Skee.Save.bank_step(Skee.Rooms.empty_wallet(), { run: s, step_events: [Pulled({ stops: Three(0, 0, 0), bet: BetFive, free: false, pull_room: Boardwalk })] })
+    all([expect_int(Skee.Units.winnings_int(w.balance), 40, "400 / 20 + 20"), expect_int(w.games_since_host, 1, "a game played"), expect_int(Skee.Units.winnings_int(Skee.Scoring.amount(pulled_w.progressive, Mini)), 54, "a pull feeds the meters")])
+  end
+
+  fn save_property_cases() : List(Case) do
+    [
+      case("random wallets survive encode then decode", fn () -> wallet_round_trip()),
+      case("random runs survive encode then decode, bit for bit", fn () -> run_round_trip()),
+      case("every set of tips survives", fn () -> tips_round_trip()),
+      case("done flags", fn () -> flags()),
+      case("damaged saves give errors, never a crash", fn () -> damaged_saves_never_crash()),
+      case("deep nesting is refused before parsing", fn () -> deep_nesting_is_refused()),
+      case("errors say what and where", fn () -> typed_errors()),
+      case("resume only in the run's room; a new game checks in", fn () -> resume_cases()),
+      case("a finished run pays the shelf, a pull feeds the meters", fn () -> bank_cases())
+    ]
+  end
+
+  fn cases() : List(Case) do
+    List.concat([guide_golden_cases(), walk_golden_cases(), tip_golden_cases(), save_golden_cases(), walkthrough_test_cases(), tracker_cases(), save_property_cases()])
+  end
+
+end
