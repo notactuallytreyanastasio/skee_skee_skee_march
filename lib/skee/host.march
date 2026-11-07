@@ -1744,6 +1744,11 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     if is_arrival(h.haggle_visit) do "LEARN TO PLAY" else "CHECK IN" end
   end
 
+  doc """The line under the offer: what the terms buy."""
+  fn terms_note() : String needs () do
+    "a night = one game with bonus tickets " ++ middle_dot() ++ " credit buys prizes"
+  end
+
   doc """HostView's quick lines, sent as if typed."""
   fn nudges() : List(String) needs () do
     ["One more night?", "Tickets would help.", "Some credit?"]

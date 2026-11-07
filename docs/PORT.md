@@ -636,7 +636,7 @@ Skee.Host.answer_consent(s, yes), reconsider(s)                    the AI chat c
 Skee.Host.player_says(s, text) -> (HostSession, Option(HostCall))  hostSay + askHost
 Skee.Host.deliver(s, call_id, status, body) -> (HostSession, Option(HostCall))
 Skee.Host.call_failed(s, call_id, reason) -> (HostSession, Option(HostCall))
-Skee.Host.retry(s), sign(s)                                        after a failure; DEAL
+Skee.Host.retry(s), sign(s)                                        after a failure (a reply's or the hello's); DEAL
 Skee.Host.request_body(call) -> String                             the JSON to POST
 ```
 
@@ -646,7 +646,19 @@ Skee.Host.request_body(call) -> String                             the JSON to P
   POSTs `request_body(call)` and passes the HTTP status and body to
   `deliver`, or a network error to `call_failed`. An answer to a call the
   session is no longer waiting for is ignored.
+- `request_body` writes every code point below U+0020 as `\u00XX`, as
+  JSONSerialization does. stdlib `Json.to_string` writes all but `\b \t \n
+  \f \r` raw, which Node's JSON.parse in relay.mjs refuses (400 "not a
+  haggle"), so one such character in a reply's `say` or a player's line
+  (U+000B comes with text pasted from Word) would have broken every later
+  call of the haggle (`tools/repros/json_to_string_controls.march`; wire
+  rows 68 to 71, and the suite's check that no body holds a raw byte below
+  0x20).
 - `deliver` reads the response as DeepSeek.chat does (not 200: `FailHttp`;
+  a body JSONSerialization refuses: `FailMalformed`, including a raw control
+  character, a bad escape, a lone surrogate or a bad or infinite number in a
+  field nothing reads, which JSONDecoder would only scan (`serialization_reads`;
+  trailing commas, a BOM and `1e-400` it reads, wire rows 35 to 67);
   no `choices[0].message.content` text: `FailMalformed`; `finish_reason:
   "length"`: `FailTruncated`), parses the content as DeepSeek.parse does
   (`parse_reply`: trim, ``` fence, JSONDecoder's rules through
@@ -656,9 +668,19 @@ Skee.Host.request_body(call) -> String                             the JSON to P
   most three tries, then `FailUnreadable`. Accepted: `hear` (or `greet`).
 - View state (`HostState`): `is_waiting` (thinking), `shown_lines` (the stock
   hello hidden while the model writes one), `thinking_text`, `takes_lines`,
-  `can_sign`, `can_retry`, `failure`, `subtitle`, `ending_title`,
-  `ending_terms`, `close_label`, `nudges`; `describe_failure` is
-  DeepSeek.Failure's console text.
+  `can_sign`, `can_retry`, `failure`, `greeting_failure`, `subtitle`,
+  `terms_note`, `ending_title`, `ending_terms`, `close_label`, `nudges`;
+  `describe_failure` is DeepSeek.Failure's console text. While the hello is
+  being written `takes_lines` and `can_sign` are false: HostView disables
+  SAY, the nudges and DEAL on `host.thinking`, which GameModel sets to
+  `hostThinking || hostGreeting`, though `hostSay` and `hostDeal` themselves
+  check only `hostThinking`. The AI chat card's texts are the HUD's.
+- `Skee.Save.parse` marks text Swift's decoder refuses with in-band strings
+  (U+0007 "skee-unreadable" U+0007, and "skee-underflow"). A string or key
+  that really starts with U+0007 gets one more U+0007 in front, and
+  `Skee.Save.text_of` takes it off, so no input can spell a mark (parse rows:
+  a `say`, an ignored key and a `mood` spelled as a mark read as Swift reads
+  them).
 
 Deviations, deliberate (the user's direction): no scripted fallback host.
 
@@ -675,14 +697,30 @@ Deviations, deliberate (the user's direction): no scripted fallback host.
 - A line `HostGuard.screen` flags is answered at once by the guard's own fixed
   reply (`deflection`: the 988 line, personal details, real money, and the
   host's off-topic wave-offs from the Phrasebook) and never sent to the model:
-  `deflects(concern)` is true for every concern. In Swift's live path only
+  `deflects(concern)` is true for every concern. The task names crisis,
+  personal details, real money and the off-topic/adult wave-offs; trickery
+  is not named. Deflecting it is the port author's reading, because Swift's
+  `deflection` answers `.offTopic, .trickery` in one arm with the same
+  Phrasebook wave-off; it is a decision for the user (`deflects` is one
+  line). It reaches beyond Swift's live path, since the phrases are matched
+  as substrings: "in fact as a friend, more tickets?" holds "act as" and is
+  waved off without the model being asked, as a money phrase inside a longer
+  word is. In Swift's live path only
   personal details and crisis were kept off the wire (as stand-in notes) and
   the rest went to the model. The deflection is heard through `hear`, so an
   adult line at the last of a host's patience still walks them out, as with
   Swift's scripted host. Later `messages` are Swift's own: crisis and personal
   lines become "(removed)", other screened lines are sent verbatim as history.
 - A greeting that cannot be had leaves the stock hello showing (Swift's
-  `try?`); it is the haggle's own opening line, not an invented reply.
+  `try?`); it is the haggle's own opening line, not an invented reply. The
+  failure is kept, typed, as `greeting_failure` (until the player speaks,
+  when there is no hello left to ask for), and `retry` asks for the hello
+  again. It blocks nothing: the player may talk or sign meanwhile.
+- Safety consequence of the above: while `takes_lines` is false (consent
+  refused or not given, 25 lines said, a failure showing, a call out) no line
+  is screened, so the 988 deflection cannot be reached in those states, where
+  Swift's scripted host would have answered a crisis line. The input is
+  disabled there, so nothing typed goes unanswered.
 
 Findings, kept as Swift has them:
 
@@ -713,8 +751,8 @@ so a lookup allocates nothing and reads no string on JS (a 4-entry byte-view
 cache made a table string thrash). Segmentation is UAX #29's rules (GB3 to
 GB13, GB9c included) over those classes.
 
-Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 48437
-rows, 4.6 MB; reproducible run to run): 9868 strings' Characters (with each
+Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 48676
+rows, 4.4 MB; reproducible run to run): 9868 strings' Characters (with each
 one's letter, number, whitespace and ASCII key), lowercasing and every
 lowercase mapping, 5936 scalars' properties, prefix and count; HostGuard.screen
 over 8720 lines (every phrase and word in about forty spellings: case, punctuation,
@@ -727,16 +765,19 @@ haggles (every Haggle and HostGuard test in Swift, plus 160 fuzzed) step by step
 offer, patience, status, wantsModel, askedForPerks, final, last line and a
 digest of every message, with 110 system prompts (60 distinct) and 235
 transcript messages compared whole; standIn, accepts, json, deflection; DeepSeek.parse
-over 507 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
-escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting); and
-35 runs of DeepSeek's real client (guardedReply and greeting) against a
+over 524 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
+escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting, text
+spelling Save.parse's marks); and
+72 runs of DeepSeek's real client (guardedReply and greeting) against a
 URLProtocol standing in for the relay, comparing every request body and the
-outcome. All exact on native and JS. `make test-host`: 56 cases, about 12 s
-native, 8 s on node. Sixteen hand mutations (a crisis phrase, Unicode
+outcome (envelopes JSONSerialization refuses or reads, and histories holding
+every control character), and each March body must hold no raw byte below
+0x20. All exact on native and JS. `make test-host`: 57 cases, about 12 s
+native, 8 s on node. Eighteen hand mutations (a crisis phrase, Unicode
 whitespace, GB9c, GB11, GB12, the canonical singletons, the digit separators,
 the sweetener, a prompt word, the try count, truncation, the fence, the
-trickery deflection, the turn limit, the failure state, the push rule) each
-turn the suite red.
+trickery deflection, the turn limit, the failure state, the push rule, the
+control escape in `request_body`, the envelope check) each turn the suite red.
 
 ## Rules every core module follows
 
@@ -874,6 +915,12 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - **`Json.parse` overflows the stack on deep nesting.** A few thousand `[` crash
   it (SIGBUS natively, `RangeError` on JS). Untrusted text goes through
   `Skee.Save.parse`, which counts depth first. (`json_deep_nesting.march`)
+- **`Json.to_string` writes most control characters raw.** Its `escape_of`
+  escapes only `\" \\ \n \r \t \b \f`; U+0000-U+0007, U+000B and
+  U+000E-U+001F come out as raw bytes, which RFC 8259, Node's JSON.parse and
+  JSONSerialization all refuse. Text that leaves the device goes through
+  `Skee.Host.request_body`, which escapes them as `\u00XX`.
+  (`json_to_string_controls.march`)
 - **`Json.parse` overflows a native stack well before Swift's limit.** Objects
   350-400 deep crash it natively (SIGBUS); node manages 1024. Swift's
   JSONDecoder reads 512 levels and refuses the 513th. `Skee.Save.parse` checks
