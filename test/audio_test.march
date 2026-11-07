@@ -1,0 +1,9 @@
+mod AudioTest do
+
+  needs IO.Console
+
+  test "audio suite" do
+    assert Harness.failures(AudioSuite.cases()) == []
+  end
+
+end

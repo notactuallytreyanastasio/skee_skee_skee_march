@@ -1,0 +1,9 @@
+mod AudioMain do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Harness.report("audio", AudioSuite.cases())
+  end
+
+end

@@ -70,19 +70,23 @@ golden-%:
 # call march directly with lib:shell.
 MARCH := $(HOME)/.march/bin/march
 SHELL_LIB := lib:shell
-WEB_FILES := web/index.html web/style.css web/skee_glue.mjs
+WEB_FILES := web/index.html web/style.css web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs
+# The audio worklet's own build: Skee.Synth alone, loaded by AudioWorklet.addModule.
+WORKLET := shell/synth_worklet.march
 PORT ?= 8137
 
 build:
 	mkdir -p .march/build/debug
 	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o .march/build/debug/skee.mjs shell/game.march
-	cp web/skee_glue.mjs .march/build/debug/
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o .march/build/debug/skee_synth_worklet.mjs $(WORKLET)
+	cp web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs .march/build/debug/
 
 # The game as a static site in dist/: skee.mjs, March's runtime modules, the
 # glue, index.html and style.css.
 web:
 	mkdir -p dist
 	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o dist/skee.mjs shell/game.march
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o dist/skee_synth_worklet.mjs $(WORKLET)
 	cp $(WEB_FILES) dist/
 	@echo "web: dist/index.html"
 

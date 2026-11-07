@@ -1,0 +1,18 @@
+mod SynthWorklet do
+
+  -- The entry point of the audio worklet's build (dist/skee_synth_worklet.mjs),
+  -- loaded by AudioWorklet.addModule in its own realm. It registers the
+  -- processor that runs SynthEngine.serve every render quantum
+  -- (web/skee_worklet.mjs). It depends on Skee.Synth and Skee.SynthFeed only.
+  needs IO.Foreign
+
+  extern "./skee_worklet.mjs" : Cap(IO.Foreign) do
+    fn worklet_register(serve : List(AudioCmd) -> List(Float)) : Unit
+  end
+
+  fn main(_f : Cap(IO.Foreign)) : () do
+    SynthEngine.reset()
+    worklet_register(fn cmds -> SynthEngine.serve(cmds))
+  end
+
+end

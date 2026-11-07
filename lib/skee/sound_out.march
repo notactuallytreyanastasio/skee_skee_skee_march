@@ -1,0 +1,23 @@
+mod Skee.SoundOut do
+
+  -- The audio effects of an update, as SoundEngine calls, in the order the
+  -- model made them (Sound.swift: play, setRumble, setDrumRoll). Saves and
+  -- haptics are the shell's other effects and are not audio.
+  cap pure
+
+  fn command(e : Skee.App.Effect) : Option(Skee.SynthFeed.AudioCmd) needs () do
+    match e do
+    FxSound(snd) -> Some(CmdPlay(snd))
+    FxRumble(level) -> Some(CmdRumble(level))
+    FxDrum(on_) -> Some(CmdDrum(on_))
+    FxSave(_, _) -> None
+    FxHaptic(_) -> None
+    end
+  end
+
+  doc """The audio commands among these effects, in order."""
+  fn commands(effects : List(Skee.App.Effect)) : List(Skee.SynthFeed.AudioCmd) needs () do
+    List.filter_map(effects, command)
+  end
+
+end

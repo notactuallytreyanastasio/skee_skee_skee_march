@@ -1,19 +1,61 @@
 mod Audio do
 
-  -- STUB, to be replaced by the audio piece: Skee.Synth through Web Audio.
-  -- Entry points the shell uses, which the real one keeps:
+  -- Skee.Synth through Web Audio: Sound.swift's SoundEngine for the browser.
+  -- The synth renders in real time in an AudioWorklet (shell/synth_worklet.march),
+  -- or on the main thread where worklets are missing; web/skee_audio.mjs is
+  -- the plumbing. This module only routes: an update's audio effects become
+  -- Skee.SynthFeed commands (Skee.SoundOut), which go to the synth in order.
+  --
+  -- The speakers exist only after the first user gesture (autoplay rules).
+  -- Until then a cue is dropped, as it would only play late, but the rumble
+  -- and drum levels are tracked, and restored the moment the synth comes up.
+  -- If the browser has no audio the game plays silent.
+  --
+  -- Entry points the shell uses:
   --   Audio.start() : AudioHandle
   --   Audio.apply(a : AudioHandle, effects : List(Skee.App.Effect)) : ()
-  -- apply is given every effect of an update; it acts on FxSound (Skee.Synth.play),
-  -- FxRumble (set_rumble) and FxDrum (set_drum) and ignores the rest.
+  needs IO.Foreign
+
+  -- audio_started: the gesture listeners are installed (the speakers come
+  -- up on the first gesture after that).
   type AudioHandle = { audio_started : Bool }
 
-  fn start() : AudioHandle do
-    { audio_started: false }
+  extern "./skee_audio.mjs" : Cap(IO.Foreign) do
+    fn audio_install(worklet_url : String, serve : List(AudioCmd) -> List(Float), ready : () -> ()) : Unit
+    fn audio_send(cmds : List(AudioCmd)) : Unit
+    fn audio_levels_get() : Levels
+    fn audio_levels_put(l : Levels) : Unit
   end
 
-  fn apply(_a : AudioHandle, _effects : List(Skee.App.Effect)) : () do
-    ()
+  -- The audio worklet's build, beside skee.mjs in dist/.
+  fn worklet_url() : String do
+    "skee_synth_worklet.mjs"
+  end
+
+  fn start() : AudioHandle do
+    SynthEngine.reset()
+    audio_levels_put(Skee.SynthFeed.quiet())
+    audio_install(worklet_url(), fn cmds -> SynthEngine.serve(cmds), fn () -> came_up())
+    { audio_started: true }
+  end
+
+  -- The synth is up: bring it to the levels asked for so far.
+  fn came_up() : () do
+    audio_send(Skee.SynthFeed.restore(audio_levels_get()))
+  end
+
+  fn route(cmds : List(AudioCmd)) : () do
+    match cmds do
+    Nil -> ()
+    Cons(_, _) -> do
+      audio_levels_put(Skee.SynthFeed.track(audio_levels_get(), cmds))
+      audio_send(cmds)
+    end
+    end
+  end
+
+  fn apply(_a : AudioHandle, effects : List(Skee.App.Effect)) : () do
+    route(Skee.SoundOut.commands(effects))
   end
 
 end

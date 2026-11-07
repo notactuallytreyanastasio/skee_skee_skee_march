@@ -1,0 +1,327 @@
+mod HudSuite do
+
+  -- The HUD piece: Skee.HudView draws Skee.App.hud as an HTML tree, every
+  -- tappable element carrying its action as a data-act code that Skee.HudView
+  -- also decodes. SkeeHUD has no Swift tests, so these drive Skee.App with Msg
+  -- sequences, as the shell does, and check the tree against SkeeHUD's text
+  -- and against Skee.App.accepts: a button the HUD draws must be one the model
+  -- takes, so the screen can never offer a tap that does nothing.
+  import Harness
+
+  fn k() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  -- ---- Driving the model ----
+  fn boot_fresh() : Skee.App.Model do
+    let (m, _) = Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+    m
+  end
+
+  fn deliver(m : Skee.App.Model, msg : Skee.App.Msg) : Skee.App.Model do
+    let (next, _) = Skee.App.update(m, msg)
+    next
+  end
+
+  fn tap(m : Skee.App.Model, i : Skee.App.Intent) : Skee.App.Model do
+    deliver(m, MsgTap(i))
+  end
+
+  fn tick(m : Skee.App.Model) : Skee.App.Model do
+    deliver(m, MsgTick(m.now +. 1.0 /. 60.0))
+  end
+
+  fn ticks(m : Skee.App.Model, n : Int) : Skee.App.Model do
+    if n <= 0 do m else ticks(tick(m), n - 1) end
+  end
+
+  fn tick_idle(m : Skee.App.Model, n : Int) : Skee.App.Model do
+    if !Skee.App.busy(m) || n <= 0 do m else tick_idle(tick(m), n - 1) end
+  end
+
+  fn at_door() : Skee.App.Model do
+    tap(ticks(boot_fresh(), 2), TapStart)
+  end
+
+  fn at_host() : Skee.App.Model do
+    List.fold_left(List.range(0, 5), at_door(), fn (acc, _) -> tap(acc, TapArrivalNext))
+  end
+
+  fn at_welcome() : Skee.App.Model do
+    ticks(tap(at_host(), TapCloseHost), 2)
+  end
+
+  fn in_game() : Skee.App.Model do
+    tick_idle(ticks(tap(at_welcome(), TapSkipWalkthrough), 2), 600)
+  end
+
+  fn pulled() : Skee.App.Model do
+    tick_idle(tap(in_game(), TapPull), 2000)
+  end
+
+  -- ---- Looking at the view ----
+  fn view_of(m : Skee.App.Model, l : Skee.HudView.HudLocal) : List(Skee.HudView.Pane) do
+    Skee.HudView.panes(k(), Skee.App.hud(m), l, m.viewport.width, m.viewport.height)
+  end
+
+  fn tree(m : Skee.App.Model) : List(Skee.HudView.Pane) do
+    view_of(m, Skee.HudView.initial())
+  end
+
+  fn html_of(ps : List(Skee.HudView.Pane)) : String do
+    String.join(List.map(ps, fn p -> Skee.HudView.render(p.pane)), "")
+  end
+
+  fn html(m : Skee.App.Model) : String do
+    html_of(tree(m))
+  end
+
+  fn acts_of(ps : List(Skee.HudView.Pane)) : List(Skee.HudView.HudAction) do
+    List.flat_map(ps, fn p -> Skee.HudView.acts(p.pane))
+  end
+
+  fn acts(m : Skee.App.Model) : List(Skee.HudView.HudAction) do
+    acts_of(tree(m))
+  end
+
+  fn dot() : String do
+    Skee.Presentation.middle_dot()
+  end
+
+  fn shows(m : Skee.App.Model, words : List(String)) : Outcome do
+    let h = html(m)
+    all(List.map(words, fn w -> expect(String.contains(h, w), "missing " ++ w)))
+  end
+
+  fn lacks(m : Skee.App.Model, words : List(String)) : Outcome do
+    let h = html(m)
+    all(List.map(words, fn w -> expect(!String.contains(h, w), "unexpected " ++ w)))
+  end
+
+  fn has_act(xs : List(Skee.HudView.HudAction), a : Skee.HudView.HudAction) : Bool do
+    List.any(xs, fn x -> x == a)
+  end
+
+  fn offers(m : Skee.App.Model, wanted : List(Skee.HudView.HudAction)) : Outcome do
+    let xs = acts(m)
+    all(List.map(wanted, fn a -> expect(has_act(xs, a), "no button for " ++ show(a))))
+  end
+
+  -- Every tappable element in the tree is a tap the model accepts now.
+  fn all_accepted(m : Skee.App.Model) : Outcome do
+    let xs = acts(m)
+    let checked = List.map(xs, fn a -> accepted(m, a))
+    all(Cons(expect(!List.is_empty(xs), "nothing tappable"), checked))
+  end
+
+  fn accepted(m : Skee.App.Model, a : Skee.HudView.HudAction) : Outcome do
+    match a do
+    ActIntent(i) -> expect(Skee.App.accepts(m, i), "drawn but not accepted: " ++ show(i))
+    ActTopic(_) -> expect(Skee.App.top_layer(m) == LayerGuide, "a topic off the guide")
+    ActPageBack -> expect(Skee.App.top_layer(m) == LayerGuide, "back off the guide")
+    ActPageNext -> expect(Skee.App.top_layer(m) == LayerGuide, "next off the guide")
+    end
+  end
+
+  -- ---- Codes ----
+  fn every_action() : List(Skee.HudView.HudAction) do
+    let plain =
+      [
+        TapStart,
+        TapHowToPlay,
+        TapOpenShop,
+        TapCloseShop,
+        TapOpenGuide,
+        TapCloseGuide,
+        TapReplayLesson,
+        TapArrivalNext,
+        TapOpenHost,
+        TapCloseHost,
+        TapGotIt,
+        TapSkipWalkthrough,
+        TapPull,
+        TapReroll,
+        TapLeaveCounter,
+        TapAskNewGame,
+        TapKeepPlaying,
+        TapNewRun
+      ]
+    let indexed = List.range(0, 7)
+    let intents =
+      List.concat([plain, List.map(Skee.Rooms.all_rooms(), fn r -> TapPickRoom(r)), List.map(Skee.Rooms.all_prizes(), fn p -> TapBuyPrize(p)), List.map(Skee.HudState.all_bets(), fn b -> TapSetBet(b)), List.map(Skee.Items.all_balls(), fn b -> TapChooseBall(b)), List.map(indexed, fn n -> TapArm(n)), [TapSelectOffer(None)], List.map(indexed, fn n -> TapSelectOffer(Some(n))), List.map(indexed, fn n -> TapBuyOffer(n)), List.map(indexed, fn n -> TapCharm(n))])
+    List.concat([List.map(intents, fn i -> ActIntent(i)), List.map(List.range(0, 13), fn n -> ActTopic(n)), [ActPageBack, ActPageNext]])
+  end
+
+  fn round_trip(a : Skee.HudView.HudAction) : Outcome do
+    match Skee.HudView.decode(Skee.HudView.encode(a)) do
+    Some(b) -> expect(a == b, show(a) ++ " came back as " ++ show(b))
+    None -> Mismatch(show(a) ++ " did not decode")
+    end
+  end
+
+  fn distinct(xs : List(Int)) : Bool do
+    match xs do
+    Nil -> true
+    Cons(x, rest) -> !List.any(rest, fn y -> y == x) && distinct(rest)
+    end
+  end
+
+  -- ---- The guide's pages ----
+  fn reading(l : Skee.HudView.HudLocal) : String do
+    match l.guide_at do
+    GuideContents -> "contents"
+    GuideReading(t, p) -> int_to_string(t) ++ ":" ++ int_to_string(p)
+    end
+  end
+
+  fn react_all(a : Skee.App.AppHud, l : Skee.HudView.HudLocal, xs : List(Skee.HudView.HudAction)) : Skee.HudView.HudLocal do
+    List.fold_left(xs, l, fn (acc, x) -> Tuple.first(Skee.HudView.react(acc, a, x)))
+  end
+
+  fn topic_pages(a : Skee.App.AppHud, t : Int) : Int do
+    match List.nth_opt(a.guide_topics, t) do
+    Some(topic) -> List.length(topic.topic_pages)
+    None -> 0
+    end
+  end
+
+  fn guide_paging() : Outcome do
+    let m = tap(in_game(), TapOpenGuide)
+    let a = Skee.App.hud(m)
+    let l0 = Skee.HudView.initial()
+    let opened = react_all(a, l0, [ActTopic(0)])
+    let pages = topic_pages(a, 0)
+    let to_end = react_all(a, opened, List.map(List.range(0, pages - 1), fn _ -> ActPageNext))
+    let past_end = react_all(a, to_end, [ActPageNext])
+    let back_once = react_all(a, to_end, [ActPageBack])
+    let back_out = react_all(a, opened, [ActPageBack])
+    let (_, passed) = Skee.HudView.react(l0, a, ActIntent(TapCloseGuide))
+    all([expect(pages > 1, "the first topic has pages"), expect_string(reading(opened), "0:0", "a topic opens on its first page"), expect_string(reading(to_end), "0:" ++ int_to_string(pages - 1), "NEXT walks the pages"), expect_string(reading(past_end), "contents", "DONE on the last page goes back to the topics"), expect_string(reading(back_once), "0:" ++ int_to_string(pages - 2), "BACK goes a page back"), expect_string(reading(back_out), "contents", "BACK on the first page goes to the topics"), expect(passed == Some(TapCloseGuide), "an Intent goes to the model"), expect_string(reading(react_all(a, l0, [ActTopic(99)])), "contents", "no such topic")])
+  end
+
+  fn guide_resets() : Outcome do
+    let open_ = Skee.App.hud(tap(in_game(), TapOpenGuide))
+    let closed = Skee.App.hud(in_game())
+    let l = react_all(open_, Skee.HudView.initial(), [ActTopic(1), ActPageNext])
+    let kept = Skee.HudView.settle(l, open_)
+    let reset = Skee.HudView.settle(l, closed)
+    let saved = Skee.HudView.load_local(Some(Skee.HudView.save_local(kept)))
+    all([expect_string(reading(kept), "1:1", "open: the page stays"), expect_string(reading(reset), "contents", "closed: back to the topics, as a new GuideView"), expect_string(reading(saved), "1:1", "the page survives the DOM round trip"), expect_string(reading(Skee.HudView.load_local(Some("junk"))), "contents", "junk loads as the topics"), expect_string(reading(Skee.HudView.load_local(None)), "contents", "nothing loads as the topics")])
+  end
+
+  fn guide_page_text() : Outcome do
+    let m = tap(in_game(), TapOpenGuide)
+    let a = Skee.App.hud(m)
+    let l = react_all(a, Skee.HudView.initial(), [ActTopic(0)])
+    let h = html_of(view_of(m, l))
+    let first =
+      match List.nth_opt(a.guide_topics, 0) do
+      Some(t) -> t
+      None -> { topic_title: "", topic_pages: [], topic_unlocks: [] }
+      end
+    let page =
+      match List.nth_opt(first.topic_pages, 0) do
+      Some(p) -> p
+      None -> "?"
+      end
+    let xs = acts_of(view_of(m, l))
+    all([expect(String.contains(h, String.to_uppercase(first.topic_title)), "the topic's title, upper case"), expect(String.contains(h, Skee.HudView.render(Words(page))), "the first page"), expect(String.contains(h, "PAGE 1 OF " ++ int_to_string(List.length(first.topic_pages))), "page count"), expect(String.contains(h, ">NEXT<"), "NEXT"), expect(has_act(xs, ActPageNext) && has_act(xs, ActPageBack), "page buttons")])
+  end
+
+  -- ---- A hand-made prize counter over a real game ----
+  fn with_counter(a : Skee.App.AppHud, selected : Option(Int)) : Skee.App.AppHud do
+    let c = { offers: [Some(OfferCharm(LuckyPenny)), Some(OfferStamp(Cherry)), None, Some(OfferGild)], reroll_cost: Tickets(2) }
+    let s = a.app_hud
+    { a with app_hud: { s with counter: Some(c), machine: None, hud_selected_offer: selected, hud_tickets: Tickets(4) } }
+  end
+
+  fn counter_view() : Outcome do
+    let m = in_game()
+    let a = with_counter(Skee.App.hud(m), None)
+    let ps = Skee.HudView.panes(k(), a, Skee.HudView.initial(), 390.0, 844.0)
+    let h = html_of(ps)
+    let xs = acts_of(ps)
+    let picked = Skee.HudView.panes(k(), with_counter(Skee.App.hud(m), Some(1)), Skee.HudView.initial(), 390.0, 844.0)
+    let ys = acts_of(picked)
+    all([expect(String.contains(h, "PRIZE COUNTER"), "title"), expect(String.contains(h, "REROLL 2"), "reroll cost"), expect(String.contains(h, "NEXT ROUND"), "leave"), expect(String.contains(h, "SOLD"), "a sold slot"), expect(String.contains(h, "Cherry stamp"), "stamp title"), expect(String.contains(h, "Add a cherry to a hole" ++ Skee.HudView.render(Words("'")) ++ "s reel"), "stamp blurb"), expect(String.contains(h, "+10 chips on a hole, for good"), "gild blurb"), expect(String.contains(h, Skee.Items.charm_blurb(LuckyPenny)), "charm blurb"), expect(has_act(xs, ActIntent(TapBuyOffer(0))), "a charm buys at once"), expect(has_act(xs, ActIntent(TapSelectOffer(Some(1)))), "a stamp asks for a hole"), expect(!has_act(xs, ActIntent(TapBuyOffer(2))) && !has_act(xs, ActIntent(TapSelectOffer(Some(2)))), "a sold slot does nothing"), expect(has_act(xs, ActIntent(TapReroll)) && has_act(xs, ActIntent(TapLeaveCounter)), "reroll and leave"), expect(!String.contains(h, "tap a hole on the board"), "no hole prompt"), expect(String.contains(html_of(picked), "tap a hole on the board"), "hole prompt once picked"), expect(has_act(ys, ActIntent(TapSelectOffer(None))), "tapping the picked one again unpicks it"), expect(!String.contains(h, ">SPIN<"), "no machine over the counter")])
+  end
+
+  -- ---- Symbols ----
+  fn hrefs(h : String) : List(String) do
+    match String.split(h, "href=\"#") do
+    Nil -> []
+    Cons(_, rest) -> List.map(rest, fn part -> first_field(part))
+    end
+  end
+
+  fn first_field(s : String) : String do
+    match String.split(s, "\"") do
+    Cons(x, _) -> x
+    Nil -> ""
+    end
+  end
+
+  fn defined(defs : String, id : String) : Bool do
+    String.contains(defs, "id=\"" ++ id ++ "\"")
+  end
+
+  fn symbols_resolve(ms : List(Skee.App.Model)) : Outcome do
+    let defs = Skee.HudView.render(Skee.HudView.defs(k()))
+    let used = List.flat_map(ms, fn m -> hrefs(html(m)))
+    all(Cons(expect(!List.is_empty(used), "no symbol used"), List.map(used, fn id -> expect(defined(defs, id), "no definition for #" ++ id))))
+  end
+
+  fn every_symbol_defined() : Outcome do
+    let defs = Skee.HudView.render(Skee.HudView.defs(k()))
+    let syms = [Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover]
+    let prizes = Skee.Rooms.all_prizes()
+    all(List.concat([List.map(syms, fn s -> expect(defined(defs, Skee.HudView.symbol_id(s)), "symbol " ++ show(s))), List.map(prizes, fn p -> expect(defined(defs, Skee.HudView.prize_id(p, true)), "prize " ++ show(p))), List.map(prizes, fn p -> expect(defined(defs, Skee.HudView.prize_id(p, false)), "silhouette " ++ show(p)))]))
+  end
+
+  fn pane_ids(ps : List(Skee.HudView.Pane)) : List(String) do
+    List.map(ps, fn p -> p.pane_id)
+  end
+
+  fn same_strings(a : List(String), b : List(String)) : Bool do
+    String.join(a, ",") == String.join(b, ",")
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("every action round-trips through its data-act code", fn -> all(List.map(every_action(), round_trip))),
+      case("codes are distinct", fn -> expect(distinct(List.map(every_action(), Skee.HudView.encode)), "two actions share a code")),
+      case("unknown codes decode to nothing", fn -> all(List.map([0, -1, 19, 99, 104, 999, 9999, 999999], fn n -> expect(Skee.HudView.decode(n) == None, "code " ++ int_to_string(n))))),
+      case("text and attributes are escaped", fn -> all([expect_string(Skee.HudView.render(Words("<b>&\"'")), "&lt;b&gt;&amp;&quot;&#39;", "text"), expect_string(Skee.HudView.render(Tag("i", [Prop("title", "a\"<b>")], [])), "<i title=\"a&quot;&lt;b&gt;\"></i>", "attribute")])),
+      case("panes keep one order, every frame", fn -> all([expect(same_strings(pane_ids(tree(boot_fresh())), Skee.HudView.pane_ids()), "title"), expect(same_strings(pane_ids(tree(pulled())), Skee.HudView.pane_ids()), "game")])),
+      case("the title is SkeeHUD's TitleCard", fn -> all([shows(boot_fresh(), ["SKEE", "TAP TO PLAY", "THE BOARDWALK ARCADE", Skee.Rooms.blurb(Boardwalk), "PRIZE SHOP " ++ dot() ++ " 0", "HOW TO PLAY", "BOARDWALK", "OPEN", "NEON", "1500", "HIGH ROLLER", "5000", "PENTHOUSE", "12000"]), offers(boot_fresh(), [ActIntent(TapStart), ActIntent(TapHowToPlay), ActIntent(TapOpenShop), ActIntent(TapPickRoom(Boardwalk))]), lacks(boot_fresh(), ["THE HOST WANTS A WORD", "ANTE "])])),
+      case("rooms not owned are not tappable", fn -> expect(!has_act(acts(boot_fresh()), ActIntent(TapPickRoom(NeonLounge))), "NEON is not yours")),
+      case("Sal's lines, one per tap", fn -> all([shows(at_door(), ["WELCOME TO", "SKEE SKEE SKEE", "SAL", Skee.HudView.render(Words(first_beat())), "GO ON"]), offers(at_door(), [ActIntent(TapArrivalNext)]), shows(last_beat(), ["LET" ++ Skee.HudView.render(Words("'")) ++ "S TALK"])])),
+      case("the host is a labelled placeholder with one button", fn -> all([shows(at_host(), ["PLACEHOLDER", "CLOSE"]), expect(same_strings(List.map(acts(at_host()), show), ["ActIntent(TapCloseHost)"]), "only CLOSE: " ++ String.join(List.map(acts(at_host()), show), ","))])),
+      case("the walkthrough's first card blocks play until GOT IT", fn -> all([shows(at_welcome(), ["YOUR FIRST LOADOUT", "SKIP", "GOT IT", "hud-block"]), offers(at_welcome(), [ActIntent(TapGotIt), ActIntent(TapSkipWalkthrough)]), lacks(at_welcome(), ["NEW GAME", ">GUIDE<"])])),
+      case("a frame waiting for its pull shows the machine", fn -> all([shows(in_game(), ["ANTE 1/8", "WARM-UP", "TARGETS " ++ dot() ++ " hit one = combo", "SPIN", "FRAME 1/3 " ++ dot() ++ " 9 BALLS", "PULL " ++ dot() ++ " the middle row = this frame" ++ Skee.HudView.render(Words("'")) ++ "s targets", "NEW GAME", ">GUIDE<"]), offers(in_game(), [ActIntent(TapPull), ActIntent(TapAskNewGame), ActIntent(TapOpenGuide)])])),
+      case("after the pull: the slot's hint and no machine", fn -> all([shows(pulled(), ["3 balls = 1 line " ++ dot() ++ " match symbols for MULT", "thumb down on your line", "then flick straight up"]), lacks(pulled(), [">SPIN<", "MAX BET FOR JACKPOTS"])])),
+      case("the shop is PrizeShopView", fn -> all([shows(tap(boot_fresh(), TapOpenShop), ["PRIZE SHOP", "0 WINNINGS", "just for show " ++ dot() ++ " prizes never change a run", "Gold Star Sticker", "250", "BACK"]), offers(tap(boot_fresh(), TapOpenShop), [ActIntent(TapCloseShop), ActIntent(TapBuyPrize(Sticker))])])),
+      case("the guide lists topics, replay and done", fn -> all([shows(tap(in_game(), TapOpenGuide), ["THE GUIDE", "more appears here as you play", "The Big Idea", "PLAY THE FIRST LOADOUT AGAIN", "DONE"]), offers(tap(in_game(), TapOpenGuide), [ActTopic(0), ActIntent(TapReplayLesson), ActIntent(TapCloseGuide)])])),
+      case("a new game asks first", fn -> all([shows(tap(in_game(), TapAskNewGame), ["START A NEW GAME?", "This run ends. Your prizes stay.", "KEEP PLAYING"]), offers(tap(in_game(), TapAskNewGame), [ActIntent(TapKeepPlaying), ActIntent(TapNewRun)])])),
+      case("the guide pages forward and back", guide_paging),
+      case("the guide's page is view state, reset when it closes", guide_resets),
+      case("the guide's reader shows the page", guide_page_text),
+      case("the prize counter is CounterView", counter_view),
+      case("every button drawn is one the model accepts", fn -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay)], all_accepted))),
+      case("every symbol drawn has a definition", fn -> symbols_resolve([boot_fresh(), in_game(), pulled(), tap(boot_fresh(), TapOpenShop)])),
+      case("every symbol and prize is defined", every_symbol_defined)
+    ]
+  end
+
+  fn first_beat() : String do
+    match Skee.App.arrival_beats() do
+    Cons(b, _) -> b
+    Nil -> ""
+    end
+  end
+
+  fn last_beat() : Skee.App.Model do
+    List.fold_left(List.range(0, 4), at_door(), fn (acc, _) -> tap(acc, TapArrivalNext))
+  end
+
+end

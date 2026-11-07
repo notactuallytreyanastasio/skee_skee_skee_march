@@ -1,0 +1,258 @@
+mod AudioSuite do
+
+  -- The audio piece: what the shell's speakers are fed. Skee.SoundOut picks
+  -- the audio effects out of an update's effects, in order, as Sound.swift's
+  -- SoundEngine is called (play, setRumble, setDrumRoll). Skee.SynthFeed is
+  -- what the audio callback runs: the commands that arrived since the last
+  -- block, then one block of Skee.Synth.render. Skee.Synth itself is checked
+  -- against the real Swift by the synth suite, so these cases hold the feed
+  -- to Skee.Synth exactly: same voices, same samples, bit for bit.
+  import Harness
+
+  -- ---- Comparing samples ----
+  -- Bit-exact: a -0.0 for a +0.0 is a difference. `/.` by zero panics
+  -- natively, so the sign of a zero is read from its printed form.
+  fn same_sample(a : Float, b : Float) : Bool do
+    if a == 0.0 && b == 0.0 do
+      float_to_string(a) == float_to_string(b)
+    else
+      a == b
+    end
+  end
+
+  fn same_samples(got : List(Float), want : List(Float), i : Int, what : String) : Outcome do
+    match (got, want) do
+    (Nil, Nil) -> Passed(i)
+    (Cons(g, gs), Cons(w, ws)) -> do
+      if same_sample(g, w) do
+        same_samples(gs, ws, i + 1, what)
+      else
+        Mismatch(what ++ ": sample " ++ int_to_string(i) ++ " got " ++ float_to_string(g) ++ ", want " ++ float_to_string(w))
+      end
+    end
+    (Nil, Cons(_, _)) -> Mismatch(what ++ ": " ++ int_to_string(i) ++ " samples, want more")
+    (Cons(_, _), Nil) -> Mismatch(what ++ ": more than the " ++ int_to_string(i) ++ " samples wanted")
+    end
+  end
+
+  fn loud(xs : List(Float)) : Bool do
+    List.any(xs, fn x -> x != 0.0)
+  end
+
+  -- ---- Feeding in blocks ----
+  -- Blocks of n samples; `script` gives the commands that arrive before
+  -- block i. The audio callback's view of the synth.
+  fn feed(s : Synth, script : Int -> List(Skee.SynthFeed.AudioCmd), i : Int, blocks : Int, n : Int, acc : List(List(Float))) : List(Float) do
+    if i >= blocks do
+      List.concat(List.reverse(acc))
+    else
+      do
+        let (out, next) = Skee.SynthFeed.block(s, script(i), n)
+        feed(next, script, i + 1, blocks, n, Cons(out, acc))
+      end
+    end
+  end
+
+  fn fresh() : Synth do
+    Skee.Synth.new()
+  end
+
+  -- ---- Skee.SynthFeed ----
+  fn a_play_is_synth_play() : Outcome do
+    let sounds =
+      [SndLaunch, SndDrop(Ring50), SndCombo(6), SndTallyChips(11), SndPullWin(400), SndBanner("FEVER"), SndJackpot, SndFrameDone]
+    all(List.map(sounds, fn snd -> play_matches(snd)))
+  end
+
+  fn play_matches(snd : Sound) : Outcome do
+    let by_feed = Skee.SynthFeed.obey(fresh(), CmdPlay(snd))
+    let by_synth = Skee.Synth.play(fresh(), snd)
+    let (got, _) = Skee.Synth.render(by_feed, 2048)
+    let (want, _) = Skee.Synth.render(by_synth, 2048)
+    all([expect_int(Skee.Synth.voice_count(by_feed), Skee.Synth.voice_count(by_synth), "voices"), expect(loud(want), "the cue sounds"), same_samples(got, want, 0, "play")])
+  end
+
+  fn rumble_and_drum_set_the_synth() : Outcome do
+    let s = Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.7), CmdDrum(true)])
+    let want = Skee.Synth.set_drum(Skee.Synth.set_rumble(fresh(), 0.7), true)
+    let (got_out, _) = Skee.Synth.render(s, 4096)
+    let (want_out, _) = Skee.Synth.render(want, 4096)
+    all([expect(s.rumble_target == want.rumble_target, "rumble target"), expect(s.drum == want.drum, "drum"), expect(loud(want_out), "the rumble and drum sound"), same_samples(got_out, want_out, 0, "rumble and drum")])
+  end
+
+  fn commands_apply_in_order() : Outcome do
+    let s = Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.9), CmdDrum(true), CmdRumble(0.2), CmdDrum(false)])
+    all([expect(s.rumble_target == Skee.Synth.f32(s.c, 0.2), "last rumble wins"), expect(!s.drum, "last drum wins")])
+  end
+
+  -- A cue that arrives before block i plays from the start of block i: the
+  -- same samples as Skee.Synth playing it after i blocks.
+  fn script_hump_at_3(i : Int) : List(Skee.SynthFeed.AudioCmd) do
+    if i == 0 do [CmdRumble(0.6)] else if i == 3 do [CmdPlay(SndHump)] else if i == 5 do [CmdDrum(true), CmdPlay(SndLip)] else if i == 9 do [CmdRumble(0.0), CmdDrum(false)] else [] end end end end
+  end
+
+  fn direct_hump_at_3() : List(Float) do
+    let s0 = Skee.Synth.set_rumble(fresh(), 0.6)
+    let (a, s1) = Skee.Synth.render(s0, 3 * 128)
+    let (b, s2) = Skee.Synth.render(Skee.Synth.play(s1, SndHump), 2 * 128)
+    let s3 = Skee.Synth.play(Skee.Synth.set_drum(s2, true), SndLip)
+    let (c, s4) = Skee.Synth.render(s3, 4 * 128)
+    let (d, _) = Skee.Synth.render(Skee.Synth.set_drum(Skee.Synth.set_rumble(s4, 0.0), false), 7 * 128)
+    List.concat([a, b, c, d])
+  end
+
+  fn blocks_play_cues_at_block_starts() : Outcome do
+    let got = feed(fresh(), fn i -> script_hump_at_3(i), 0, 16, 128, [])
+    let want = direct_hump_at_3()
+    all([expect(loud(want), "the script sounds"), same_samples(got, want, 0, "blocks")])
+  end
+
+  fn no_commands(_i : Int) : List(Skee.SynthFeed.AudioCmd) do
+    []
+  end
+
+  -- The block size is the browser's (128 in a worklet, 2048 in the
+  -- fallback): it must not change a sample.
+  fn block_size_is_invisible() : Outcome do
+    let s = Skee.Synth.play(Skee.Synth.play(fresh(), SndJackpot), SndBanner("MEGA JACKPOT"))
+    let in_128 = feed(s, fn i -> no_commands(i), 0, 32, 128, [])
+    let in_2048 = feed(s, fn i -> no_commands(i), 0, 2, 2048, [])
+    let (whole, _) = Skee.Synth.render(s, 4096)
+    all([same_samples(in_128, whole, 0, "128"), same_samples(in_2048, whole, 0, "2048")])
+  end
+
+  fn an_empty_block_is_empty() : Outcome do
+    let (out, s) = Skee.SynthFeed.block(fresh(), [CmdPlay(SndLaunch)], 0)
+    all([expect_int(List.length(out), 0, "samples"), expect_int(Skee.Synth.voice_count(s), Skee.Synth.voice_count(Skee.Synth.play(fresh(), SndLaunch)), "the cue is queued")])
+  end
+
+  -- ---- Levels: what the speakers must hold when they come up late ----
+  -- Before the first gesture there are no speakers. A cue then is dropped (it
+  -- would play late), but the rumble and drum levels are kept and restored.
+  fn quiet_is_a_fresh_synth() : Outcome do
+    let l = Skee.SynthFeed.quiet()
+    let s = Skee.SynthFeed.obey_all(fresh(), Skee.SynthFeed.restore(l))
+    let f = fresh()
+    all([expect(s.rumble_target == f.rumble_target, "rumble"), expect(s.drum == f.drum, "drum")])
+  end
+
+  fn track_keeps_the_last_levels() : Outcome do
+    let l =
+      Skee.SynthFeed.track(Skee.SynthFeed.quiet(), [CmdPlay(SndLaunch), CmdRumble(0.4), CmdDrum(true), CmdPlay(SndHump), CmdRumble(0.25)])
+    let l2 = Skee.SynthFeed.track(l, [CmdPlay(SndLip)])
+    let l3 = Skee.SynthFeed.track(l2, [CmdDrum(false)])
+    all([expect(l2.lvl_rumble == 0.25, "rumble kept"), expect(l2.lvl_drum, "drum kept"), expect(l3.lvl_rumble == 0.25, "rumble unchanged by drum"), expect(!l3.lvl_drum, "drum off")])
+  end
+
+  fn restore_brings_the_levels_back() : Outcome do
+    let cmds = [CmdRumble(0.8), CmdPlay(SndLaunch), CmdDrum(true), CmdRumble(0.55)]
+    let tracked = Skee.SynthFeed.track(Skee.SynthFeed.quiet(), cmds)
+    let late = Skee.SynthFeed.obey_all(fresh(), Skee.SynthFeed.restore(tracked))
+    let on_time = Skee.SynthFeed.obey_all(fresh(), cmds)
+    all([expect(late.rumble_target == on_time.rumble_target, "rumble"), expect(late.drum == on_time.drum, "drum"), expect_int(Skee.Synth.voice_count(late), 0, "no cue replayed")])
+  end
+
+  -- ---- Skee.SoundOut ----
+  fn effects() : List(Skee.App.Effect) do
+    [
+      FxSave(KeyWallet, "{}"),
+      FxSound(SndLaunch),
+      FxHaptic(HapticImpact(ImpactLight, 0.5)),
+      FxRumble(0.3),
+      FxSound(SndDrop(PocketLeft)),
+      FxHaptic(HapticBuzzStop),
+      FxDrum(true),
+      FxSave(KeyRun, ""),
+      FxSound(SndBanner("FOUL")),
+      FxDrum(false),
+      FxRumble(0.0)
+    ]
+  end
+
+  -- Every Sound by name: Sound derives nothing.
+  fn sound_name(s : Sound) : String do
+    match s do
+    SndLaunch -> "launch"
+    SndRail -> "rail"
+    SndHump -> "hump"
+    SndLip -> "lip"
+    SndBackwall -> "backwall"
+    SndLanded -> "landed"
+    SndDrop(h) -> "drop " ++ show(h)
+    SndGutter -> "gutter"
+    SndHop -> "hop"
+    SndWhoosh -> "whoosh"
+    SndHotSpot -> "hotSpot"
+    SndLever -> "lever"
+    SndPullWin(n) -> "pullWin " ++ int_to_string(n)
+    SndReelTick -> "reelTick"
+    SndReelStop -> "reelStop"
+    SndCombo(n) -> "combo " ++ int_to_string(n)
+    SndTallyChips(n) -> "tallyChips " ++ int_to_string(n)
+    SndTallyMult(n) -> "tallyMult " ++ int_to_string(n)
+    SndFrameDone -> "frameDone"
+    SndLineWon -> "lineWon"
+    SndJackpot -> "jackpot"
+    SndBanner(t) -> "banner " ++ t
+    SndFoul -> "foul"
+    end
+  end
+
+  fn describe(c : Skee.SynthFeed.AudioCmd) : String do
+    match c do
+    CmdPlay(s) -> "play " ++ sound_name(s)
+    CmdRumble(x) -> "rumble " ++ int_to_string(float_round(x *. 1000.0))
+    CmdDrum(on_) -> if on_ do "drum on" else "drum off" end
+    end
+  end
+
+  fn picks_the_audio_effects_in_order() : Outcome do
+    let got = String.join(List.map(Skee.SoundOut.commands(effects()), describe), "; ")
+    let want =
+      "play launch; rumble 300; play drop PocketLeft; drum on; play banner FOUL; drum off; rumble 0"
+    expect_string(got, want, "commands")
+  end
+
+  fn no_audio_effects_no_commands() : Outcome do
+    expect_int(List.length(Skee.SoundOut.commands([FxSave(KeyTips, "[]"), FxHaptic(HapticNotify(NoticeSuccess))])), 0, "commands")
+  end
+
+  -- The whole path the shell takes: boot and a first launch's effects,
+  -- through SoundOut and the feed, against Skee.Synth driven by hand.
+  fn boot_effects_feed_the_synth() : Outcome do
+    let (_, fx) = Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(7))
+    let cmds = Skee.SoundOut.commands(fx)
+    let (got, _) = Skee.SynthFeed.block(fresh(), cmds, 512)
+    let by_hand = List.fold_left(fx, fresh(), fn (s, e) -> by_hand_effect(s, e))
+    let (want, _) = Skee.Synth.render(by_hand, 512)
+    same_samples(got, want, 0, "boot")
+  end
+
+  fn by_hand_effect(s : Synth, e : Skee.App.Effect) : Synth do
+    match e do
+    FxSound(snd) -> Skee.Synth.play(s, snd)
+    FxRumble(x) -> Skee.Synth.set_rumble(s, x)
+    FxDrum(on_) -> Skee.Synth.set_drum(s, on_)
+    FxSave(_, _) -> s
+    FxHaptic(_) -> s
+    end
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("a play is Synth.play", fn () -> a_play_is_synth_play()),
+      case("rumble and drum set the synth", fn () -> rumble_and_drum_set_the_synth()),
+      case("commands apply in order", fn () -> commands_apply_in_order()),
+      case("blocks play cues at block starts", fn () -> blocks_play_cues_at_block_starts()),
+      case("block size is invisible", fn () -> block_size_is_invisible()),
+      case("an empty block is empty", fn () -> an_empty_block_is_empty()),
+      case("quiet is a fresh synth", fn () -> quiet_is_a_fresh_synth()),
+      case("track keeps the last levels", fn () -> track_keeps_the_last_levels()),
+      case("restore brings the levels back", fn () -> restore_brings_the_levels_back()),
+      case("picks the audio effects in order", fn () -> picks_the_audio_effects_in_order()),
+      case("no audio effects, no commands", fn () -> no_audio_effects_no_commands()),
+      case("boot effects feed the synth", fn () -> boot_effects_feed_the_synth())
+    ]
+  end
+
+end
