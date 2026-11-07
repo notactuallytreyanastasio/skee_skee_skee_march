@@ -74,16 +74,14 @@ mod Skee.HudView do
 
   pfn act_of_prop(p : Prop) : Option(HudAction) needs () do
     match p do
-    Prop(name, value) -> do
-      if name == "data-act" do
-        match string_to_int(value) do
-        Some(n) -> decode(n)
-        None -> None
-        end
-      else
-        None
-      end
+    Prop(name, value) -> if name == "data-act" do code_act(value) else None end
     end
+  end
+
+  pfn code_act(value : String) : Option(HudAction) needs () do
+    match string_to_int(value) do
+    Some(n) -> decode(n)
+    None -> None
     end
   end
 
@@ -91,7 +89,9 @@ mod Skee.HudView do
   fn acts(h : Html) : List(HudAction) needs () do
     match h do
     Words(_) -> []
-    Tag(_, props, kids) -> List.append(List.filter_map(props, act_of_prop), List.flat_map(kids, acts))
+    Tag(_, props, kids) -> do
+      List.append(List.filter_map(props, act_of_prop), List.flat_map(kids, acts))
+    end
     end
   end
 
@@ -254,16 +254,18 @@ mod Skee.HudView do
   end
 
   pfn guide_turn(l : HudLocal, a : AppHud, act : HudAction) : HudLocal needs () do
-    if a.top == LayerGuide do { guide_at: turned(a, l.guide_at, act) } else l end
+    if a.top == LayerGuide do
+      { guide_at: turned(a, l.guide_at, act) }
+    else
+      l
+    end
   end
 
   doc """A closed Guide forgets its page, as a GuideView made afresh does."""
   fn settle(l : HudLocal, a : AppHud) : HudLocal needs () do
     match l.guide_at do
     GuideContents -> l
-    GuideReading(t, p) -> do
-      if a.guide_open_now && p < pages_of(a, t) do l else initial() end
-    end
+    GuideReading(t, p) -> if a.guide_open_now && p < pages_of(a, t) do l else initial() end
     end
   end
 
@@ -291,7 +293,13 @@ mod Skee.HudView do
 
   pfn reading_at(t : String, p : String) : HudLocal needs () do
     match (string_to_int(t), string_to_int(p)) do
-    (Some(ti), Some(pg)) -> if ti >= 0 && pg >= 0 do { guide_at: GuideReading(ti, pg) } else initial() end
+    (Some(ti), Some(pg)) -> do
+      if ti >= 0 && pg >= 0 do
+        { guide_at: GuideReading(ti, pg) }
+      else
+        initial()
+      end
+    end
     (Some(_), None) -> initial()
     (None, Some(_)) -> initial()
     (None, None) -> initial()
@@ -424,7 +432,12 @@ mod Skee.HudView do
   end
 
   pfn tap_props(a : HudAction) : List(Prop) needs () do
-    [Prop("class", "hb"), Prop("data-act", int_to_string(encode(a))), Prop("data-intent", act_name(a)), Prop("role", "button")]
+    [
+      Prop("class", "hb"),
+      Prop("data-act", int_to_string(encode(a))),
+      Prop("data-intent", act_name(a)),
+      Prop("role", "button")
+    ]
   end
 
   doc """A button: what it shows, and the action its tap queues."""
@@ -486,11 +499,20 @@ mod Skee.HudView do
 
   -- SymbolImage, `size` points square. A blank draws nothing.
   pfn symbol_image(s : Symbol, size : Float) : Html needs () do
-    if s == Blank do svg("0 0 256 256", size, size, []) else use_art(symbol_id(s), size, size) end
+    if s == Blank do
+      svg("0 0 256 256", size, size, [])
+    else
+      use_art(symbol_id(s), size, size)
+    end
   end
 
   pfn ticket_shape() : Html needs () do
-    let paint = [Prop("stroke", css(ink())), Prop("stroke-width", "2"), Prop("fill", css(pink()))]
+    let paint =
+      [
+        Prop("stroke", css(ink())),
+        Prop("stroke-width", "2"),
+        Prop("fill", css(pink()))
+      ]
     svg("-4 -4 30 22", 26.0, 18.0, [Tag("rect", List.append([Prop("x", "0"), Prop("y", "0"), Prop("width", "22"), Prop("height", "14"), Prop("rx", "3")], paint), []), Tag("circle", List.append([Prop("cx", "0"), Prop("cy", "7"), Prop("r", "3")], paint), []), Tag("circle", List.append([Prop("cx", "22"), Prop("cy", "7"), Prop("r", "3")], paint), [])])
   end
 
@@ -521,7 +543,9 @@ mod Skee.HudView do
   pfn poly_d(pts : List(Vec2)) : String needs () do
     match pts do
     Nil -> ""
-    Cons(first, rest) -> "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> "L" ++ pt(p)), "") ++ "Z"
+    Cons(first, rest) -> do
+      "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> "L" ++ pt(p)), "") ++ "Z"
+    end
     end
   end
 
@@ -600,7 +624,14 @@ mod Skee.HudView do
   pfn text_svg(l : Lettering) : Html needs () do
     let edge =
       match l.edge do
-      Some(p) -> [Prop("stroke", css(p.ink)), Prop("stroke-width", num(p.width)), Prop("stroke-linejoin", join_of(p.corners)), Prop("paint-order", "stroke")]
+      Some(p) -> do
+        [
+          Prop("stroke", css(p.ink)),
+          Prop("stroke-width", num(p.width)),
+          Prop("stroke-linejoin", join_of(p.corners)),
+          Prop("paint-order", "stroke")
+        ]
+      end
       None -> []
       end
     let props =
@@ -610,8 +641,12 @@ mod Skee.HudView do
 
   pfn op_svg(op : DrawOp) : Html needs () do
     match op do
-    ClearTo(c) -> Tag("rect", [Prop("width", "100%"), Prop("height", "100%"), Prop("fill", css(c))], [])
-    FillShape(sh, paint, blend) -> Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", paint_css(paint)), Prop("fill-rule", rule_of(sh))], blend_props(blend)), [])
+    ClearTo(c) -> do
+      Tag("rect", [Prop("width", "100%"), Prop("height", "100%"), Prop("fill", css(c))], [])
+    end
+    FillShape(sh, paint, blend) -> do
+      Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", paint_css(paint)), Prop("fill-rule", rule_of(sh))], blend_props(blend)), [])
+    end
     StrokeShape(sh, pen, blend) -> do
       Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", "none"), Prop("stroke", css(pen.ink)), Prop("stroke-width", num(pen.width)), Prop("stroke-linecap", cap_of(pen.ends)), Prop("stroke-linejoin", join_of(pen.corners))], blend_props(blend)), [])
     end
@@ -622,11 +657,20 @@ mod Skee.HudView do
   end
 
   -- A clip still open: what was made before it, and its id and shape.
-  type OpenClip = { before_rev : List(Html), clip_id : String, clip_shape : Shape }
+  type OpenClip = {
+    before_rev : List(Html),
+    clip_id : String,
+    clip_shape : Shape
+  }
 
   -- What `build_ops` has made at the current depth, the clips open around
   -- it, what is left, and the next clip id.
-  type Built = { made_rev : List(Html), open_clips : List(OpenClip), left : List(DrawOp), next_clip : Int }
+  type Built = {
+    made_rev : List(Html),
+    open_clips : List(OpenClip),
+    left : List(DrawOp),
+    next_clip : Int
+  }
 
   -- Close the innermost clip: a <clipPath> and a <g> clipped to it holding
   -- what was drawn since it opened.
@@ -634,8 +678,10 @@ mod Skee.HudView do
     match b.open_clips do
     Nil -> b
     Cons(c, outer) -> do
-      let clip = Tag("clipPath", [Prop("id", c.clip_id)], [Tag("path", [Prop("d", shape_d(c.clip_shape)), Prop("clip-rule", rule_of(c.clip_shape))], [])])
-      let g = Tag("g", [Prop("clip-path", "url(#" ++ c.clip_id ++ ")")], List.reverse(b.made_rev))
+      let clip =
+        Tag("clipPath", [Prop("id", c.clip_id)], [Tag("path", [Prop("d", shape_d(c.clip_shape)), Prop("clip-rule", rule_of(c.clip_shape))], [])])
+      let g =
+        Tag("g", [Prop("clip-path", "url(#" ++ c.clip_id ++ ")")], List.reverse(b.made_rev))
       { b with made_rev: Cons(g, Cons(clip, c.before_rev)), open_clips: outer }
     end
     end
@@ -646,19 +692,33 @@ mod Skee.HudView do
   -- and clips still open at the end are closed.
   pfn build_ops(prefix : String, b : Built) : Built needs () do
     match b.left do
-    Nil -> if List.is_empty(b.open_clips) do b else build_ops(prefix, close_clip(b)) end
+    Nil -> do
+      if List.is_empty(b.open_clips) do
+        b
+      else
+        build_ops(prefix, close_clip(b))
+      end
+    end
     Cons(PopClip, rest) -> build_ops(prefix, close_clip({ b with left: rest }))
     Cons(PushClip(sh), rest) -> do
-      let c = { before_rev: b.made_rev, clip_id: prefix ++ "-clip" ++ int_to_string(b.next_clip), clip_shape: sh }
+      let c =
+        {
+          before_rev: b.made_rev,
+          clip_id: prefix ++ "-clip" ++ int_to_string(b.next_clip),
+          clip_shape: sh
+        }
       build_ops(prefix, { made_rev: [], open_clips: Cons(c, b.open_clips), left: rest, next_clip: b.next_clip + 1 })
     end
-    Cons(op, rest) -> build_ops(prefix, { b with made_rev: Cons(op_svg(op), b.made_rev), left: rest })
+    Cons(op, rest) -> do
+      build_ops(prefix, { b with made_rev: Cons(op_svg(op), b.made_rev), left: rest })
+    end
     end
   end
 
   doc """Skee.Scene DrawOps as SVG elements; clip ids start with `prefix`."""
   fn ops_svg(prefix : String, ops : List(DrawOp)) : List(Html) needs () do
-    let b = build_ops(prefix, { made_rev: [], open_clips: [], left: ops, next_clip: 0 })
+    let b =
+      build_ops(prefix, { made_rev: [], open_clips: [], left: ops, next_clip: 0 })
     List.reverse(b.made_rev)
   end
 
@@ -677,7 +737,8 @@ mod Skee.HudView do
   prize, lit and as a silhouette. The shell mounts it once.
   """
   fn defs(k : Skee.Consts.Consts) : Html needs () do
-    let syms = List.map([Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover], symbol_def)
+    let syms =
+      List.map([Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover], symbol_def)
     let prizes =
       List.flat_map(Skee.Rooms.all_prizes(), fn p -> [prize_def(k, p, true), prize_def(k, p, false)])
     Tag("svg", [Prop("class", "hud-defs"), Prop("width", "0"), Prop("height", "0"), Prop("aria-hidden", "true")], [Tag("defs", [], List.append(syms, prizes))])
@@ -741,8 +802,7 @@ mod Skee.HudView do
   end
 
   pfn all_points(ss : List(Seg)) : List((Float, Float)) needs () do
-    let (_, pts) =
-      List.fold_left(ss, ((0.0, 0.0), []), fn (acc, s) -> points_step(acc, s))
+    let (_, pts) = List.fold_left(ss, ((0.0, 0.0), []), fn (acc, s) -> points_step(acc, s))
     pts
   end
 
@@ -765,7 +825,12 @@ mod Skee.HudView do
 
   pfn grow(b : Box, p : (Float, Float)) : Box needs () do
     let (x, y) = p
-    { bx0: Skee.Maths.min_float(b.bx0, x), by0: Skee.Maths.min_float(b.by0, y), bx1: Skee.Maths.max_float(b.bx1, x), by1: Skee.Maths.max_float(b.by1, y) }
+    {
+      bx0: Skee.Maths.min_float(b.bx0, x),
+      by0: Skee.Maths.min_float(b.by0, y),
+      bx1: Skee.Maths.max_float(b.bx1, x),
+      by1: Skee.Maths.max_float(b.by1, y)
+    }
   end
 
   pfn line_w() : Float needs () do
@@ -783,7 +848,14 @@ mod Skee.HudView do
   pfn ellipse_d(cx : Float, cy : Float, rx : Float, ry : Float) : List(Seg) needs () do
     let kx = rx *. 0.5522847
     let ky = ry *. 0.5522847
-    [SegMove(cx +. rx, cy), SegCubic(cx +. rx, cy +. ky, cx +. kx, cy +. ry, cx, cy +. ry), SegCubic(cx -. kx, cy +. ry, cx -. rx, cy +. ky, cx -. rx, cy), SegCubic(cx -. rx, cy -. ky, cx -. kx, cy -. ry, cx, cy -. ry), SegCubic(cx +. kx, cy -. ry, cx +. rx, cy -. ky, cx +. rx, cy), SegClose]
+    [
+      SegMove(cx +. rx, cy),
+      SegCubic(cx +. rx, cy +. ky, cx +. kx, cy +. ry, cx, cy +. ry),
+      SegCubic(cx -. kx, cy +. ry, cx -. rx, cy +. ky, cx -. rx, cy),
+      SegCubic(cx -. rx, cy -. ky, cx -. kx, cy -. ry, cx, cy -. ry),
+      SegCubic(cx +. kx, cy -. ry, cx +. rx, cy -. ky, cx +. rx, cy),
+      SegClose
+    ]
   end
 
   -- PrizeArt's oval(x, y, rx, ry): radii in units of the square.
@@ -795,7 +867,13 @@ mod Skee.HudView do
   pfn rect(x : Float, y : Float, w : Float, h : Float, round : Float) : List(Seg) needs () do
     let rr = Skee.Maths.min_float(Skee.Maths.min_float(round, w /. 2.0), h /. 2.0)
     if rr <= 0.0 do
-      [SegMove(x, y), SegLine(x +. w, y), SegLine(x +. w, y +. h), SegLine(x, y +. h), SegClose]
+      [
+        SegMove(x, y),
+        SegLine(x +. w, y),
+        SegLine(x +. w, y +. h),
+        SegLine(x, y +. h),
+        SegClose
+      ]
     else
       rounded(x, y, w, h, rr)
     end
@@ -803,15 +881,27 @@ mod Skee.HudView do
 
   pfn rounded(x : Float, y : Float, w : Float, h : Float, r : Float) : List(Seg) needs () do
     let q = r *. 0.5522847
-    [SegMove(x +. r, y), SegLine(x +. w -. r, y), SegCubic(x +. w -. r +. q, y, x +. w, y +. r -. q, x +. w, y +. r), SegLine(x +. w, y +. h -. r), SegCubic(x +. w, y +. h -. r +. q, x +. w -. r +. q, y +. h, x +. w -. r, y +. h), SegLine(x +. r, y +. h), SegCubic(x +. r -. q, y +. h, x, y +. h -. r +. q, x, y +. h -. r), SegLine(x, y +. r), SegCubic(x, y +. r -. q, x +. r -. q, y, x +. r, y), SegClose]
+    [
+      SegMove(x +. r, y),
+      SegLine(x +. w -. r, y),
+      SegCubic(x +. w -. r +. q, y, x +. w, y +. r -. q, x +. w, y +. r),
+      SegLine(x +. w, y +. h -. r),
+      SegCubic(x +. w, y +. h -. r +. q, x +. w -. r +. q, y +. h, x +. w -. r, y +. h),
+      SegLine(x +. r, y +. h),
+      SegCubic(x +. r -. q, y +. h, x, y +. h -. r +. q, x, y +. h -. r),
+      SegLine(x, y +. r),
+      SegCubic(x, y +. r -. q, x +. r -. q, y, x +. r, y),
+      SegClose
+    ]
   end
 
   pfn star(k : Skee.Consts.Consts, cx : Float, cy : Float, outer : Float, inner : Float) : List(Seg) needs () do
-    let pts =
-      List.map(List.range(0, 10), fn i -> star_unit(k, cx, cy, outer, inner, i))
+    let pts = List.map(List.range(0, 10), fn i -> star_unit(k, cx, cy, outer, inner, i))
     match pts do
     Nil -> []
-    Cons((x0, y0), rest) -> List.concat([[SegMove(x0, y0)], List.map(rest, fn p -> line_to(p)), [SegClose]])
+    Cons((x0, y0), rest) -> do
+      List.concat([[SegMove(x0, y0)], List.map(rest, fn p -> line_to(p)), [SegClose]])
+    end
     end
   end
 
@@ -832,8 +922,14 @@ mod Skee.HudView do
     let col = if pen.silhouette do prize_shadow() else colour end
     let d = segs_d(ss)
     let body = Tag("path", [Prop("d", d), Prop("fill", css(col))], [])
-    let shine = if highlight && !pen.silhouette do shine_of(pen, n, ss, d, col) else [] end
-    let edge = Tag("path", [Prop("d", d), Prop("fill", "none"), Prop("stroke", css(ink())), Prop("stroke-width", num(line_w())), Prop("stroke-linejoin", "round")], [])
+    let shine =
+      if highlight && !pen.silhouette do
+        shine_of(pen, n, ss, d, col)
+      else
+        []
+      end
+    let edge =
+      Tag("path", [Prop("d", d), Prop("fill", "none"), Prop("stroke", css(ink())), Prop("stroke-width", num(line_w())), Prop("stroke-linejoin", "round")], [])
     List.concat([[body], shine, [edge]])
   end
 
@@ -842,8 +938,12 @@ mod Skee.HudView do
     let w = b.bx1 -. b.bx0
     let h = b.by1 -. b.by0
     let id = pen.prefix ++ "-hl" ++ int_to_string(n)
-    let spot = ellipse_d(b.bx0 +. w *. 0.14 +. w *. 0.17, b.by0 +. h *. 0.1 +. h *. 0.12, w *. 0.17, h *. 0.12)
-    [Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", d)], [])]), Tag("path", [Prop("d", segs_d(spot)), Prop("fill", css(Skee.Scene.lighter(col, 0.45))), Prop("clip-path", "url(#" ++ id ++ ")")], [])]
+    let spot =
+      ellipse_d(b.bx0 +. w *. 0.14 +. w *. 0.17, b.by0 +. h *. 0.1 +. h *. 0.12, w *. 0.17, h *. 0.12)
+    [
+      Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", d)], [])]),
+      Tag("path", [Prop("d", segs_d(spot)), Prop("fill", css(Skee.Scene.lighter(col, 0.45))), Prop("clip-path", "url(#" ++ id ++ ")")], [])
+    ]
   end
 
   pfn pdot(pen : PrizePen, x : Float, y : Float, r : Float) : Html needs () do
@@ -854,8 +954,17 @@ mod Skee.HudView do
   pfn pstroke(pen : PrizePen, ss : List(Seg), colour : Rgba, width : Float) : List(Html) needs () do
     let d = segs_d(ss)
     let col = if pen.silhouette do prize_shadow() else colour end
-    let common = [Prop("d", d), Prop("fill", "none"), Prop("stroke-linecap", "round"), Prop("stroke-linejoin", "round")]
-    [Tag("path", List.append(common, [Prop("stroke", css(ink())), Prop("stroke-width", num(width +. line_w() *. 2.0))]), []), Tag("path", List.append(common, [Prop("stroke", css(col)), Prop("stroke-width", num(width))]), [])]
+    let common =
+      [
+        Prop("d", d),
+        Prop("fill", "none"),
+        Prop("stroke-linecap", "round"),
+        Prop("stroke-linejoin", "round")
+      ]
+    [
+      Tag("path", List.append(common, [Prop("stroke", css(ink())), Prop("stroke-width", num(width +. line_w() *. 2.0))]), []),
+      Tag("path", List.append(common, [Prop("stroke", css(col)), Prop("stroke-width", num(width))]), [])
+    ]
   end
 
   pfn hx(n : Int) : Rgba needs () do
@@ -874,16 +983,30 @@ mod Skee.HudView do
   doc """PrizeArt.drawPrize: the prize in the 256 square's inner 224."""
   fn prize_art(pen : PrizePen, p : Prize) : List(Html) needs () do
     match p do
-    Sticker -> List.append(pfill(pen, 0, oval(0.5, 0.52, 0.44, 0.44), hx(16775404), false), pfill(pen, 1, star(pen.k, 0.5, 0.54, 0.36, 0.16), hx(16767053), true))
+    Sticker -> do
+      List.append(pfill(pen, 0, oval(0.5, 0.52, 0.44, 0.44), hx(16775404), false), pfill(pen, 1, star(pen.k, 0.5, 0.54, 0.36, 0.16), hx(16767053), true))
+    end
     RubberDuck -> do
       let beak =
-        [SegMove(0.82, 0.34), SegQuad(0.98, 0.32, 0.98, 0.42), SegQuad(0.92, 0.48, 0.82, 0.46), SegClose]
+        [
+          SegMove(0.82, 0.34),
+          SegQuad(0.98, 0.32, 0.98, 0.42),
+          SegQuad(0.92, 0.48, 0.82, 0.46),
+          SegClose
+        ]
       let wing = [SegMove(0.24, 0.62), SegQuad(0.36, 0.52, 0.5, 0.66)]
       List.concat([pfill(pen, 0, oval(0.46, 0.68, 0.38, 0.22), hx(16767053), true), pfill(pen, 1, oval(0.66, 0.36, 0.2, 0.2), hx(16767053), true), pfill(pen, 2, beak, hx(16747069), false), [pdot(pen, 0.7, 0.32, 0.03)], pstroke(pen, wing, hx(15905792), lw())])
     end
     Kazoo -> do
       let body =
-        [SegMove(0.08, 0.46), SegLine(0.82, 0.38), SegLine(0.92, 0.52), SegLine(0.82, 0.66), SegLine(0.08, 0.58), SegClose]
+        [
+          SegMove(0.08, 0.46),
+          SegLine(0.82, 0.38),
+          SegLine(0.92, 0.52),
+          SegLine(0.82, 0.66),
+          SegLine(0.08, 0.58),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, body, hx(16731501), true), pfill(pen, 1, rect(0.42, 0.26, 0.16, 0.18, 0.04), hx(13225688), true), pfill(pen, 2, rect(0.3, 0.42, 0.04, 0.2, 0.0), hx(16767053), false), pfill(pen, 3, rect(0.68, 0.42, 0.04, 0.2, 0.0), hx(16767053), false)])
     end
     Yoyo -> do
@@ -897,9 +1020,21 @@ mod Skee.HudView do
     end
     LavaLamp -> do
       let glass =
-        [SegMove(0.38, 0.16), SegLine(0.62, 0.16), SegLine(0.74, 0.72), SegLine(0.26, 0.72), SegClose]
+        [
+          SegMove(0.38, 0.16),
+          SegLine(0.62, 0.16),
+          SegLine(0.74, 0.72),
+          SegLine(0.26, 0.72),
+          SegClose
+        ]
       let base =
-        [SegMove(0.26, 0.72), SegLine(0.74, 0.72), SegLine(0.84, 0.96), SegLine(0.16, 0.96), SegClose]
+        [
+          SegMove(0.26, 0.72),
+          SegLine(0.74, 0.72),
+          SegLine(0.84, 0.96),
+          SegLine(0.16, 0.96),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, glass, hx(11893759), true), pfill(pen, 1, oval(0.5, 0.36, 0.08, 0.1), hx(16744366), false), pfill(pen, 2, oval(0.46, 0.6, 0.12, 0.08), hx(16744366), false), pfill(pen, 3, rect(0.32, 0.04, 0.36, 0.13, 0.04), hx(7296470), true), pfill(pen, 4, base, hx(7296470), true)])
     end
     Robot -> do
@@ -909,12 +1044,27 @@ mod Skee.HudView do
     end
     GiantBear -> do
       let bow =
-        [SegMove(0.5, 0.62), SegLine(0.36, 0.55), SegLine(0.36, 0.69), SegClose, SegMove(0.5, 0.62), SegLine(0.64, 0.55), SegLine(0.64, 0.69), SegClose]
+        [
+          SegMove(0.5, 0.62),
+          SegLine(0.36, 0.55),
+          SegLine(0.36, 0.69),
+          SegClose,
+          SegMove(0.5, 0.62),
+          SegLine(0.64, 0.55),
+          SegLine(0.64, 0.69),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, oval(0.26, 0.2, 0.12, 0.12), hx(13208154), false), pfill(pen, 1, oval(0.74, 0.2, 0.12, 0.12), hx(13208154), false), pfill(pen, 2, oval(0.5, 0.74, 0.36, 0.24), hx(13208154), true), pfill(pen, 3, oval(0.5, 0.38, 0.3, 0.26), hx(13208154), true), pfill(pen, 4, oval(0.5, 0.48, 0.12, 0.09), hx(15913904), false), [pdot(pen, 0.4, 0.34, 0.03), pdot(pen, 0.6, 0.34, 0.03), pdot(pen, 0.5, 0.45, 0.035)], pfill(pen, 5, bow, hx(16731501), false)])
     end
     Trophy -> do
       let cup =
-        [SegMove(0.22, 0.1), SegLine(0.78, 0.1), SegQuad(0.78, 0.56, 0.5, 0.6), SegQuad(0.22, 0.56, 0.22, 0.1), SegClose]
+        [
+          SegMove(0.22, 0.1),
+          SegLine(0.78, 0.1),
+          SegQuad(0.78, 0.56, 0.5, 0.6),
+          SegQuad(0.22, 0.56, 0.22, 0.1),
+          SegClose
+        ]
       List.concat([trophy_handle(pen, -1.0), trophy_handle(pen, 1.0), pfill(pen, 0, cup, hx(16762941), true), pfill(pen, 1, rect(0.44, 0.58, 0.12, 0.16, 0.0), hx(16762941), false), pfill(pen, 2, rect(0.28, 0.74, 0.44, 0.16, 0.03), hx(7296470), true), pfill(pen, 3, star(pen.k, 0.5, 0.3, 0.12, 0.05), hx(16775404), false)])
     end
     GlowSticks -> do
@@ -926,17 +1076,31 @@ mod Skee.HudView do
     DiscoBall -> do
       let chain = [SegMove(0.5, 0.02), SegLine(0.5, 0.16)]
       let sparkle =
-        if pen.silhouette do [] else pfill(pen, 1, star(pen.k, 0.32, 0.42, 0.08, 0.03), hx(16775404), false) end
+        if pen.silhouette do
+          []
+        else
+          pfill(pen, 1, star(pen.k, 0.32, 0.42, 0.08, 0.03), hx(16775404), false)
+        end
       List.concat([pstroke(pen, chain, hx(13225688), lw() *. 0.6), pfill(pen, 0, oval(0.5, 0.55, 0.38, 0.38), hx(13225688), true), disco_rows(pen), sparkle])
     end
     NeonSign -> do
       let heart =
-        [SegMove(0.5, 0.7), SegCubic(0.14, 0.5, 0.3, 0.2, 0.5, 0.36), SegCubic(0.7, 0.2, 0.86, 0.5, 0.5, 0.7)]
+        [
+          SegMove(0.5, 0.7),
+          SegCubic(0.14, 0.5, 0.3, 0.2, 0.5, 0.36),
+          SegCubic(0.7, 0.2, 0.86, 0.5, 0.5, 0.7)
+        ]
       List.append(pfill(pen, 0, rect(0.06, 0.2, 0.88, 0.6, 0.08), hx(2759987), false), pstroke(pen, heart, hx(16731501), lw() *. 1.1))
     end
     Jukebox -> do
       let body =
-        [SegMove(0.16, 0.94), SegLine(0.16, 0.42), SegArc(0.34, 0.84, 0.42), SegLine(0.84, 0.94), SegClose]
+        [
+          SegMove(0.16, 0.94),
+          SegLine(0.16, 0.42),
+          SegArc(0.34, 0.84, 0.42),
+          SegLine(0.84, 0.94),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, body, hx(16747069), true), pfill(pen, 1, rect(0.28, 0.3, 0.44, 0.24, 0.1), hx(16767053), false), List.flat_map(List.enumerate([0.3, 0.42, 0.54, 0.66]), fn e -> jukebox_key(pen, e))])
     end
     ArcadeCabinet -> do
@@ -947,7 +1111,17 @@ mod Skee.HudView do
     end
     Champagne -> do
       let bottle =
-        [SegMove(0.42, 0.06), SegLine(0.58, 0.06), SegLine(0.58, 0.34), SegQuad(0.72, 0.38, 0.72, 0.5), SegLine(0.72, 0.94), SegLine(0.28, 0.94), SegLine(0.28, 0.5), SegQuad(0.28, 0.38, 0.42, 0.34), SegClose]
+        [
+          SegMove(0.42, 0.06),
+          SegLine(0.58, 0.06),
+          SegLine(0.58, 0.34),
+          SegQuad(0.72, 0.38, 0.72, 0.5),
+          SegLine(0.72, 0.94),
+          SegLine(0.28, 0.94),
+          SegLine(0.28, 0.5),
+          SegQuad(0.28, 0.38, 0.42, 0.34),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, bottle, hx(4099674), true), pfill(pen, 1, rect(0.4, 0.04, 0.2, 0.16, 0.03), hx(16762941), false), pfill(pen, 2, rect(0.3, 0.58, 0.4, 0.2, 0.02), hx(16775404), false)])
     end
     PearlNecklace -> List.flat_map(List.range(0, 11), fn i -> pearl(pen, i))
@@ -962,7 +1136,15 @@ mod Skee.HudView do
     end
     SportsCar -> do
       let body =
-        [SegMove(0.04, 0.7), SegLine(0.06, 0.52), SegLine(0.32, 0.46), SegQuad(0.48, 0.24, 0.66, 0.44), SegLine(0.94, 0.54), SegLine(0.96, 0.7), SegClose]
+        [
+          SegMove(0.04, 0.7),
+          SegLine(0.06, 0.52),
+          SegLine(0.32, 0.46),
+          SegQuad(0.48, 0.24, 0.66, 0.44),
+          SegLine(0.94, 0.54),
+          SegLine(0.96, 0.7),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, body, hx(16731501), true), pfill(pen, 1, rect(0.4, 0.34, 0.18, 0.1, 0.03), hx(12578815), false), car_wheel(pen, 2, 0.24), car_wheel(pen, 4, 0.76)])
     end
     GoldenFlamingo -> do
@@ -976,25 +1158,60 @@ mod Skee.HudView do
     end
     GrandPiano -> do
       let lid =
-        [SegMove(0.1, 0.5), SegLine(0.84, 0.5), SegQuad(0.9, 0.2, 0.6, 0.2), SegLine(0.1, 0.2), SegClose]
+        [
+          SegMove(0.1, 0.5),
+          SegLine(0.84, 0.5),
+          SegQuad(0.9, 0.2, 0.6, 0.2),
+          SegLine(0.1, 0.2),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, lid, hx(2759987), true), pfill(pen, 1, rect(0.1, 0.5, 0.74, 0.12, 0.0), hx(2759987), false), List.flat_map(List.range(0, 7), fn i -> piano_key(pen, i)), pfill(pen, 20, rect(0.16, 0.62, 0.05, 0.3, 0.0), hx(2759987), false), pfill(pen, 21, rect(0.78, 0.62, 0.05, 0.3, 0.0), hx(2759987), false)])
     end
     Yacht -> do
       let hull =
-        [SegMove(0.04, 0.6), SegLine(0.96, 0.6), SegLine(0.82, 0.82), SegLine(0.16, 0.82), SegClose]
+        [
+          SegMove(0.04, 0.6),
+          SegLine(0.96, 0.6),
+          SegLine(0.82, 0.82),
+          SegLine(0.16, 0.82),
+          SegClose
+        ]
       let wave = [SegMove(0.02, 0.9), SegQuad(0.5, 0.98, 0.98, 0.9)]
       List.concat([pfill(pen, 0, hull, hx(16775404), true), pfill(pen, 1, rect(0.26, 0.42, 0.46, 0.18, 0.04), hx(16775404), true), pfill(pen, 2, rect(0.36, 0.28, 0.24, 0.14, 0.04), hx(16775404), true), pfill(pen, 3, rect(0.32, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pfill(pen, 4, rect(0.46, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pfill(pen, 5, rect(0.6, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pstroke(pen, wave, hx(6277375), lw())])
     end
     PrivateJet -> do
       let body =
-        [SegMove(0.04, 0.52), SegQuad(0.06, 0.42, 0.2, 0.42), SegLine(0.86, 0.42), SegLine(0.96, 0.24), SegLine(0.96, 0.56), SegLine(0.2, 0.6), SegClose]
+        [
+          SegMove(0.04, 0.52),
+          SegQuad(0.06, 0.42, 0.2, 0.42),
+          SegLine(0.86, 0.42),
+          SegLine(0.96, 0.24),
+          SegLine(0.96, 0.56),
+          SegLine(0.2, 0.6),
+          SegClose
+        ]
       let wing =
-        [SegMove(0.4, 0.56), SegLine(0.62, 0.56), SegLine(0.46, 0.84), SegLine(0.36, 0.84), SegClose]
+        [
+          SegMove(0.4, 0.56),
+          SegLine(0.62, 0.56),
+          SegLine(0.46, 0.84),
+          SegLine(0.36, 0.84),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, body, hx(16775404), true), pfill(pen, 1, wing, hx(13225688), true), List.flat_map(List.range(0, 5), fn i -> jet_window(pen, i))])
     end
     DiamondCrown -> do
       let crown =
-        [SegMove(0.1, 0.8), SegLine(0.1, 0.3), SegLine(0.3, 0.52), SegLine(0.5, 0.18), SegLine(0.7, 0.52), SegLine(0.9, 0.3), SegLine(0.9, 0.8), SegClose]
+        [
+          SegMove(0.1, 0.8),
+          SegLine(0.1, 0.3),
+          SegLine(0.3, 0.52),
+          SegLine(0.5, 0.18),
+          SegLine(0.7, 0.52),
+          SegLine(0.9, 0.3),
+          SegLine(0.9, 0.8),
+          SegClose
+        ]
       List.concat([pfill(pen, 0, crown, hx(16762941), true), pfill(pen, 1, rect(0.1, 0.72, 0.8, 0.12, 0.02), hx(16767053), false), pfill(pen, 2, oval(0.3, 0.78, 0.05, 0.04), hx(16731501), false), pfill(pen, 3, oval(0.5, 0.78, 0.05, 0.04), hx(6277375), false), pfill(pen, 4, oval(0.7, 0.78, 0.05, 0.04), hx(8313978), false), pfill(pen, 5, star(pen.k, 0.5, 0.44, 0.09, 0.04), hx(12578815), false)])
     end
     end
@@ -1009,7 +1226,10 @@ mod Skee.HudView do
 
   pfn trophy_handle(pen : PrizePen, side : Float) : List(Html) needs () do
     let h =
-      [SegMove(0.5 +. side *. 0.26, 0.18), SegQuad(0.5 +. side *. 0.46, 0.2, 0.5 +. side *. 0.22, 0.4)]
+      [
+        SegMove(0.5 +. side *. 0.26, 0.18),
+        SegQuad(0.5 +. side *. 0.46, 0.2, 0.5 +. side *. 0.22, 0.4)
+      ]
     pstroke(pen, h, hx(16762941), lw() *. 1.2)
   end
 
@@ -1020,10 +1240,13 @@ mod Skee.HudView do
 
   pfn disco_rows(pen : PrizePen) : List(Html) needs () do
     let id = pen.prefix ++ "-ball"
-    let rows =
-      List.map(List.range(1, 5), fn i -> disco_row(i))
-    let clip = Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", segs_d(oval(0.5, 0.55, 0.38, 0.38)))], [])])
-    [clip, Tag("g", [Prop("clip-path", "url(#" ++ id ++ ")"), Prop("fill", "none"), Prop("stroke", css(alpha(ink(), 0.5))), Prop("stroke-width", num(lw() *. 0.5))], rows)]
+    let rows = List.map(List.range(1, 5), fn i -> disco_row(i))
+    let clip =
+      Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", segs_d(oval(0.5, 0.55, 0.38, 0.38)))], [])])
+    [
+      clip,
+      Tag("g", [Prop("clip-path", "url(#" ++ id ++ ")"), Prop("fill", "none"), Prop("stroke", css(alpha(ink(), 0.5))), Prop("stroke-width", num(lw() *. 0.5))], rows)
+    ]
   end
 
   pfn disco_row(i : Int) : Html needs () do
@@ -1090,16 +1313,21 @@ mod Skee.HudView do
   pfn charm_token(c : Charm, selected : Bool) : Html needs () do
     let n = List.length(Skee.Items.all_charms())
     let hue = int_to_float(index_of(Skee.Items.all_charms(), c)) /. int_to_float(n)
-    let words =
-      List.filter(String.split(Skee.Items.charm_name(c), " "), fn w -> w != "")
+    let words = List.filter(String.split(Skee.Items.charm_name(c), " "), fn w -> w != "")
     let letters = String.join(List.map(List.take(words, 2), initial_of), "")
     let border =
-      if selected do "border:4px solid " ++ css(mult_red()) else "border:3px solid " ++ css(ink()) end
+      if selected do
+        "border:4px solid " ++ css(mult_red())
+      else
+        "border:3px solid " ++ css(ink())
+      end
     let tile =
       div("token tile", "background:hsl(" ++ num(hue *. 360.0) ++ ",100%,77.5%);" ++ border, [cel(letters, 18.0, cream())])
     let sell =
       if selected do
-        [div("sell", "", [pill(mult_red(), 10.0, [cel("SELL +" ++ int_to_string(Skee.Units.tickets_int(Skee.Items.charm_cost(c)) / 2), 12.0, cream())])])]
+        [
+          div("sell", "", [pill(mult_red(), 10.0, [cel("SELL +" ++ int_to_string(Skee.Units.tickets_int(Skee.Items.charm_cost(c)) / 2), 12.0, cream())])])
+        ]
       else
         []
       end
@@ -1119,11 +1347,14 @@ mod Skee.HudView do
   -- PowerToken: a coloured disc with the power-up's initial.
   pfn power_token(p : PowerUp, armed : Bool) : Html needs () do
     let border =
-      if armed do "border:4px solid " ++ css(butter()) else "border:3px solid " ++ css(ink()) end
+      if armed do
+        "border:4px solid " ++ css(butter())
+      else
+        "border:3px solid " ++ css(ink())
+      end
     let disc =
       div("token disc", "background:" ++ css(power_colour(p)) ++ ";" ++ border, [cel(initial_of(Skee.Items.power_up_name(p)), 18.0, cream())])
-    let label =
-      if armed do [div("armed", "", [cel("ARMED", 10.0, butter())])] else [] end
+    let label = if armed do [div("armed", "", [cel("ARMED", 10.0, butter())])] else [] end
     div("power", "", Cons(disc, label))
   end
 
@@ -1165,20 +1396,23 @@ mod Skee.HudView do
     end
   end
 
+  pfn comp_words(w : Wallet, r : Room) : String needs () do
+    match Skee.Rooms.room_at(w.comps, r) do
+    Some(c) -> int_to_string(c.nights) ++ " COMP"
+    None -> "OPEN"
+    end
+  end
+
   pfn room_button(w : Wallet, r : Room) : Html needs () do
     let owned = Skee.Rooms.room_at(w.rooms, r)
     let here = r == w.wallet_room
     let status =
       if owned do
-        match Skee.Rooms.room_at(w.comps, r) do
-        Some(c) -> int_to_string(c.nights) ++ " COMP"
-        None -> "OPEN"
-        end
+        comp_words(w, r)
       else
         winnings_text(Skee.Rooms.comp_threshold(r))
       end
-    let bg =
-      if here do pink() else alpha(ink(), if owned do 0.55 else 0.3 end) end
+    let bg = if here do pink() else alpha(ink(), if owned do 0.55 else 0.3 end) end
     let edge = if here do css(butter()) else "transparent" end
     let shade = if owned do "1" else "0.6" end
     let look =
@@ -1263,7 +1497,11 @@ mod Skee.HudView do
 
   pfn top_pane(s : HudState) : Html needs () do
     let blurb =
-      if s.is_boss do div("boss-blurb", "", [cel(s.boss_blurb, 12.0, butter())]) else nothing() end
+      if s.is_boss do
+        div("boss-blurb", "", [cel(s.boss_blurb, 12.0, butter())])
+      else
+        nothing()
+      end
     div("top", "", [top_bar(s), top_slot(s), blurb])
   end
 
@@ -1276,7 +1514,11 @@ mod Skee.HudView do
 
   pfn heat_dot(s : HudState, i : Int) : Html needs () do
     let fill =
-      if s.hud_fever do butter() else if i < s.hud_heat do mult_red() else alpha(cream(), 0.5) end end
+      if s.hud_fever do
+        butter()
+      else
+        if i < s.hud_heat do mult_red() else alpha(cream(), 0.5) end
+      end
     div("heat", "background:" ++ css(fill), [])
   end
 
@@ -1290,24 +1532,20 @@ mod Skee.HudView do
   pfn hint_view(s : HudState) : Html needs () do
     match s.hint do
     None -> nothing()
-    Some(h) -> do
-      if h.hint_text == "" do
-        nothing()
-      else
-        do
-          let size = if h.hint_hot do 18.0 else 14.0 end
-          let fill = if h.hint_hot do butter() else cream() end
-          let sym =
-            match h.hint_symbol do
-            Some(x) -> symbol_image(x, if h.hint_hot do 34.0 else 28.0 end)
-            None -> nothing()
-            end
-          let after = if h.after == "" do nothing() else cel(h.after, size, fill) end
-          div("hint", "", [cel(h.hint_text, size, fill), sym, after])
-        end
+    Some(h) -> if h.hint_text == "" do nothing() else hint_line(h) end
+    end
+  end
+
+  pfn hint_line(h : Hint) : Html needs () do
+    let size = if h.hint_hot do 18.0 else 14.0 end
+    let fill = if h.hint_hot do butter() else cream() end
+    let sym =
+      match h.hint_symbol do
+      Some(x) -> symbol_image(x, if h.hint_hot do 34.0 else 28.0 end)
+      None -> nothing()
       end
-    end
-    end
+    let after = if h.after == "" do nothing() else cel(h.after, size, fill) end
+    div("hint", "", [cel(h.hint_text, size, fill), sym, after])
   end
 
   pfn first_throw_words(a : AppHud, w : Float, h : Float) : Html needs () do
@@ -1374,7 +1612,10 @@ mod Skee.HudView do
     else
       do
         let o = if a.aiming_now do 0.9 else 0.4 end
-        [line(a.guide_line, alpha(ink(), o *. 0.6), 8.0, true), line(a.guide_line, alpha(cream(), o), 4.0, true)]
+        [
+          line(a.guide_line, alpha(ink(), o *. 0.6), 8.0, true),
+          line(a.guide_line, alpha(cream(), o), 4.0, true)
+        ]
       end
     end
   end
@@ -1386,7 +1627,10 @@ mod Skee.HudView do
   pfn trail_segment(pair : (TrailDot, TrailDot)) : List(Html) needs () do
     let (x, y) = pair
     let fade = 1.0 -. y.dot_age
-    [line([x.dot, y.dot], alpha(ink(), 0.5 *. fade), 16.0 *. fade +. 2.0, false), line([x.dot, y.dot], alpha(butter(), 0.9 *. fade), 10.0 *. fade +. 1.0, false)]
+    [
+      line([x.dot, y.dot], alpha(ink(), 0.5 *. fade), 16.0 *. fade +. 2.0, false),
+      line([x.dot, y.dot], alpha(butter(), 0.9 *. fade), 10.0 *. fade +. 1.0, false)
+    ]
   end
 
   pfn hot_spot(a : AppHud) : Html needs () do
@@ -1394,11 +1638,7 @@ mod Skee.HudView do
     match s.hot_at do
     Some(p) -> do
       if Skee.Walkthrough.has_tip(a.known, TipHotSpot) do
-        do
-          let beat = 0.5 +. 0.5 *. Math.sin(s.hud_clock *. 6.0)
-          let size = 46.0 +. 12.0 *. beat
-          at(p.sx, p.sy, div("hot", "", [div("hot-ring", "width:" ++ px(size) ++ ";height:" ++ px(size) ++ ";opacity:" ++ num(0.9 -. 0.4 *. beat), []), cel("x2", 20.0, butter())]))
-        end
+        hot_mark(s.hud_clock, p)
       else
         nothing()
       end
@@ -1407,19 +1647,29 @@ mod Skee.HudView do
     end
   end
 
+  -- HotSpotMark: a pulsing gold ring with its promise on it.
+  pfn hot_mark(clock : Float, p : ScreenPoint) : Html needs () do
+    let beat = 0.5 +. 0.5 *. Math.sin(clock *. 6.0)
+    let size = 46.0 +. 12.0 *. beat
+    at(p.sx, p.sy, div("hot", "", [div("hot-ring", "width:" ++ px(size) ++ ";height:" ++ px(size) ++ ";opacity:" ++ num(0.9 -. 0.4 *. beat), []), cel("x2", 20.0, butter())]))
+  end
+
   pfn lines_pane(a : AppHud, w : Float, h : Float) : Html needs () do
-    let marks = List.append(guide_lines(a), List.flat_map(trail_pairs(a.trail_dots), trail_segment))
+    let marks =
+      List.append(guide_lines(a), List.flat_map(trail_pairs(a.trail_dots), trail_segment))
     let drawn =
-      if List.is_empty(marks) do nothing() else Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h))], marks) end
+      if List.is_empty(marks) do
+        nothing()
+      else
+        Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h))], marks)
+      end
     div("", "", [drawn, hot_spot(a)])
   end
 
   -- Charms down the left edge, power-ups down the right.
   pfn trays_pane(s : HudState, w : Float, h : Float) : Html needs () do
-    let charms =
-      List.map(List.enumerate(s.hud_charms), fn e -> charm_button(s, e))
-    let powers =
-      List.map(List.enumerate(s.hud_power_ups), fn e -> power_button(e))
+    let charms = List.map(List.enumerate(s.hud_charms), fn e -> charm_button(s, e))
+    let powers = List.map(List.enumerate(s.hud_power_ups), fn e -> power_button(e))
     let armed =
       match s.hud_armed do
       Some(p) -> [power_token(p, true)]
@@ -1450,8 +1700,14 @@ mod Skee.HudView do
   -- BallRack: pick a ball before any throw.
   pfn rack_ball(selected : BallKind, b : BallKind) : Html needs () do
     let here = b == selected
-    let edge = if here do "3.5px solid " ++ css(butter()) else "2.5px solid " ++ css(ink()) end
-    let style = "background:" ++ css(if here do pink() else violet() end) ++ ";border:" ++ edge
+    let edge =
+      if here do
+        "3.5px solid " ++ css(butter())
+      else
+        "2.5px solid " ++ css(ink())
+      end
+    let style =
+      "background:" ++ css(if here do pink() else violet() end) ++ ";border:" ++ edge
     div("rack-cell", "", [tap_intent(TapChooseBall(b), [div("rack-ball", style, [div("ball-dot", "background:" ++ css(ball_colour(b)), []), cel(Skee.Items.ball_short(b), 11.0, cream()), cel(Skee.Items.pay_label(b), 16.0, butter())])])])
   end
 
@@ -1496,8 +1752,12 @@ mod Skee.HudView do
     match s do
     ReelX2 -> coin("2X", sky())
     ReelX3 -> coin("3X", mult_red())
-    ReelBonus -> div("reel-art", "", [star_shape(k, 58.0, butter(), 3.0), div("overlay", "", [cel("BONUS", 11.0, cream())])])
-    ReelWild -> div("reel-art", "", [symbol_image(Clover, 58.0), div("overlay wild", "", [cel("WILD", 11.0, mint())])])
+    ReelBonus -> do
+      div("reel-art", "", [star_shape(k, 58.0, butter(), 3.0), div("overlay", "", [cel("BONUS", 11.0, cream())])])
+    end
+    ReelWild -> do
+      div("reel-art", "", [symbol_image(Clover, 58.0), div("overlay wild", "", [cel("WILD", 11.0, mint())])])
+    end
     ReelCherry -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
     ReelLemon -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
     ReelBell -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
@@ -1521,8 +1781,7 @@ mod Skee.HudView do
     let strip_len = List.length(three_at(Skee.Rooms.strips(m.machine_room), reel))
     let cells =
       List.map(List.range(-1, 4), fn kk -> reel_cell(k, m, reel, base, frac, strip_len, kk))
-    let tease =
-      if m.machine_teasing && reel == 2 do [div("tease", "", [])] else [] end
+    let tease = if m.machine_teasing && reel == 2 do [div("tease", "", [])] else [] end
     div("pull-reel", "left:" ++ px(70.0 *. int_to_float(reel)), List.append(tease, cells))
   end
 
@@ -1567,19 +1826,19 @@ mod Skee.HudView do
   pfn win_line(w : LineWin) : List(Html) needs () do
     let pts = win_points(w)
     let shadow = List.map(pts, fn p -> { sx: p.sx, sy: p.sy +. 2.0 })
-    [line(shadow, ink(), 6.0, false), line(pts, line_colour(w.line), 6.0, false)]
+    [
+      line(shadow, ink(), 6.0, false),
+      line(pts, line_colour(w.line), 6.0, false)
+    ]
   end
 
   pfn window(k : Skee.Consts.Consts, m : Machine) : Html needs () do
     let reels = div("reels", "", List.map([0, 1, 2], fn r -> pull_reel(k, m, r)))
-    let dividers =
-      [div("divider", "left:69px", []), div("divider", "left:139px", [])]
-    let ticks =
-      List.map(List.range(0, Skee.Scoring.bet_lines(m.machine_bet)), line_tick)
+    let dividers = [div("divider", "left:69px", []), div("divider", "left:139px", [])]
+    let ticks = List.map(List.range(0, Skee.Scoring.bet_lines(m.machine_bet)), line_tick)
     let wins =
       Tag("svg", [Prop("class", "wins"), Prop("width", "210"), Prop("height", "210"), Prop("viewBox", "0 0 210 210")], List.flat_map(m.wins, win_line))
-    let tease =
-      if m.machine_teasing do [div("tease-ring", "", [])] else [] end
+    let tease = if m.machine_teasing do [div("tease-ring", "", [])] else [] end
     div("window", "", List.concat([[reels], dividers, ticks, [wins, div("window-edge", "", [])], tease]))
   end
 
@@ -1608,14 +1867,23 @@ mod Skee.HudView do
     let top = if m.show_bets do meters(m) else nothing() end
     let bottom =
       if m.machine_free do
-        [cel("FREE GAME " ++ dot() ++ " x2 " ++ dot() ++ " " ++ int_to_string(m.free_left) ++ " MORE", 18.0, butter())]
+        [
+          cel("FREE GAME " ++ dot() ++ " x2 " ++ dot() ++ " " ++ int_to_string(m.free_left) ++ " MORE", 18.0, butter())
+        ]
       else
         do
           let bets =
-            if m.show_bets do hstack(6.0, List.map(Skee.HudState.all_bets(), fn b -> bet_button(m, b))) else nothing() end
+            if m.show_bets do
+              hstack(6.0, List.map(Skee.HudState.all_bets(), fn b -> bet_button(m, b)))
+            else
+              nothing()
+            end
           let spin =
             pill(if m.can_pull do mint() else alpha(cream(), 0.5) end, 18.0, [cel(if m.can_pull do "SPIN" else "..." end, 24.0, cream())])
-          [bets, maybe_button(if m.can_pull do Some(ActIntent(TapPull)) else None end, [spin])]
+          [
+            bets,
+            maybe_button(if m.can_pull do Some(ActIntent(TapPull)) else None end, [spin])
+          ]
         end
       end
     div("machine", "", List.concat([[top, hstack(10.0, [window(k, m), lever(m)])], bottom]))
@@ -1624,7 +1892,11 @@ mod Skee.HudView do
   pfn machine_pane(k : Skee.Consts.Consts, s : HudState, w : Float, h : Float) : Html needs () do
     match s.machine do
     Some(m) -> do
-      if is_none(s.counter) && is_none(s.over) do at(w /. 2.0, h *. 0.74, machine_view(k, m)) else nothing() end
+      if is_none(s.counter) && is_none(s.over) do
+        at(w /. 2.0, h *. 0.74, machine_view(k, m))
+      else
+        nothing()
+      end
     end
     None -> nothing()
     end
@@ -1669,7 +1941,11 @@ mod Skee.HudView do
         let rx0 = x -. r *. turn
         let rw = 2.0 *. r *. Skee.Maths.max_float(turn, 0.12)
         let cx = rx0 +. rw /. 2.0
-        [ellipse(cx, y, rw /. 2.0 +. 1.5, r +. 1.5, ink()), ellipse(cx, y, rw /. 2.0, r, butter()), ellipse(cx, y, rw /. 2.0 -. rw *. 0.28, r -. r *. 0.5, cream())]
+        [
+          ellipse(cx, y, rw /. 2.0 +. 1.5, r +. 1.5, ink()),
+          ellipse(cx, y, rw /. 2.0, r, butter()),
+          ellipse(cx, y, rw /. 2.0 -. rw *. 0.28, r -. r *. 0.5, cream())
+        ]
       end
     else
       []
@@ -1683,8 +1959,7 @@ mod Skee.HudView do
   -- CoinRain: seventy coins, a pure function of the shower's progress.
   pfn coin_rain(progress : Float, w : Float, h : Float) : Html needs () do
     let t = 1.0 -. progress
-    let coins =
-      List.flat_map(List.range(0, 70), fn i -> coin_mark(t, w, h, i))
+    let coins = List.flat_map(List.range(0, 70), fn i -> coin_mark(t, w, h, i))
     Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h)), Prop("style", "opacity:" ++ num(Skee.Maths.min_float(1.0, progress *. 3.0)))], coins)
   end
 
@@ -1693,7 +1968,11 @@ mod Skee.HudView do
     let out_a = Skee.Maths.min_float(1.0, (1.0 -. b.progress) *. 5.0)
     let scale = 0.6 +. 0.4 *. in_a +. 0.05 *. Math.sin(b.progress *. 20.0)
     let sub =
-      if b.sub == "" do nothing() else cel(String.to_uppercase(b.sub), 16.0, cream()) end
+      if b.sub == "" do
+        nothing()
+      else
+        cel(String.to_uppercase(b.sub), 16.0, cream())
+      end
     div("vs", "gap:4px;transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(Skee.Maths.max_float(0.0, Skee.Maths.min_float(in_a, out_a))), [cel(b.title, 52.0, butter()), sub])
   end
 
@@ -1728,7 +2007,9 @@ mod Skee.HudView do
     match o do
     OfferCharm(c) -> Skee.Items.charm_blurb(c)
     OfferStamp(sym) -> "Add a " ++ Skee.Presentation.symbol_raw(sym) ++ " to a hole's reel"
-    OfferGild -> "+" ++ int_to_string(Skee.Units.chips_int(Skee.Items.gild_amount())) ++ " chips on a hole, for good"
+    OfferGild -> do
+      "+" ++ int_to_string(Skee.Units.chips_int(Skee.Items.gild_amount())) ++ " chips on a hole, for good"
+    end
     OfferPurge -> "Take the showing symbol off a hole's reel"
     OfferPowerUp(p) -> Skee.Items.power_up_blurb(p)
     end
@@ -1738,8 +2019,12 @@ mod Skee.HudView do
     match o do
     OfferCharm(c) -> charm_token(c, false)
     OfferStamp(sym) -> symbol_image(sym, 46.0)
-    OfferGild -> div("token disc flat", "background:" ++ css(butter()) ++ ";border:3px solid " ++ css(ink()), [cel("+10", 14.0, cream())])
-    OfferPurge -> div("token disc flat", "background:" ++ css(pink()) ++ ";border:3px solid " ++ css(ink()), [cel(times(), 26.0, cream())])
+    OfferGild -> do
+      div("token disc flat", "background:" ++ css(butter()) ++ ";border:3px solid " ++ css(ink()), [cel("+10", 14.0, cream())])
+    end
+    OfferPurge -> do
+      div("token disc flat", "background:" ++ css(pink()) ++ ";border:3px solid " ++ css(ink()), [cel(times(), 26.0, cream())])
+    end
     OfferPowerUp(p) -> power_token(p, false)
     end
   end
@@ -1762,10 +2047,16 @@ mod Skee.HudView do
     let (i, o) = e
     let selected = s.hud_selected_offer == Some(i)
     let border =
-      if selected do "border:5px solid " ++ css(mult_red()) else "border:3px solid " ++ css(ink()) end
+      if selected do
+        "border:5px solid " ++ css(mult_red())
+      else
+        "border:3px solid " ++ css(ink())
+      end
     let body =
       match o do
-      None -> div("offer", "background:" ++ css(alpha(cream(), 0.4)) ++ ";" ++ border, [div("sold", "", [cel("SOLD", 22.0, cream())])])
+      None -> do
+        div("offer", "background:" ++ css(alpha(cream(), 0.4)) ++ ";" ++ border, [div("sold", "", [cel("SOLD", 22.0, cream())])])
+      end
       Some(item) -> do
         let affordable =
           Skee.Units.tickets_at_least(s.hud_tickets, Skee.Items.offer_cost(item))
@@ -1807,7 +2098,9 @@ mod Skee.HudView do
     let st = o.over_stats
     let host =
       match Skee.Rooms.host_due(w) do
-      Some(due) -> tap_intent(TapOpenHost, [pill(butter(), 16.0, [cel("THE HOST WANTS A WORD " ++ dot() ++ " " ++ String.to_uppercase(Skee.Rooms.name(due)), 13.0, cream())])])
+      Some(due) -> do
+        tap_intent(TapOpenHost, [pill(butter(), 16.0, [cel("THE HOST WANTS A WORD " ++ dot() ++ " " ++ String.to_uppercase(Skee.Rooms.name(due)), 13.0, cream())])])
+      end
       None -> nothing()
       end
     pill(if o.won do mint() else pink() end, 26.0, [div("vs over", "", [cel(if o.won do "YOU BEAT THE ARCADE" else "GAME OVER" end, 32.0, butter()), cel("ANTE " ++ int_to_string(s.hud_ante), 18.0, cream()), cel("BEST FRAME " ++ int_to_string(Skee.Units.points_int(st.best_frame)), 16.0, cream()), cel("JACKPOTS " ++ int_to_string(st.jackpots) ++ "  " ++ dot() ++ "  RATTLES " ++ int_to_string(st.stat_rattles), 14.0, cream()), cel("+" ++ winnings_text(Skee.Rooms.winnings(st, o.won)) ++ " WINNINGS", 20.0, butter()), div("hs over-buttons", "gap:10px", [tap_intent(TapNewRun, [pill(butter(), 18.0, [cel("NEW RUN", 22.0, cream())])]), tap_intent(TapOpenShop, [pill(sky(), 18.0, [cel("PRIZES " ++ winnings_text(w.balance), 18.0, cream())])])]), host])])
@@ -1835,21 +2128,19 @@ mod Skee.HudView do
     let s = a.app_hud
     let on_game = s.hud_screen == GameScreen && !s.busy
     match a.coach do
-    Some(c) -> do
-      if on_game do
-        do
-          let block = if c.coach_needs_tap do div("hud-block dim", "", []) else nothing() end
-          let width = Skee.Maths.min_float(w -. 24.0, 420.0)
-          let place =
-            if c.coach_high do "top:" ++ px(h *. 0.12) else "bottom:14px" end
-          div("", "", [block, div("coach-place", place ++ ";width:" ++ px(width) ++ ";left:" ++ px((w -. width) /. 2.0), [coach_view(c)])])
-        end
-      else
-        nothing()
-      end
-    end
+    Some(c) -> if on_game do coach_shown(c, w, h) else nothing() end
     None -> nothing()
     end
+  end
+
+  -- Low over the ball tray, out of the flick's path; high when the prize
+  -- counter fills the bottom half. A card waiting for GOT IT holds the game
+  -- still under a dim block.
+  pfn coach_shown(c : CoachCard, w : Float, h : Float) : Html needs () do
+    let block = if c.coach_needs_tap do div("hud-block dim", "", []) else nothing() end
+    let width = Skee.Maths.min_float(w -. 24.0, 420.0)
+    let place = if c.coach_high do "top:" ++ px(h *. 0.12) else "bottom:14px" end
+    div("", "", [block, div("coach-place", place ++ ";width:" ++ px(width) ++ ";left:" ++ px((w -. width) /. 2.0), [coach_view(c)])])
   end
 
   -- ---- NewGamePrompt ----
@@ -1871,7 +2162,8 @@ mod Skee.HudView do
       else
         cel(winnings_text(Skee.Rooms.prize_price(p)), 16.0, if affordable do butter() else alpha(cream(), 0.6) end)
       end
-    let art = opacity(if owned || affordable do 1.0 else 0.7 end, prize_image(p, owned || affordable, 52.0))
+    let art =
+      opacity(if owned || affordable do 1.0 else 0.7 end, prize_image(p, owned || affordable, 52.0))
     let style =
       "background:" ++ css(if owned do violet() else lilac() end) ++ ";border-color:" ++ css(if owned do butter() else ink() end)
     maybe_button(if owned do None else Some(ActIntent(TapBuyPrize(p))) end, [div("prize", style, [art, div("prize-name", "", [cel(Skee.Rooms.prize_name(p), 11.0, cream())]), price])])
@@ -1903,7 +2195,11 @@ mod Skee.HudView do
   pfn guide_contents(a : AppHud) : Html needs () do
     let all_count = List.length(Skee.Guide.all())
     let sub =
-      if List.length(a.guide_topics) < all_count do "more appears here as you play" else "everything you've met so far" end
+      if List.length(a.guide_topics) < all_count do
+        "more appears here as you play"
+      else
+        "everything you've met so far"
+      end
     div("guide", "", [cel("THE GUIDE", 34.0, butter()), cel(sub, 15.0, cream()), div("topics", "", List.map(List.enumerate(a.guide_topics), topic_button)), spacer(), tap_intent(TapReplayLesson, [pill(sky(), 16.0, [cel("PLAY THE FIRST LOADOUT AGAIN", 16.0, cream())])]), tap_intent(TapCloseGuide, [pill(mint(), 18.0, [cel("DONE", 24.0, cream())])])])
   end
 
@@ -1915,7 +2211,11 @@ mod Skee.HudView do
       None -> ""
       end
     let paging =
-      if count > 1 do cel("PAGE " ++ int_to_string(page + 1) ++ " OF " ++ int_to_string(count), 14.0, cream()) else nothing() end
+      if count > 1 do
+        cel("PAGE " ++ int_to_string(page + 1) ++ " OF " ++ int_to_string(count), 14.0, cream())
+      else
+        nothing()
+      end
     div("guide", "", [div("reader-title", "", [cel(String.to_uppercase(t.topic_title), 28.0, butter())]), div("page", "", [plain(text, 22.0, 700, cream())]), paging, hstack(10.0, [button(ActPageBack, [pill(sky(), 18.0, [cel("BACK", 22.0, cream())])]), button(ActPageNext, [pill(mint(), 18.0, [cel(if page + 1 < count do "NEXT" else "DONE" end, 22.0, cream())])])])])
   end
 
@@ -1972,14 +2272,35 @@ mod Skee.HudView do
   -- ===================================================================
   doc """The panes' ids in the order the shell stacks them, back to front."""
   fn pane_ids() : List(String) needs () do
-    ["title", "top", "lines", "meter", "trays", "corner", "rack", "machine", "slot", "fx", "counter", "over", "coach", "prompt", "shop", "guide", "arrival", "host"]
+    [
+      "title",
+      "top",
+      "lines",
+      "meter",
+      "trays",
+      "corner",
+      "rack",
+      "machine",
+      "slot",
+      "fx",
+      "counter",
+      "over",
+      "coach",
+      "prompt",
+      "shop",
+      "guide",
+      "arrival",
+      "host"
+    ]
   end
 
   -- Whether a pane's buttons take taps: only the layer on top does, as in
   -- SwiftUI's ZStack, where an overlay takes every touch over what is under it.
   pfn live(id : String, top : Layer) : Bool needs () do
     match top do
-    LayerBase -> id != "prompt" && id != "shop" && id != "guide" && id != "arrival" && id != "host"
+    LayerBase -> do
+      id != "prompt" && id != "shop" && id != "guide" && id != "arrival" && id != "host"
+    end
     LayerCoachBlock -> id == "coach"
     LayerConfirmNew -> id == "prompt"
     LayerShop -> id == "shop"
@@ -1995,7 +2316,11 @@ mod Skee.HudView do
       if name == "data-act" || name == "data-intent" || name == "role" do
         None
       else
-        if name == "class" && value == "hb" do Some(Prop("class", "inert")) else Some(p) end
+        if name == "class" && value == "hb" do
+          Some(Prop("class", "inert"))
+        else
+          Some(p)
+        end
       end
     end
     end
@@ -2015,7 +2340,19 @@ mod Skee.HudView do
 
   pfn game_panes(k : Skee.Consts.Consts, a : AppHud, w : Float, h : Float) : List(Html) needs () do
     let s = a.app_hud
-    [top_pane(s), lines_pane(a, w, h), meter_pane(s, w, h), trays_pane(s, w, h), corner_pane(a, w), rack_pane(a, w, h), machine_pane(k, s, w, h), slot_pane(a, w, h), fx_pane(a, w, h), counter_pane(s, h), over_pane(a, w, h)]
+    [
+      top_pane(s),
+      lines_pane(a, w, h),
+      meter_pane(s, w, h),
+      trays_pane(s, w, h),
+      corner_pane(a, w),
+      rack_pane(a, w, h),
+      machine_pane(k, s, w, h),
+      slot_pane(a, w, h),
+      fx_pane(a, w, h),
+      counter_pane(s, h),
+      over_pane(a, w, h)
+    ]
   end
 
   pfn blank_game() : List(Html) needs () do
@@ -2033,7 +2370,14 @@ mod Skee.HudView do
     let title = if on_title do title_card(a.app_wallet) else nothing() end
     let game = if on_title do blank_game() else game_panes(k, a, width, height) end
     let overlays =
-      [coach_pane(a, width, height), prompt_pane(a), shop_pane(a), guide_pane(a, settle(l, a)), arrival_pane(a), host_pane(a)]
+      [
+        coach_pane(a, width, height),
+        prompt_pane(a),
+        shop_pane(a),
+        guide_pane(a, settle(l, a)),
+        arrival_pane(a),
+        host_pane(a)
+      ]
     List.map(List.zip(pane_ids(), List.concat([[title], game, overlays])), fn e -> pane_of(a.top, Tuple.first(e), Tuple.second(e)))
   end
 

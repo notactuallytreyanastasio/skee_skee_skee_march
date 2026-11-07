@@ -49,6 +49,7 @@ foundation: ask before changing it.
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
 | painter + platform | `lib/skee/painter.march` (`Skee.Painter`); the shell: `shell/game.march`, `paint.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
+| hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -128,7 +129,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make playtest` | Headless Chrome against a running `make serve`: 390x844 touch and 1280x800 mouse, first launch to a thrown ball, console must be clean; shots in `tools/playtest/shots/` (`npm install` in `tools/playtest` once) |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -503,6 +504,64 @@ the tap queue, data-* marks, and the Canvas calls Js.Canvas lacks
 (setTransform, globalCompositeOperation, fill and clip with a winding rule,
 lineCap, lineJoin, text centring, a full arc, radial gradients).
 
+### Skee.HudView: SkeeHUD as HTML
+
+The HUD is DOM over the canvas. `Skee.HudView` is pure; `shell/hud.march`
+only writes its text into elements and queues clicks:
+
+```
+Skee.HudView.defs(k) -> Html                     once: <symbol>s for the art
+Skee.HudView.view(k, Skee.App.hud(m), local, w, h)
+  -> List(Section)                               every frame, fixed ids, back to front
+Skee.HudView.decode(code) -> Option(HudAction)   a click's data-act
+Skee.HudView.react(local, hud, action)           -> (HudLocal, Option(Intent))
+Skee.HudView.settle(local, hud)                  the Guide forgets its page when closed
+```
+
+- HTML is data (`Html = Tag(name, props, kids) | Words(text)`); `render`
+  escapes every text and attribute value (`& < > " '`).
+- Every tappable element carries `data-act`, an Int code for its
+  `HudAction` (`ActIntent(Intent)` or a Guide page turn), and `data-intent`,
+  its name, for people and the playtest. The shell delegates one click
+  listener on `#hud`, walks up to the nearest `data-act`, and queues the code
+  with `Glue.queue_tap`; `render` decodes the queue, so the shell never
+  interprets a tap. Skee.App still gates every Intent with `accepts`.
+- Panes under the top `Layer` are drawn `inert` (no `data-act`), as SwiftUI's
+  overlay takes every touch over what is under it. The suite checks, over
+  eleven model states, that every button drawn is one `Skee.App.accepts`, and
+  that the title under Sal or the shop is not tappable.
+- GuideView's `@State` (topic, page) is `HudLocal`, kept by the shell as text in
+  `#hud`'s `data-local` (`save_local`, `load_local`). Nothing else is view
+  state: the lever, bets, offers and charms are all model Intents.
+- A pane is rewritten only when its HTML changed (the last text is in the
+  pane's `data-src`): an idle frame mutates nothing (the playtest measures 0
+  mutations a second on the title), and a press on a button is not lost to a
+  rewrite of another pane. Animated things (popups, tally, banner, coin rain,
+  the hot spot, the aiming dashes, the reels while spinning) are in panes
+  with no buttons except the machine, whose SPIN is disabled while it spins.
+- Art: the slot symbols are `Skee.Scene.symbol_ops` (Textures.drawSymbol in
+  its 256 texture's inner 216) turned into SVG by `ops_svg` (clips as
+  `<clipPath>`s); PrizeArt.drawPrize is ported to SVG directly (`prize_art`),
+  lit and as a silhouette, 56 `<symbol>`s mounted once and referenced by
+  `<use>`. CelText is CSS `text-shadow` (eight ink copies at `max(1.5, size *
+  0.08)`, dropped 0.6 of that), Pill a 3px ink border inside and a 4px ink
+  `box-shadow`; StripeBackdrop a repeating gradient. Fonts: `ui-rounded`
+  (SF Pro Rounded on Apple), else Nunito 900, the nearest web font.
+
+Deviations from SkeeHUD:
+
+- The lever is tapped, not dragged (SPIN does the same in Swift). No spring.
+- No safe-area insets: `topInset` is 0, so the top bar sits 8px down and
+  "TARGETS · hit one = combo" always shows when there is no combo, as in
+  Swift with no island.
+- The host is a labelled placeholder (THE HOST, PLACEHOLDER, CLOSE), the
+  `HostSeam` seam; the title's room picker and "THE HOST WANTS A WORD" buttons
+  are real (`TapOpenHost`), as is GameOverView's.
+- SwiftUI's springs and `.transition(.opacity)` on Sal's lines are not
+  animated; popups, the banner, the tally, coins and the hot spot follow the
+  same per-frame formulas as Swift.
+- Text that SwiftUI shrinks to fit (`minimumScaleFactor`) is clipped or wraps.
+
 ## Rules every core module follows
 
 - `cap pure` at the top, `needs ()` on every `fn` and `pfn`, no `needs` lines.
@@ -607,7 +666,12 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 
 - Keywords that bite as names: `state`, `init`, `on`, `send`, `loop`, `spawn`,
   `within`, `only`, `alias`, `import`, `requires`, `invariant`, `strategy`,
-  `permanent`, `temporary`, `transient`. Swift's `Step.state` is `Step.run` here.
+  `permanent`, `temporary`, `transient`, `offer` (`Some(offer) ->` is a syntax
+  error; `offer_is_a_keyword.march`). Swift's `Step.state` is `Step.run` here.
+- **`show` as a value (not called) type-checks, then breaks both targets**:
+  natively LLVM's "use of undefined value '@show'", on JS "ReferenceError:
+  show is not defined" at run time. Write `fn x -> show(x)`.
+  (`show_as_value/`)
 - No hex literals, and no scientific Float literals. `-0.5` is fine.
 - `f(x).field` is a syntax error. Bind first: `let t = f(x)`.
 - `Mod.Sub.Ctor` is not a pattern. Types and constructors are visible everywhere

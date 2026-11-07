@@ -1,0 +1,19 @@
+mod ShowAsValue do
+
+  -- `show` passed as a function value (not called) type-checks, then fails on
+  -- both targets: natively at LLVM ("use of undefined value '@show'"), on JS
+  -- at run time ("ReferenceError: show is not defined"). Calling it in a
+  -- lambda, `fn x -> show(x)`, works on both. Found by the HUD piece's suite.
+  --   march --compile -o /tmp/sav tools/repros/show_as_value/show_as_value.march
+  --   march --target js -o /tmp/sav.mjs tools/repros/show_as_value/show_as_value.march && node /tmp/sav.mjs
+  needs IO.Console
+
+  type Colour = Red | Green
+
+  derive Show for Colour
+
+  fn main(_c : Cap(IO.Console)) : () do
+    println(String.join(List.map([Red, Green], show), ","))
+  end
+
+end

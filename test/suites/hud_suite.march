@@ -14,7 +14,8 @@ mod HudSuite do
 
   -- ---- Driving the model ----
   fn boot_fresh() : Skee.App.Model do
-    let (m, _) = Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+    let (m, _) =
+      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
     m
   end
 
@@ -191,7 +192,8 @@ mod HudSuite do
     let l0 = Skee.HudView.initial()
     let opened = react_all(a, l0, [ActTopic(0)])
     let pages = topic_pages(a, 0)
-    let to_end = react_all(a, opened, List.map(List.range(0, pages - 1), fn _ -> ActPageNext))
+    let to_end =
+      react_all(a, opened, List.map(List.range(0, pages - 1), fn _ -> ActPageNext))
     let past_end = react_all(a, to_end, [ActPageNext])
     let back_once = react_all(a, to_end, [ActPageBack])
     let back_out = react_all(a, opened, [ActPageBack])
@@ -230,7 +232,16 @@ mod HudSuite do
 
   -- ---- A hand-made prize counter over a real game ----
   fn with_counter(a : Skee.App.AppHud, selected : Option(Int)) : Skee.App.AppHud do
-    let c = { offers: [Some(OfferCharm(LuckyPenny)), Some(OfferStamp(Cherry)), None, Some(OfferGild)], reroll_cost: Tickets(2) }
+    let c =
+      {
+        offers: [
+          Some(OfferCharm(LuckyPenny)),
+          Some(OfferStamp(Cherry)),
+          None,
+          Some(OfferGild)
+        ],
+        reroll_cost: Tickets(2)
+      }
     let s = a.app_hud
     { a with app_hud: { s with counter: Some(c), machine: None, hud_selected_offer: selected, hud_tickets: Tickets(4) } }
   end
@@ -241,7 +252,8 @@ mod HudSuite do
     let ps = Skee.HudView.panes(k(), a, Skee.HudView.initial(), 390.0, 844.0)
     let h = html_of(ps)
     let xs = acts_of(ps)
-    let picked = Skee.HudView.panes(k(), with_counter(Skee.App.hud(m), Some(1)), Skee.HudView.initial(), 390.0, 844.0)
+    let picked =
+      Skee.HudView.panes(k(), with_counter(Skee.App.hud(m), Some(1)), Skee.HudView.initial(), 390.0, 844.0)
     let ys = acts_of(picked)
     all([expect(String.contains(h, "PRIZE COUNTER"), "title"), expect(String.contains(h, "REROLL 2"), "reroll cost"), expect(String.contains(h, "NEXT ROUND"), "leave"), expect(String.contains(h, "SOLD"), "a sold slot"), expect(String.contains(h, "Cherry stamp"), "stamp title"), expect(String.contains(h, "Add a cherry to a hole" ++ Skee.HudView.render(Words("'")) ++ "s reel"), "stamp blurb"), expect(String.contains(h, "+10 chips on a hole, for good"), "gild blurb"), expect(String.contains(h, Skee.Items.charm_blurb(LuckyPenny)), "charm blurb"), expect(has_act(xs, ActIntent(TapBuyOffer(0))), "a charm buys at once"), expect(has_act(xs, ActIntent(TapSelectOffer(Some(1)))), "a stamp asks for a hole"), expect(!has_act(xs, ActIntent(TapBuyOffer(2))) && !has_act(xs, ActIntent(TapSelectOffer(Some(2)))), "a sold slot does nothing"), expect(has_act(xs, ActIntent(TapReroll)) && has_act(xs, ActIntent(TapLeaveCounter)), "reroll and leave"), expect(!String.contains(h, "tap a hole on the board"), "no hole prompt"), expect(String.contains(html_of(picked), "tap a hole on the board"), "hole prompt once picked"), expect(has_act(ys, ActIntent(TapSelectOffer(None))), "tapping the picked one again unpicks it"), expect(!String.contains(h, ">SPIN<"), "no machine over the counter")])
   end
@@ -288,29 +300,29 @@ mod HudSuite do
 
   fn cases() : List(Case) do
     [
-      case("every action round-trips through its data-act code", fn -> all(List.map(every_action(), round_trip))),
-      case("codes are distinct", fn -> expect(distinct(List.map(every_action(), Skee.HudView.encode)), "two actions share a code")),
-      case("unknown codes decode to nothing", fn -> all(List.map([0, -1, 19, 99, 104, 999, 9999, 999999], fn n -> expect(Skee.HudView.decode(n) == None, "code " ++ int_to_string(n))))),
-      case("text and attributes are escaped", fn -> all([expect_string(Skee.HudView.render(Words("<b>&\"'")), "&lt;b&gt;&amp;&quot;&#39;", "text"), expect_string(Skee.HudView.render(Tag("i", [Prop("title", "a\"<b>")], [])), "<i title=\"a&quot;&lt;b&gt;\"></i>", "attribute")])),
-      case("panes keep one order, every frame", fn -> all([expect(same_strings(pane_ids(tree(boot_fresh())), Skee.HudView.pane_ids()), "title"), expect(same_strings(pane_ids(tree(pulled())), Skee.HudView.pane_ids()), "game")])),
-      case("the title is SkeeHUD's TitleCard", fn -> all([shows(boot_fresh(), ["SKEE", "TAP TO PLAY", "THE BOARDWALK ARCADE", Skee.Rooms.blurb(Boardwalk), "PRIZE SHOP " ++ dot() ++ " 0", "HOW TO PLAY", "BOARDWALK", "OPEN", "NEON", "1500", "HIGH ROLLER", "5000", "PENTHOUSE", "12000"]), offers(boot_fresh(), [ActIntent(TapStart), ActIntent(TapHowToPlay), ActIntent(TapOpenShop), ActIntent(TapPickRoom(Boardwalk))]), lacks(boot_fresh(), ["THE HOST WANTS A WORD", "ANTE "])])),
-      case("a button under an overlay is drawn inert", fn -> all([expect(String.contains(html(at_door()), "TAP TO PLAY"), "the title is still drawn under Sal"), expect(!String.contains(html(at_door()), "data-intent=\"TapStart\""), "but not tappable"), expect(String.contains(html(at_door()), "data-intent=\"TapArrivalNext\""), "Sal's button is")])),
-      case("rooms not owned are not tappable", fn -> expect(!has_act(acts(boot_fresh()), ActIntent(TapPickRoom(NeonLounge))), "NEON is not yours")),
-      case("Sal's lines, one per tap", fn -> all([shows(at_door(), ["WELCOME TO", "SKEE SKEE SKEE", "SAL", Skee.HudView.render(Words(first_beat())), "GO ON"]), offers(at_door(), [ActIntent(TapArrivalNext)]), shows(last_beat(), ["LET" ++ Skee.HudView.render(Words("'")) ++ "S TALK"])])),
-      case("the host is a labelled placeholder with one button", fn -> all([shows(at_host(), ["PLACEHOLDER", "CLOSE"]), expect(same_strings(List.map(acts(at_host()), fn x -> show(x)), ["ActIntent(TapCloseHost)"]), "only CLOSE: " ++ String.join(List.map(acts(at_host()), fn x -> show(x)), ","))])),
-      case("the walkthrough's first card blocks play until GOT IT", fn -> all([shows(at_welcome(), ["YOUR FIRST LOADOUT", "SKIP", "GOT IT", "hud-block"]), offers(at_welcome(), [ActIntent(TapGotIt), ActIntent(TapSkipWalkthrough)]), lacks(at_welcome(), ["NEW GAME", ">GUIDE<"])])),
-      case("a frame waiting for its pull shows the machine", fn -> all([shows(in_game(), ["ANTE 1/8", "WARM-UP", "TARGETS " ++ dot() ++ " hit one = combo", "SPIN", "FRAME 1/3 " ++ dot() ++ " 9 BALLS", "PULL " ++ dot() ++ " the middle row = this frame" ++ Skee.HudView.render(Words("'")) ++ "s targets", "NEW GAME", ">GUIDE<"]), offers(in_game(), [ActIntent(TapPull), ActIntent(TapAskNewGame), ActIntent(TapOpenGuide)])])),
-      case("after the pull: the slot's hint and no machine", fn -> all([shows(pulled(), ["3 balls = 1 line " ++ dot() ++ " match symbols for MULT", "thumb down on your line", "then flick straight up"]), lacks(pulled(), [">SPIN<", "MAX BET FOR JACKPOTS"])])),
-      case("the shop is PrizeShopView", fn -> all([shows(tap(boot_fresh(), TapOpenShop), ["PRIZE SHOP", "0 WINNINGS", "just for show " ++ dot() ++ " prizes never change a run", "Gold Star Sticker", "250", "BACK"]), offers(tap(boot_fresh(), TapOpenShop), [ActIntent(TapCloseShop), ActIntent(TapBuyPrize(Sticker))])])),
-      case("the guide lists topics, replay and done", fn -> all([shows(tap(in_game(), TapOpenGuide), ["THE GUIDE", "more appears here as you play", "The Big Idea", "PLAY THE FIRST LOADOUT AGAIN", "DONE"]), offers(tap(in_game(), TapOpenGuide), [ActTopic(0), ActIntent(TapReplayLesson), ActIntent(TapCloseGuide)])])),
-      case("a new game asks first", fn -> all([shows(tap(in_game(), TapAskNewGame), ["START A NEW GAME?", "This run ends. Your prizes stay.", "KEEP PLAYING"]), offers(tap(in_game(), TapAskNewGame), [ActIntent(TapKeepPlaying), ActIntent(TapNewRun)])])),
-      case("the guide pages forward and back", fn -> guide_paging()),
-      case("the guide's page is view state, reset when it closes", fn -> guide_resets()),
-      case("the guide's reader shows the page", fn -> guide_page_text()),
-      case("the prize counter is CounterView", fn -> counter_view()),
-      case("every button drawn is one the model accepts", fn -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay)], all_accepted))),
-      case("every symbol drawn has a definition", fn -> symbols_resolve([boot_fresh(), in_game(), pulled(), tap(boot_fresh(), TapOpenShop)])),
-      case("every symbol and prize is defined", fn -> every_symbol_defined())
+      case("every action round-trips through its data-act code", fn () -> all(List.map(every_action(), round_trip))),
+      case("codes are distinct", fn () -> expect(distinct(List.map(every_action(), Skee.HudView.encode)), "two actions share a code")),
+      case("unknown codes decode to nothing", fn () -> all(List.map([0, -1, 19, 99, 104, 999, 9999, 999999], fn n -> expect(Skee.HudView.decode(n) == None, "code " ++ int_to_string(n))))),
+      case("text and attributes are escaped", fn () -> all([expect_string(Skee.HudView.render(Words("<b>&\"'")), "&lt;b&gt;&amp;&quot;&#39;", "text"), expect_string(Skee.HudView.render(Tag("i", [Prop("title", "a\"<b>")], [])), "<i title=\"a&quot;&lt;b&gt;\"></i>", "attribute")])),
+      case("panes keep one order, every frame", fn () -> all([expect(same_strings(pane_ids(tree(boot_fresh())), Skee.HudView.pane_ids()), "title"), expect(same_strings(pane_ids(tree(pulled())), Skee.HudView.pane_ids()), "game")])),
+      case("the title is SkeeHUD's TitleCard", fn () -> all([shows(boot_fresh(), ["SKEE", "TAP TO PLAY", "THE BOARDWALK ARCADE", Skee.Rooms.blurb(Boardwalk), "PRIZE SHOP " ++ dot() ++ " 0", "HOW TO PLAY", "BOARDWALK", "OPEN", "NEON", "1500", "HIGH ROLLER", "5000", "PENTHOUSE", "12000"]), offers(boot_fresh(), [ActIntent(TapStart), ActIntent(TapHowToPlay), ActIntent(TapOpenShop), ActIntent(TapPickRoom(Boardwalk))]), lacks(boot_fresh(), ["THE HOST WANTS A WORD", "ANTE "])])),
+      case("a button under an overlay is drawn inert", fn () -> all([expect(String.contains(html(at_door()), "TAP TO PLAY"), "the title is still drawn under Sal"), expect(!String.contains(html(at_door()), "data-intent=\"TapStart\""), "but not tappable"), expect(String.contains(html(at_door()), "data-intent=\"TapArrivalNext\""), "Sal's button is")])),
+      case("rooms not owned are not tappable", fn () -> expect(!has_act(acts(boot_fresh()), ActIntent(TapPickRoom(NeonLounge))), "NEON is not yours")),
+      case("Sal's lines, one per tap", fn () -> all([shows(at_door(), ["WELCOME TO", "SKEE SKEE SKEE", "SAL", Skee.HudView.render(Words(first_beat())), "GO ON"]), offers(at_door(), [ActIntent(TapArrivalNext)]), shows(last_beat(), ["LET" ++ Skee.HudView.render(Words("'")) ++ "S TALK"])])),
+      case("the host is a labelled placeholder with one button", fn () -> all([shows(at_host(), ["PLACEHOLDER", "CLOSE"]), expect(same_strings(List.map(acts(at_host()), fn x -> show(x)), ["ActIntent(TapCloseHost)"]), "only CLOSE: " ++ String.join(List.map(acts(at_host()), fn x -> show(x)), ","))])),
+      case("the walkthrough's first card blocks play until GOT IT", fn () -> all([shows(at_welcome(), ["YOUR FIRST LOADOUT", "SKIP", "GOT IT", "hud-block"]), offers(at_welcome(), [ActIntent(TapGotIt), ActIntent(TapSkipWalkthrough)]), lacks(at_welcome(), ["NEW GAME", ">GUIDE<"])])),
+      case("a frame waiting for its pull shows the machine", fn () -> all([shows(in_game(), ["ANTE 1/8", "WARM-UP", "TARGETS " ++ dot() ++ " hit one = combo", "SPIN", "FRAME 1/3 " ++ dot() ++ " 9 BALLS", "PULL " ++ dot() ++ " the middle row = this frame" ++ Skee.HudView.render(Words("'")) ++ "s targets", "NEW GAME", ">GUIDE<"]), offers(in_game(), [ActIntent(TapPull), ActIntent(TapAskNewGame), ActIntent(TapOpenGuide)])])),
+      case("after the pull: the slot's hint and no machine", fn () -> all([shows(pulled(), ["3 balls = 1 line " ++ dot() ++ " match symbols for MULT", "thumb down on your line", "then flick straight up"]), lacks(pulled(), [">SPIN<", "MAX BET FOR JACKPOTS"])])),
+      case("the shop is PrizeShopView", fn () -> all([shows(tap(boot_fresh(), TapOpenShop), ["PRIZE SHOP", "0 WINNINGS", "just for show " ++ dot() ++ " prizes never change a run", "Gold Star Sticker", "250", "BACK"]), offers(tap(boot_fresh(), TapOpenShop), [ActIntent(TapCloseShop), ActIntent(TapBuyPrize(Sticker))])])),
+      case("the guide lists topics, replay and done", fn () -> all([shows(tap(in_game(), TapOpenGuide), ["THE GUIDE", "more appears here as you play", "The Big Idea", "PLAY THE FIRST LOADOUT AGAIN", "DONE"]), offers(tap(in_game(), TapOpenGuide), [ActTopic(0), ActIntent(TapReplayLesson), ActIntent(TapCloseGuide)])])),
+      case("a new game asks first", fn () -> all([shows(tap(in_game(), TapAskNewGame), ["START A NEW GAME?", "This run ends. Your prizes stay.", "KEEP PLAYING"]), offers(tap(in_game(), TapAskNewGame), [ActIntent(TapKeepPlaying), ActIntent(TapNewRun)])])),
+      case("the guide pages forward and back", fn () -> guide_paging()),
+      case("the guide's page is view state, reset when it closes", fn () -> guide_resets()),
+      case("the guide's reader shows the page", fn () -> guide_page_text()),
+      case("the prize counter is CounterView", fn () -> counter_view()),
+      case("every button drawn is one the model accepts", fn () -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay)], all_accepted))),
+      case("every symbol drawn has a definition", fn () -> symbols_resolve([boot_fresh(), in_game(), pulled(), tap(boot_fresh(), TapOpenShop)])),
+      case("every symbol and prize is defined", fn () -> every_symbol_defined())
     ]
   end
 

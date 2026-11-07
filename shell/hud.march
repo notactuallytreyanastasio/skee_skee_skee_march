@@ -54,16 +54,14 @@ mod Hud do
       None -> ()
       end
     end
-    None -> do
-      if Js.Dom.has_attr(target, "data-hud-root") do
-        ()
-      else
-        match Js.Dom.parent(target) do
-        Some(up) -> clicked(up)
-        None -> ()
-        end
-      end
+    None -> if Js.Dom.has_attr(target, "data-hud-root") do () else climb(target) end
     end
+  end
+
+  fn climb(target : Js.Dom.Node) : () do
+    match Js.Dom.parent(target) do
+    Some(up) -> clicked(up)
+    None -> ()
     end
   end
 
@@ -75,7 +73,11 @@ mod Hud do
         Some(text) -> text
         None -> ""
         end
-      if shown != s.section_html do replace_pane(pane, s.section_html) else () end
+      if shown != s.section_html do
+        replace_pane(pane, s.section_html)
+      else
+        ()
+      end
     end
     None -> ()
     end
@@ -108,7 +110,11 @@ mod Hud do
       List.fold_left(Glue.drain_taps(), (start, []), fn (acc, code) -> step(acc, a, code))
     let l = Skee.HudView.settle(stepped, a)
     let text = Skee.HudView.save_local(l)
-    if saved != Some(text) do Js.Dom.set_attr(h.hud_root, "data-local", text) else () end
+    if saved != Some(text) do
+      Js.Dom.set_attr(h.hud_root, "data-local", text)
+    else
+      ()
+    end
     List.each(Skee.HudView.view(m.k, a, l, m.viewport.width, m.viewport.height), write_pane)
     List.reverse(msgs_rev)
   end
