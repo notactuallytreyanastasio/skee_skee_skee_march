@@ -1,0 +1,3 @@
+local: load event 143ms, first frame 169ms, fonts 232ms, transferred 0.64MB, heap 16.5MB
+fast4g: load event 872ms, first frame 905ms, fonts 1021ms, transferred 0.64MB, heap 16.6MB
+slow4g: load event 3537ms, first frame 3570ms, fonts 3911ms, transferred 0.64MB, heap 21.1MB
