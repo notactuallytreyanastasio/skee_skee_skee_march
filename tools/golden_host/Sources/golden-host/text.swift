@@ -40,6 +40,15 @@ func textRows(_ g: inout GoldenFile) {
         let n = 1 + fz.below(12)
         texts.append((0..<n).map { _ in fz.pick(tricky) }.joined())
     }
+    // Denser where the rules carry state: conjuncts (GB9c), emoji ZWJ
+    // sequences (GB11), flags (GB12, GB13) and Hangul syllables (GB6 to GB8).
+    let stateful: [String] = [s(0x915), s(0x937), s(0x930), s(0x995), s(0xD15), s(0x94D), s(0x9CD), s(0xD4D), s(0x93C), s(0x200D),
+                              s(0x200C), s(0x301), s(0x903), s(0x1F600), s(0x2764), s(0x1F468), s(0x1F3FB), s(0xFE0F), s(0x1F1E6),
+                              s(0x1F1FA), s(0x1100), s(0x1161), s(0x11A8), s(0xAC00), s(0xAC01), "a", " ", s(0x600), "\r", "\n"]
+    for _ in 0..<3000 {
+        let n = 2 + fz.below(10)
+        texts.append((0..<n).map { _ in fz.pick(stateful) }.joined())
+    }
     for t in texts {
         g.line("seg", hex(t), t.map(charToken).joined(separator: ","))
         g.line("lower", hex(t), hex(t.lowercased()))

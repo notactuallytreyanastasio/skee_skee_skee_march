@@ -51,14 +51,14 @@ foundation: ask before changing it.
 | painter + platform | `lib/skee/painter.march` (`Skee.Painter`); the shell: `shell/game.march`, `paint.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
 | audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Skee.Synth`, which is golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
+| host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
 
 `Input/Stroke.swift` is ported as `Skee.Stroke` (`lib/skee/stroke.march`), tested by
-the physics suite. Not ported yet: `Meta/Host`, `HostGuard`, `ScriptedHost`,
-and the rest of `Haggle`. (`Walkthrough`, `Guide` and Wallet's decoder are the
-meta piece's.)
+the physics suite. `ScriptedHost` is deliberately not ported (see "Skee.Host"
+below). (`Walkthrough`, `Guide` and Wallet's decoder are the meta piece's.)
 
 ### The additive rule for `lib/skee/types.march`
 
@@ -130,7 +130,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make playtest` | Headless Chrome against a running `make serve`: 390x844 touch and 1280x800 mouse, first launch to a thrown ball, console must be clean; shots in `tools/playtest/shots/` (`npm install` in `tools/playtest` once) |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`, `audio`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`, `audio`, `host`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -614,6 +614,121 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
   `window.__skeeAudio.log` keeps the last 400 batches sent (page time, audio
   time, the commands, and the audio frame at which the worklet took them).
 
+### Skee.Host: the casino host, with no scripted host
+
+A language model plays the host through the same-origin relay
+(`/skee-host/chat`, relay/relay.mjs). The core never touches the network: it
+says what to send and takes what came back.
+
+```
+Skee.Host.new_haggle(k, room, seed, visit) -> Haggle              Haggle.init
+Skee.Host.seat(haggle, consent) -> (HostSession, Option(HostCall)) GameModel.seat (+ askGreeting)
+Skee.Host.answer_consent(s, yes), reconsider(s)                    the AI chat card
+Skee.Host.player_says(s, text) -> (HostSession, Option(HostCall))  hostSay + askHost
+Skee.Host.deliver(s, call_id, status, body) -> (HostSession, Option(HostCall))
+Skee.Host.call_failed(s, call_id, reason) -> (HostSession, Option(HostCall))
+Skee.Host.retry(s), sign(s)                                        after a failure; DEAL
+Skee.Host.request_body(call) -> String                             the JSON to POST
+```
+
+- A `HostCall` is one POST: `call_messages` (system prompt first, then the
+  transcript, exactly `Haggle.messages` or `greetingMessages`), `call_id`
+  to hand back, and which of DeepSeek.guarded's three tries it is. The shell
+  POSTs `request_body(call)` and passes the HTTP status and body to
+  `deliver`, or a network error to `call_failed`. An answer to a call the
+  session is no longer waiting for is ignored.
+- `deliver` reads the response as DeepSeek.chat does (not 200: `FailHttp`;
+  no `choices[0].message.content` text: `FailMalformed`; `finish_reason:
+  "length"`: `FailTruncated`), parses the content as DeepSeek.parse does
+  (`parse_reply`: trim, ``` fence, JSONDecoder's rules through
+  `Skee.Save.parse`, empty `say` refused), and checks it with
+  `Haggle.accepts` (a greeting with `HostGuard.allows`). A refused reply
+  returns the next call: the same messages plus DeepSeek's system note, at
+  most three tries, then `FailUnreadable`. Accepted: `hear` (or `greet`).
+- View state (`HostState`): `is_waiting` (thinking), `shown_lines` (the stock
+  hello hidden while the model writes one), `thinking_text`, `takes_lines`,
+  `can_sign`, `can_retry`, `failure`, `subtitle`, `ending_title`,
+  `ending_terms`, `close_label`, `nudges`; `describe_failure` is
+  DeepSeek.Failure's console text.
+
+Deviations, deliberate (the user's direction): no scripted fallback host.
+
+- `ScriptedHost` is not ported. When a call fails (network, any HTTP error
+  including 429, truncated, malformed, or three unusable replies) the session
+  records `WaitFailed(HostFailure)`: no host line is invented, the offer and
+  patience do not move, and the player may `retry` (the same request, from
+  try one), `sign` the offer on the table, or leave. No new line is taken
+  while the failure shows.
+- After `HostGuard.maxModelTurns` (25) player lines, where Swift's scripted
+  host would answer, `takes_lines` is false: sign or leave.
+- With consent refused or not given, nothing is sent and no line is taken
+  (Swift's scripted host answered those players).
+- A line `HostGuard.screen` flags is answered at once by the guard's own fixed
+  reply (`deflection`: the 988 line, personal details, real money, and the
+  host's off-topic wave-offs from the Phrasebook) and never sent to the model:
+  `deflects(concern)` is true for every concern. In Swift's live path only
+  personal details and crisis were kept off the wire (as stand-in notes) and
+  the rest went to the model. The deflection is heard through `hear`, so an
+  adult line at the last of a host's patience still walks them out, as with
+  Swift's scripted host. Later `messages` are Swift's own: crisis and personal
+  lines become "(removed)", other screened lines are sent verbatim as history.
+- A greeting that cannot be had leaves the stock hello showing (Swift's
+  `try?`); it is the haggle's own opening line, not an invented reply.
+
+Findings, kept as Swift has them:
+
+- DeepSeek.guarded's retry note is a second `system` message, which
+  relay.mjs refuses (`messages[i>0]` must be user or assistant): through the
+  relay every second try gets HTTP 400, so a refused reply ends in
+  `FailHttp(400)`, as Swift's client would then throw. `relay_accepts` ports
+  the relay's rules; the case "three refused replies, the retry note, and the
+  relay" pins it. Changing the note's role is a decision for the user.
+- A number past 2^53-1 in a reply is held at 2^53-1 with its sign (every term
+  is clamped and mood is read for its sign, so the rules give Swift's
+  result), but `Haggle.json` then writes 9007199254740991 where Swift writes
+  the number sent. A number from 2^63 up is refused as in Swift, except that
+  9223372036854775807 and the 511 below it round to 2^63 as doubles and are
+  refused here, where Swift reads them.
+
+Swift's String, as `Skee.SwiftText`: every comparison the guard makes is
+Character by Character with canonical equivalence (`"kill myself\u{301}"`
+does not contain "kill myself"; "kill\u{A0}myself" does after the split; the
+Kelvin sign lowercases to "k"), counts are Characters, and isLetter,
+isNumber and isWhitespace read the first scalar. `Skee.UnicodeData` is
+generated by `golden-unicode` from this machine's Swift runtime: scalar
+properties, the lowercase mapping, CharacterSet.whitespacesAndNewlines, the
+three canonical singletons onto ASCII, and Grapheme_Cluster_Break,
+Extended_Pictographic and Indic_Conjunct_Break as String's own grouping shows
+them (probed scalar by scalar). Each table is a binary decision tree in code,
+so a lookup allocates nothing and reads no string on JS (a 4-entry byte-view
+cache made a table string thrash). Segmentation is UAX #29's rules (GB3 to
+GB13, GB9c included) over those classes.
+
+Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 48437
+rows, 4.6 MB; reproducible run to run): 9868 strings' Characters (with each
+one's letter, number, whitespace and ASCII key), lowercasing and every
+lowercase mapping, 5936 scalars' properties, prefix and count; HostGuard.screen
+over 8720 lines (every phrase and word in about forty spellings: case, punctuation,
+NBSP, ideographic and line separators, CRLF, combining marks, Kelvin K, dotted
+I, fullwidth, zero-width spaces, near misses; digit runs in every script and
+separator; emails; 2500 fuzzed lines), with hasPersonalInfo, the words and the
+normalised text; HostGuard.allows over 2232 replies; the lists themselves;
+Host.of; 660 Haggle.inits (every room and visit, 55 seeds); 185 scripted
+haggles (every Haggle and HostGuard test in Swift, plus 160 fuzzed) step by step, each state's
+offer, patience, status, wantsModel, askedForPerks, final, last line and a
+digest of every message, with 60 distinct system prompts and 285
+transcript messages compared whole; standIn, accepts, json, deflection; DeepSeek.parse
+over 507 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
+escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting); and
+35 runs of DeepSeek's real client (guardedReply and greeting) against a
+URLProtocol standing in for the relay, comparing every request body and the
+outcome. All exact on native and JS. `make test-host`: 56 cases, about 12 s
+native, 8 s on node. Sixteen hand mutations (a crisis phrase, Unicode
+whitespace, GB9c, GB11, GB12, the canonical singletons, the digit separators,
+the sweetener, a prompt word, the try count, truncation, the fence, the
+trickery deflection, the turn limit, the failure state, the push rule) each
+turn the suite red.
+
 ## Rules every core module follows
 
 - `cap pure` at the top, `needs ()` on every `fn` and `pfn`, no `needs` lines.
@@ -694,6 +809,10 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   `(if c do a else b end) *. x` becomes `if c do a else b end *. x`, which does
   not parse, and `n + (if ...)` the same. Bind the `if` to a `let` first.
   (`format_drops_parens.march.txt`)
+- **`forge format` rewrites `a && f(xs, fn x -> <several lines>)` as
+  `&&(a, f(xs, fn x -> ...))`**, which does not parse. Seen in
+  `Skee.Host.relay_accepts`. Pass a named function instead of the lambda.
+  (`format_and_lambda.march.txt`)
 - **`forge format` deletes a `resource` declaration**: `resource Gradient`
   becomes `type Gradient = `, which does not parse. `make format` does not
   catch it. The shell has no resource type; the glue keeps the gradient.

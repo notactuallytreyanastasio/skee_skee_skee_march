@@ -129,7 +129,7 @@ func blocking<T>(_ body: @escaping @Sendable () async throws -> T) -> Result<T, 
 }
 
 func envelope(_ content: String, finish: String = "stop") -> String {
-    let data = try! JSONSerialization.data(withJSONObject: ["choices": [["index": 0, "message": ["role": "assistant", "content": content], "finish_reason": finish]]])
+    let data = try! JSONSerialization.data(withJSONObject: ["choices": [["index": 0, "message": ["role": "assistant", "content": content], "finish_reason": finish]]], options: [.sortedKeys])
     return String(decoding: data, as: UTF8.self)
 }
 
@@ -205,7 +205,9 @@ func wireRows(_ g: inout GoldenFile) {
             case let ns as NSError where ns.domain == NSCocoaErrorDomain: kind = "badjson"
             default: kind = "network"
             }
-            g.line("result", i(id), "fail", kind, hex(String(describing: e)))
+            // A URLError's description names its task (a fresh UUID): only DeepSeek's own are kept.
+            let detail = e is DeepSeek.Failure ? String(describing: e) : kind
+            g.line("result", i(id), "fail", kind, hex(detail))
         }
     }
 }

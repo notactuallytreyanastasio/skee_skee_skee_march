@@ -48,7 +48,19 @@ check:
 format:
 	scripts/format.sh
 
-golden: $(addprefix golden-,$(GOLDEN_TARGETS))
+golden: $(addprefix golden-,$(GOLDEN_TARGETS)) golden-host
+
+# The host piece: SkeeCore's Host, HostGuard and Haggle, and SkeeNet's DeepSeek
+# against a mock relay, in a package of its own (its .build stays under
+# tools/golden_host). golden-unicode writes lib/skee/unicode_data.march, the
+# Swift runtime's Unicode tables that Skee.SwiftText reads, put through the
+# formatter so `make check` stays clean; golden-host writes test/golden/host.march.
+golden-host:
+	cd tools/golden_host && swift build $(SWIFT_FLAGS) --scratch-path $(CURDIR)/tools/golden_host/.build
+	tools/golden_host/.build/release/golden-unicode $(CURDIR)
+	$(FORGE) format --stdin < lib/skee/unicode_data.march > lib/skee/unicode_data.march.tmp
+	mv lib/skee/unicode_data.march.tmp lib/skee/unicode_data.march
+	tools/golden_host/.build/release/golden-host $(CURDIR)
 
 # The synth is in SkeeRender, so its generator is a package of its own (synth piece).
 golden-synth:

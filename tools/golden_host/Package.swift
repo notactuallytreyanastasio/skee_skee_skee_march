@@ -20,9 +20,5 @@ let package = Package(
             .product(name: "SkeeNet", package: "SkeeSkeeSkee"),
         ]),
         .executableTarget(name: "golden-unicode", dependencies: []),
-        .executableTarget(name: "host-probe", dependencies: [
-            .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
-            .product(name: "SkeeNet", package: "SkeeSkeeSkee"),
-        ]),
     ]
 )
