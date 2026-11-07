@@ -1,0 +1,9 @@
+mod PainterTest do
+
+  needs IO.Console
+
+  test "painter suite" do
+    assert Harness.failures(PainterSuite.cases()) == []
+  end
+
+end

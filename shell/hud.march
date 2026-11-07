@@ -1,0 +1,63 @@
+mod Hud do
+
+  -- STUB, to be replaced by the HUD piece: Skee.App.hud(m) drawn as DOM over
+  -- the canvas. Until then it shows a plain bar with one button for each
+  -- argument-free Intent that Skee.App.accepts right now, so the game can be
+  -- driven (title, Sal, the host placeholder, the walkthrough, the lever)
+  -- before the real HUD lands. Which buttons are live is the core's call.
+  --
+  -- Entry points the shell uses, which the real HUD keeps:
+  --   Hud.mount(root : Js.Dom.Node) : HudHandle
+  --   Hud.render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg)
+  -- render returns the taps queued since the last frame, as MsgTap messages.
+
+  type HudHandle = { hud_root : Js.Dom.Node }
+
+  fn mount(root : Js.Dom.Node) : HudHandle do
+    Js.Dom.set_attr(root, "data-buttons", "")
+    { hud_root: root }
+  end
+
+  fn buttons() : List(Skee.App.Intent) do
+    [TapStart, TapHowToPlay, TapArrivalNext, TapCloseHost, TapOpenHost, TapGotIt, TapSkipWalkthrough, TapPull, TapReroll, TapLeaveCounter, TapOpenShop, TapCloseShop, TapOpenGuide, TapCloseGuide, TapReplayLesson, TapAskNewGame, TapKeepPlaying, TapNewRun]
+  end
+
+  fn render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg) do
+    let live = List.filter(List.enumerate(buttons()), fn e -> Skee.App.accepts(m, Tuple.second(e)))
+    let key = String.join(List.map(live, fn e -> int_to_string(Tuple.first(e))), ",")
+    let shown =
+      match Js.Dom.get_attr(h.hud_root, "data-buttons") do
+      Some(s) -> s
+      None -> ""
+      end
+    if shown != key do
+      rebuild(h, live, key)
+    else
+      ()
+    end
+    List.filter_map(Glue.drain_taps(), fn i -> tap_of(i))
+  end
+
+  fn tap_of(i : Int) : Option(Skee.App.Msg) do
+    match List.nth_opt(buttons(), i) do
+    Some(intent) -> Some(MsgTap(intent))
+    None -> None
+    end
+  end
+
+  fn rebuild(h : HudHandle, live : List((Int, Skee.App.Intent)), key : String) : () do
+    Js.Dom.clear(h.hud_root)
+    Js.Dom.set_attr(h.hud_root, "data-buttons", key)
+    List.each(live, fn e -> button(h, Tuple.first(e), Tuple.second(e)))
+  end
+
+  fn button(h : HudHandle, i : Int, intent : Skee.App.Intent) : () do
+    let b = Js.Dom.create("button")
+    Js.Dom.set_text(b, show(intent))
+    Js.Dom.set_attr(b, "data-intent", show(intent))
+    Js.Dom.add_class(b, "dev-tap")
+    Js.Dom.listen(b, "click", fn _ -> Glue.queue_tap(i))
+    Js.Dom.append(h.hud_root, b)
+  end
+
+end

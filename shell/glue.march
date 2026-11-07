@@ -1,0 +1,125 @@
+mod Glue do
+
+  -- The browser calls the shell needs that Js.Dom and Js.Canvas lack, backed
+  -- by web/skee_glue.mjs (copied beside skee.mjs by `make web`). Each is one
+  -- platform call; none decides anything about the game.
+  needs IO.Foreign
+
+  -- A CanvasGradient.
+  resource Gradient
+
+  extern "./skee_glue.mjs" : Cap(IO.Foreign) do
+    fn glue_now() : Float
+    fn glue_request_frame(cb : Float -> ()) : Unit
+    fn glue_view_size() : (Float, Float)
+    fn glue_device_pixel_ratio() : Float
+    fn glue_size_canvas(canvas : Js.Dom.Node, w : Float, h : Float, dpr : Float) : Unit
+    fn glue_seed_limbs() : (Int, Int)
+    fn glue_on_visibility(cb : Bool -> ()) : Unit
+    fn glue_vibrate(ms : Int) : Unit
+    fn glue_on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : Unit
+    fn glue_set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : Unit
+    fn glue_composite(ctx : Js.Canvas.Context, op : String) : Unit
+    fn glue_fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
+    fn glue_clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
+    fn glue_line_cap(ctx : Js.Canvas.Context, cap : String) : Unit
+    fn glue_line_join(ctx : Js.Canvas.Context, join : String) : Unit
+    fn glue_text_centred(ctx : Js.Canvas.Context) : Unit
+    fn glue_arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : Unit
+    fn glue_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Gradient
+    fn glue_gradient_stop(g : Gradient, at : Float, css : String) : Unit
+    fn glue_fill_gradient(ctx : Js.Canvas.Context, g : Gradient) : Unit
+    fn glue_queue_tap(i : Int) : Unit
+    fn glue_drain_taps() : List(Int)
+  end
+
+  -- ---- Public names: extern declarations are private to this module ----
+  fn now() : Float do
+    glue_now()
+  end
+
+  fn request_frame(cb : Float -> ()) : () do
+    glue_request_frame(cb)
+  end
+
+  fn view_size() : (Float, Float) do
+    glue_view_size()
+  end
+
+  fn device_pixel_ratio() : Float do
+    glue_device_pixel_ratio()
+  end
+
+  fn size_canvas(canvas : Js.Dom.Node, w : Float, h : Float, dpr : Float) : () do
+    glue_size_canvas(canvas, w, h, dpr)
+  end
+
+  fn seed_limbs() : (Int, Int) do
+    glue_seed_limbs()
+  end
+
+  fn on_visibility(cb : Bool -> ()) : () do
+    glue_on_visibility(cb)
+  end
+
+  fn vibrate(ms : Int) : () do
+    glue_vibrate(ms)
+  end
+
+  fn on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : () do
+    glue_on_pointer(canvas, down, move, up, cancel)
+  end
+
+  fn set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : () do
+    glue_set_transform(ctx, a, b, c, d, e, f)
+  end
+
+  fn composite(ctx : Js.Canvas.Context, op : String) : () do
+    glue_composite(ctx, op)
+  end
+
+  fn fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
+    glue_fill_rule(ctx, evenodd)
+  end
+
+  fn clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
+    glue_clip_rule(ctx, evenodd)
+  end
+
+  fn line_cap(ctx : Js.Canvas.Context, cap : String) : () do
+    glue_line_cap(ctx, cap)
+  end
+
+  fn line_join(ctx : Js.Canvas.Context, join : String) : () do
+    glue_line_join(ctx, join)
+  end
+
+  fn text_centred(ctx : Js.Canvas.Context) : () do
+    glue_text_centred(ctx)
+  end
+
+  fn arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : () do
+    glue_arc_full(ctx, x, y, r, sweep)
+  end
+
+  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Gradient do
+    glue_radial(ctx, x0, y0, r0, x1, y1, r1)
+  end
+
+  fn gradient_stop(g : Gradient, at : Float, css : String) : () do
+    glue_gradient_stop(g, at, css)
+  end
+
+  fn fill_gradient(ctx : Js.Canvas.Context, g : Gradient) : () do
+    glue_fill_gradient(ctx, g)
+  end
+
+  fn queue_tap(i : Int) : () do
+    glue_queue_tap(i)
+  end
+
+  fn drain_taps() : List(Int) do
+    glue_drain_taps()
+  end
+
+end

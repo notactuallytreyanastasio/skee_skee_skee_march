@@ -1,0 +1,215 @@
+mod PainterSuite do
+
+  -- The painter piece: Skee.Painter turns Skee.Scene's DrawOps into the Canvas
+  -- 2D calls the shell makes, one for one, in the order
+  -- tools/scene_preview/paint.html (the reference painter) makes them. The
+  -- shell only executes the list, so everything it could get wrong is here.
+  import Harness
+
+  fn k() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  -- Thousandths: both targets print these the same way.
+  fn num(x : Float) : String do
+    int_to_string(float_round(x *. 1000.0))
+  end
+
+  fn nums(xs : List(Float)) : String do
+    String.join(List.map(xs, num), ",")
+  end
+
+  fn rule(r : Skee.Painter.FillRule) : String do
+    match r do
+    RuleNonZero -> "nonzero"
+    RuleEvenOdd -> "evenodd"
+    end
+  end
+
+  fn stop(s : Skee.Painter.ColourStop) : String do
+    num(s.stop_at) ++ " " ++ s.stop_css
+  end
+
+  fn describe(c : Skee.Painter.CanvasCall) : String do
+    match c do
+    CvSave -> "save"
+    CvRestore -> "restore"
+    CvSetTransform(a, b, cc, d, e, f) -> "transform " ++ nums([a, b, cc, d, e, f])
+    CvComposite(s) -> "composite " ++ s
+    CvBeginPath -> "begin"
+    CvMoveTo(x, y) -> "M " ++ nums([x, y])
+    CvLineTo(x, y) -> "L " ++ nums([x, y])
+    CvQuadTo(a, b, x, y) -> "Q " ++ nums([a, b, x, y])
+    CvCubicTo(a, b, cc, d, x, y) -> "C " ++ nums([a, b, cc, d, x, y])
+    CvClosePath -> "Z"
+    CvArc(x, y, r, sweep) -> "arc " ++ nums([x, y, r, sweep])
+    CvFillStyle(s) -> "fillStyle " ++ s
+    CvRadialStyle(x0, y0, r0, x1, y1, r1, stops) -> do
+      "radial " ++ nums([x0, y0, r0, x1, y1, r1]) ++ " [" ++ String.join(List.map(stops, stop), ";") ++ "]"
+    end
+    CvFill(r) -> "fill " ++ rule(r)
+    CvClip(r) -> "clip " ++ rule(r)
+    CvFillRect(x, y, w, h) -> "fillRect " ++ nums([x, y, w, h])
+    CvStrokeStyle(s) -> "strokeStyle " ++ s
+    CvLineWidth(w) -> "lineWidth " ++ num(w)
+    CvLineCap(s) -> "lineCap " ++ s
+    CvLineJoin(s) -> "lineJoin " ++ s
+    CvStroke -> "stroke"
+    CvFont(s) -> "font " ++ s
+    CvTextCentred -> "centred"
+    CvFillText(s, x, y) -> "fillText " ++ s ++ " " ++ nums([x, y])
+    CvStrokeText(s, x, y) -> "strokeText " ++ s ++ " " ++ nums([x, y])
+    end
+  end
+
+  fn expect_calls(got : List(Skee.Painter.CanvasCall), want : List(String), what : String) : Outcome do
+    Harness.expect_string(String.join(List.map(got, describe), " | "), String.join(want, " | "), what)
+  end
+
+  fn v(x : Float, y : Float) : Skee.Maths.Vec2 do
+    Skee.Maths.vec2(x, y)
+  end
+
+  fn red() : Skee.Scene.Rgba do
+    { red: 255, green: 0, blue: 0, alpha: 1.0 }
+  end
+
+  fn ink() : Skee.Scene.Rgba do
+    { red: 10, green: 20, blue: 30, alpha: 0.5 }
+  end
+
+  fn identity() : Skee.Scene.Affine do
+    { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
+  end
+
+  -- A frame of these ops on a 100x50 CSS-pixel canvas at devicePixelRatio 2,
+  -- without the frame's opening transform.
+  fn body(ops : List(Skee.Scene.DrawOp)) : List(Skee.Painter.CanvasCall) do
+    match Skee.Painter.calls(k(), 2.0, 100.0, 50.0, ops) do
+    Cons(_, rest) -> rest
+    Nil -> []
+    end
+  end
+
+  fn triangle() : List(Skee.Maths.Vec2) do
+    [v(1.0, 2.0), v(3.0, 4.0), v(5.0, 2.0)]
+  end
+
+  fn tau() : String do
+    let kk = k()
+    num(kk.tau)
+  end
+
+  fn opening() : Outcome do
+    expect_calls(Skee.Painter.calls(k(), 2.0, 100.0, 50.0, []), ["transform 2000,0,0,2000,0,0"], "an empty frame")
+  end
+
+  fn clear() : Outcome do
+    expect_calls(body([ClearTo(red())]), ["composite source-over", "fillStyle rgba(255,0,0,1)", "fillRect 0,0,100000,50000"], "ClearTo")
+  end
+
+  fn poly() : Outcome do
+    expect_calls(body([FillShape(Poly(triangle()), Flat(ink()), Over)]), ["begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "composite source-over", "fillStyle rgba(10,20,30,0.500)", "fill nonzero"], "a flat polygon")
+  end
+
+  fn holed() : Outcome do
+    expect_calls(body([FillShape(Holed(triangle(), [v(2.0, 2.5), v(3.0, 3.0)]), Flat(red()), Lighter)]), ["begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "M 2000,2500", "L 3000,3000", "Z", "composite lighter", "fillStyle rgba(255,0,0,1)", "fill evenodd"], "a holed shape is even-odd")
+  end
+
+  fn polys() : Outcome do
+    expect_calls(body([FillShape(Polys([triangle(), []]), Flat(red()), Over)]), ["begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a union skips an empty ring")
+  end
+
+  fn disc() : Outcome do
+    all([
+      expect_calls(body([FillShape(Disc(v(7.0, 8.0), 3.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,3000," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a disc"),
+      expect_calls(body([FillShape(Disc(v(7.0, 8.0), -1.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,0," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a negative radius, which arc throws on, is 0")
+    ])
+  end
+
+  fn outline() : Outcome do
+    let steps =
+      [MoveTo(v(1.0, 1.0)), LineTo(v(2.0, 1.0)), QuadTo(v(3.0, 2.0), v(4.0, 1.0)), CubicTo(v(5.0, 0.0), v(6.0, 2.0), v(7.0, 1.0)), ClosePath]
+    expect_calls(body([StrokeShape(Outline(steps), { ink: ink(), width: 1.5, ends: RoundEnd, corners: MitreCorner }, Over)]), ["begin", "M 1000,1000", "L 2000,1000", "Q 3000,2000,4000,1000", "C 5000,0,6000,2000,7000,1000", "Z", "composite source-over", "strokeStyle rgba(10,20,30,0.500)", "lineWidth 1500", "lineCap round", "lineJoin miter", "stroke"], "a stroked outline")
+  end
+
+  fn radial() : Outcome do
+    let g =
+      {
+        inner: v(1.0, 2.0),
+        inner_radius: 0.5,
+        outer: v(3.0, 4.0),
+        outer_radius: 6.0,
+        stops: [{ offset: 0.0, colour: red() }, { offset: 1.0, colour: ink() }],
+        frame: { a: 1.0, b: 0.5, c: 0.0, d: 2.0, e: 10.0, f: 20.0 }
+      }
+    expect_calls(body([FillShape(Disc(v(7.0, 8.0), 3.0), RadialPaint(g), Over)]), ["begin", "arc 7000,8000,3000," ++ tau(), "composite source-over", "save", "transform 2000,1000,0,4000,20000,40000", "radial 1000,2000,500,3000,4000,6000 [0 rgba(255,0,0,1);1000 rgba(10,20,30,0.500)]", "fill nonzero", "restore"], "a radial fill is set in its frame, after the path")
+  end
+
+  fn text() : Outcome do
+    let t =
+      {
+        words: "x5",
+        font: "900 12px sans-serif",
+        middle: v(4.0, 5.0),
+        fill: red(),
+        edge: Some({ ink: ink(), width: 3.0, ends: ButtEnd, corners: MitreCorner }),
+        frame: { a: 1.0, b: 0.0, c: 0.25, d: 1.0, e: 6.0, f: 7.0 }
+      }
+    let plain = { t with edge: None, frame: identity() }
+    all([
+      expect_calls(body([DrawText(t)]), ["composite source-over", "save", "transform 2000,0,500,2000,12000,14000", "font 900 12px sans-serif", "centred", "strokeStyle rgba(10,20,30,0.500)", "lineWidth 3000", "lineJoin round", "strokeText x5 4000,5000", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "edged text: the edge first, round-joined"),
+      expect_calls(body([DrawText(plain)]), ["composite source-over", "save", "transform 2000,0,0,2000,0,0", "font 900 12px sans-serif", "centred", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "plain text")
+    ])
+  end
+
+  fn clips() : Outcome do
+    let tri = Poly(triangle())
+    all([
+      expect_calls(body([PushClip(Holed(triangle(), [])), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip evenodd", "restore"], "a clip is save, clip, restore"),
+      expect_calls(body([PopClip, ClearTo(red())]), ["composite source-over", "fillStyle rgba(255,0,0,1)", "fillRect 0,0,100000,50000"], "an unmatched PopClip restores nothing"),
+      expect_calls(body([PushClip(tri), PushClip(tri), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "restore", "restore"], "the frame closes clips left open")
+    ])
+  end
+
+  fn count(cs : List(Skee.Painter.CanvasCall), want : String) : Int do
+    List.length(List.filter(cs, fn c -> describe(c) == want))
+  end
+
+  -- A first launch's alley through the real pipeline: every save is restored
+  -- and the frame opens with the device-pixel transform.
+  fn real_frame() : Outcome do
+    let (m, _) = Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+    let (ticked, _) = Skee.App.update(m, MsgTick(1.0))
+    let ops = Skee.App.scene_ops(ticked)
+    let cs = Skee.Painter.calls(k(), 3.0, 390.0, 844.0, ops)
+    let first =
+      match cs do
+      Cons(c, _) -> describe(c)
+      Nil -> "none"
+      end
+    all([
+      Harness.expect(List.length(ops) > 50, "the alley has ops: " ++ int_to_string(List.length(ops))),
+      Harness.expect_string(first, "transform 3000,0,0,3000,0,0", "opening"),
+      Harness.expect_int(count(cs, "save"), count(cs, "restore"), "saves restored"),
+      Harness.expect(count(cs, "begin") >= List.length(ops) / 2, "paths begun")
+    ])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("a frame opens with the device-pixel transform", fn -> opening()),
+      case("ClearTo fills the viewport", fn -> clear()),
+      case("a flat polygon", fn -> poly()),
+      case("a holed shape fills even-odd", fn -> holed()),
+      case("a union of rings", fn -> polys()),
+      case("a disc is a full arc", fn -> disc()),
+      case("a stroked outline", fn -> outline()),
+      case("a radial fill in its frame", fn -> radial()),
+      case("text centred in its frame", fn -> text()),
+      case("clips save and restore, balanced", fn -> clips()),
+      case("a real frame is balanced", fn -> real_frame())
+    ]
+  end
+
+end

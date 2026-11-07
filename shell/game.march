@@ -1,14 +1,199 @@
 mod Game do
 
-  -- The imperative shell: canvas, DOM, audio, storage and clock live here and
-  -- nowhere else. It only turns events into core actions and core state into
-  -- effects. This is the entry point of `forge build --target js`. Using
-  -- Js.Dom, Js.Canvas or Js.Audio needs `needs IO.Foreign` and a Cap(IO.Foreign)
-  -- parameter on main.
-  needs IO.Console
+  -- The imperative shell, and the entry point of the browser build. It holds
+  -- one Skee.App.Model and does only this:
+  --
+  --   launch    read the five stored strings, boot, perform the effects
+  --   events    canvas pointer events, visibility and resizes become Msgs
+  --   per frame update(MsgTick(t)), paint scene_ops, render the HUD, whose
+  --             queued taps come back as MsgTap
+  --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate, and
+  --             every effect to Audio.apply (sound, rumble, drum)
+  --
+  -- Every rule is in Skee.App; nothing here looks at the game. Times are on
+  -- one clock, performance.now() / 1000 (rAF's time and every event's
+  -- timeStamp); positions are CSS pixels.
+  needs IO.Foreign
 
-  fn main(_c : Cap(IO.Console)) : () do
-    println("skee")
+  -- What the shell keeps between events: the model and the browser handles.
+  type ShellState = {
+    model : Skee.App.Model,
+    k : Skee.Consts.Consts,
+    canvas : Js.Dom.Node,
+    ctx : Js.Canvas.Context,
+    hud : Hud.HudHandle,
+    audio : Audio.AudioHandle,
+    width : Float,
+    height : Float,
+    dpr : Float
+  }
+
+  -- One cell holds the ShellState, so that event callbacks and the frame
+  -- loop act on the same model (web/skee_glue.mjs).
+  extern "./skee_glue.mjs" : Cap(IO.Foreign) do
+    fn glue_cell_put(s : ShellState) : Unit
+    fn glue_cell_get() : ShellState
+  end
+
+  -- ---- Storage ----
+  -- The localStorage key of each save. Swift's names: wallet.json and
+  -- run.json in Documents, tipsSeen, walkthroughDone and arrivalDone in
+  -- UserDefaults.
+  fn storage_key(key : Skee.App.SaveKey) : String do
+    match key do
+    KeyWallet -> "skee.wallet"
+    KeyRun -> "skee.run"
+    KeyTips -> "skee.tipsSeen"
+    KeyWalkthroughDone -> "skee.walkthroughDone"
+    KeyArrivalDone -> "skee.arrivalDone"
+    end
+  end
+
+  fn stored(key : Skee.App.SaveKey) : Option(String) do
+    Js.Dom.store_get(storage_key(key))
+  end
+
+  fn saved_strings() : Skee.App.SavedStrings do
+    {
+      saved_wallet: stored(KeyWallet),
+      saved_run: stored(KeyRun),
+      saved_tips: stored(KeyTips),
+      saved_walk_done: stored(KeyWalkthroughDone),
+      saved_arrival_done: stored(KeyArrivalDone)
+    }
+  end
+
+  -- ---- Effects ----
+  -- navigator.vibrate is the browser's only haptic: a pulse whose length
+  -- follows the impact's intensity, and a short one for a notification. The
+  -- rolling buzz has no browser equivalent and is not played.
+  fn vibration_ms(h : Skee.App.Haptic) : Option(Int) do
+    match h do
+    HapticImpact(ImpactLight, i) -> Some(float_round(6.0 +. 10.0 *. i))
+    HapticImpact(ImpactRigid, i) -> Some(float_round(8.0 +. 12.0 *. i))
+    HapticImpact(ImpactHeavy, i) -> Some(float_round(12.0 +. 20.0 *. i))
+    HapticNotify(_) -> Some(30)
+    HapticBuzz(_) -> None
+    HapticBuzzStop -> None
+    end
+  end
+
+  fn effect(e : Skee.App.Effect) : () do
+    match e do
+    FxSave(key, text) -> Js.Dom.store_set(storage_key(key), text)
+    FxHaptic(h) -> do
+      match vibration_ms(h) do
+      Some(ms) -> Glue.vibrate(ms)
+      None -> ()
+      end
+    end
+    FxSound(_) -> ()
+    FxRumble(_) -> ()
+    FxDrum(_) -> ()
+    end
+  end
+
+  fn perform(s : ShellState, effects : List(Skee.App.Effect)) : () do
+    List.each(effects, effect)
+    Audio.apply(s.audio, effects)
+  end
+
+  -- One message: update, keep the new model, perform its effects.
+  fn dispatch(msg : Skee.App.Msg) : () do
+    let s = glue_cell_get()
+    let (m, effects) = Skee.App.update(s.model, msg)
+    let next = { s with model: m }
+    glue_cell_put(next)
+    perform(next, effects)
+  end
+
+  -- ---- The thumb ----
+  fn sample(p : (Float, Float, Float)) : FlickSample do
+    let (t, x, y) = p
+    { sample_t: t, sample_x: x, sample_y: y }
+  end
+
+  fn samples(raw : List((Float, Float, Float))) : List(FlickSample) do
+    List.map(raw, sample)
+  end
+
+  fn pointer_down(ss : List(FlickSample)) : () do
+    match ss do
+    Cons(first, _) -> dispatch(MsgPointerDown(first))
+    Nil -> ()
+    end
+  end
+
+  -- ---- The frame ----
+  -- A resize or a new devicePixelRatio (zoom, another screen) resizes the
+  -- canvas's backing store and tells the model.
+  fn follow_size() : () do
+    let s = glue_cell_get()
+    let (w, h) = Glue.view_size()
+    let dpr = Glue.device_pixel_ratio()
+    if w != s.width || h != s.height || dpr != s.dpr do
+      resize(s, w, h, dpr)
+    else
+      ()
+    end
+  end
+
+  fn resize(s : ShellState, w : Float, h : Float, dpr : Float) : () do
+    Glue.size_canvas(s.canvas, w, h, dpr)
+    glue_cell_put({ s with width: w, height: h, dpr: dpr })
+    dispatch(MsgResize(w, h))
+  end
+
+  fn frame(t : Float) : () do
+    follow_size()
+    dispatch(MsgTick(t))
+    let s = glue_cell_get()
+    Paint.frame(s.ctx, s.k, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
+    List.each(Hud.render(s.hud, s.model), dispatch)
+    Glue.request_frame(fn next -> frame(next))
+  end
+
+  -- ---- Launch ----
+  fn element(id : String, tag : String) : Js.Dom.Node do
+    match Js.Dom.find(id) do
+    Some(node) -> node
+    None -> do
+      let node = Js.Dom.create(tag)
+      Js.Dom.set_attr(node, "id", id)
+      Js.Dom.append(Js.Dom.body(), node)
+      node
+    end
+    end
+  end
+
+  fn context(canvas : Js.Dom.Node) : Js.Canvas.Context do
+    match Js.Canvas.get_context(canvas) do
+    Some(ctx) -> ctx
+    None -> panic("this browser gives no 2D canvas context")
+    end
+  end
+
+  fn launch() : () do
+    let canvas = element("alley", "canvas")
+    let ctx = context(canvas)
+    let hud = Hud.mount(element("hud", "div"))
+    let k = Skee.Consts.make()
+    let (w, h) = Glue.view_size()
+    let dpr = Glue.device_pixel_ratio()
+    let (hi, lo) = Glue.seed_limbs()
+    Glue.size_canvas(canvas, w, h, dpr)
+    let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Skee.U64.make(hi, lo))
+    let s =
+      { model: m, k: k, canvas: canvas, ctx: ctx, hud: hud, audio: Audio.start(), width: w, height: h, dpr: dpr }
+    glue_cell_put(s)
+    perform(s, effects)
+    Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn -> dispatch(MsgPointerCancel))
+    Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
+    Glue.request_frame(fn t -> frame(t))
+  end
+
+  fn main(_f : Cap(IO.Foreign)) : () do
+    launch()
   end
 
 end

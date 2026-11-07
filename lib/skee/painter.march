@@ -1,0 +1,218 @@
+mod Skee.Painter do
+
+  -- Skee.Scene's DrawOps as the Canvas 2D calls that paint them, one frame at a
+  -- time, in the order tools/scene_preview/paint.html (the reference painter)
+  -- makes them. The shell's Paint executes the list with one exhaustive match
+  -- and decides nothing, so everything a painter can get wrong is here and
+  -- tested (test/suites/painter_suite.march).
+  --
+  -- Coordinates are CSS pixels. The frame opens with setTransform(dpr, 0, 0,
+  -- dpr, 0, 0), so the canvas's backing store is dpr device pixels per CSS
+  -- pixel. A radial paint's and a lettering's `frame` compose onto that.
+  cap pure
+
+  -- The fill and clip winding rule: Holed is even-odd, every other shape non-zero.
+  type FillRule = RuleNonZero | RuleEvenOdd
+
+  derive Eq, Show for FillRule
+
+  -- A gradient stop with its colour already in CSS.
+  type ColourStop = { stop_at : Float, stop_css : String }
+
+  derive Show for ColourStop
+
+  -- One CanvasRenderingContext2D call. Strings are CSS values passed through.
+  -- CvArc(x, y, r, sweep) is arc(x, y, r, 0, sweep). CvRadialStyle sets
+  -- fillStyle to createRadialGradient(x0, y0, r0, x1, y1, r1) with its stops.
+  -- CvTextCentred sets textAlign center and textBaseline middle.
+  type CanvasCall =
+    CvSave
+    | CvRestore
+    | CvSetTransform(Float, Float, Float, Float, Float, Float)
+    | CvComposite(String)
+    | CvBeginPath
+    | CvMoveTo(Float, Float)
+    | CvLineTo(Float, Float)
+    | CvQuadTo(Float, Float, Float, Float)
+    | CvCubicTo(Float, Float, Float, Float, Float, Float)
+    | CvClosePath
+    | CvArc(Float, Float, Float, Float)
+    | CvFillStyle(String)
+    | CvRadialStyle(Float, Float, Float, Float, Float, Float, List(ColourStop))
+    | CvFill(FillRule)
+    | CvClip(FillRule)
+    | CvFillRect(Float, Float, Float, Float)
+    | CvStrokeStyle(String)
+    | CvLineWidth(Float)
+    | CvLineCap(String)
+    | CvLineJoin(String)
+    | CvStroke
+    | CvFont(String)
+    | CvTextCentred
+    | CvFillText(String, Float, Float)
+    | CvStrokeText(String, Float, Float)
+
+  derive Show for CanvasCall
+
+  -- The frame being built: the calls so far, newest first, and how many clips
+  -- are open (each one a save the frame must restore).
+  type Painting = {
+    rev : List(CanvasCall),
+    open_clips : Int,
+    dpr : Float,
+    view_w : Float,
+    view_h : Float,
+    sweep : Float
+  }
+
+  doc """
+  The calls that paint `ops` on a canvas of `width` by `height` CSS pixels at
+  `dpr` device pixels per CSS pixel. A PopClip with no clip open restores
+  nothing, and clips left open are restored at the end, so the context's
+  state stack is balanced after every frame.
+  """
+  fn calls(k : Skee.Consts.Consts, dpr : Float, width : Float, height : Float, ops : List(Skee.Scene.DrawOp)) : List(CanvasCall) needs () do
+    let start =
+      { rev: [CvSetTransform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)], open_clips: 0, dpr: dpr, view_w: width, view_h: height, sweep: k.tau }
+    let painted = List.fold_left(ops, start, paint_op)
+    List.reverse(close_clips(painted.rev, painted.open_clips))
+  end
+
+  pfn close_clips(rev : List(CanvasCall), n : Int) : List(CanvasCall) needs () do
+    if n <= 0 do rev else close_clips(Cons(CvRestore, rev), n - 1) end
+  end
+
+  pfn push(p : Painting, c : CanvasCall) : Painting needs () do
+    { p with rev: Cons(c, p.rev) }
+  end
+
+  pfn push_all(p : Painting, cs : List(CanvasCall)) : Painting needs () do
+    List.fold_left(cs, p, push)
+  end
+
+  pfn paint_op(p : Painting, op : Skee.Scene.DrawOp) : Painting needs () do
+    match op do
+    ClearTo(c) -> push_all(p, [CvComposite("source-over"), CvFillStyle(Skee.Scene.css(c)), CvFillRect(0.0, 0.0, p.view_w, p.view_h)])
+    FillShape(sh, paint, b) -> fill(push(path(p, sh), CvComposite(blend(b))), sh, paint)
+    StrokeShape(sh, pen, b) -> stroke(push(path(p, sh), CvComposite(blend(b))), pen)
+    DrawText(t) -> letter(push(p, CvComposite("source-over")), t)
+    PushClip(sh) -> do
+      let clipped = push(path(push(p, CvSave), sh), CvClip(rule(sh)))
+      { clipped with open_clips: clipped.open_clips + 1 }
+    end
+    PopClip -> do
+      if p.open_clips > 0 do
+        { p with rev: Cons(CvRestore, p.rev), open_clips: p.open_clips - 1 }
+      else
+        p
+      end
+    end
+    end
+  end
+
+  pfn blend(b : Skee.Scene.Blend) : String needs () do
+    match b do
+    Over -> "source-over"
+    Lighter -> "lighter"
+    end
+  end
+
+  doc """Holed shapes fill and clip even-odd; every other shape non-zero."""
+  fn rule(sh : Skee.Scene.Shape) : FillRule needs () do
+    match sh do
+    Holed(_, _) -> RuleEvenOdd
+    Poly(_) -> RuleNonZero
+    Polys(_) -> RuleNonZero
+    Disc(_, _) -> RuleNonZero
+    Outline(_) -> RuleNonZero
+    end
+  end
+
+  -- ---- Paths ----
+  pfn path(p : Painting, sh : Skee.Scene.Shape) : Painting needs () do
+    let begun = push(p, CvBeginPath)
+    match sh do
+    Poly(ps) -> ring(begun, ps)
+    Holed(outer, inner) -> ring(ring(begun, outer), inner)
+    Polys(rings) -> List.fold_left(rings, begun, ring)
+    Disc(c, r) -> push(begun, CvArc(c.x, c.y, Skee.Maths.max_float(0.0, r), p.sweep))
+    Outline(steps) -> List.fold_left(steps, begun, path_step)
+    end
+  end
+
+  pfn ring(p : Painting, ps : List(Skee.Maths.Vec2)) : Painting needs () do
+    match ps do
+    Nil -> p
+    Cons(first, rest) -> do
+      let started = push(p, CvMoveTo(first.x, first.y))
+      push(List.fold_left(rest, started, line_to), CvClosePath)
+    end
+    end
+  end
+
+  pfn line_to(p : Painting, v : Skee.Maths.Vec2) : Painting needs () do
+    push(p, CvLineTo(v.x, v.y))
+  end
+
+  pfn path_step(p : Painting, s : Skee.Scene.PathStep) : Painting needs () do
+    match s do
+    MoveTo(a) -> push(p, CvMoveTo(a.x, a.y))
+    LineTo(a) -> push(p, CvLineTo(a.x, a.y))
+    QuadTo(a, b) -> push(p, CvQuadTo(a.x, a.y, b.x, b.y))
+    CubicTo(a, b, c) -> push(p, CvCubicTo(a.x, a.y, b.x, b.y, c.x, c.y))
+    ClosePath -> push(p, CvClosePath)
+    end
+  end
+
+  -- ---- Fills, strokes and lettering ----
+  -- A radial paint's geometry is in its frame: the path is already built in
+  -- pixels, so the frame is set after it, for the gradient alone.
+  pfn fill(p : Painting, sh : Skee.Scene.Shape, paint : Skee.Scene.Paint) : Painting needs () do
+    match paint do
+    Flat(c) -> push_all(p, [CvFillStyle(Skee.Scene.css(c)), CvFill(rule(sh))])
+    RadialPaint(g) -> do
+      let framed = push(push(p, CvSave), framed_by(p.dpr, g.frame))
+      push_all(framed, [CvRadialStyle(g.inner.x, g.inner.y, g.inner_radius, g.outer.x, g.outer.y, g.outer_radius, List.map(g.stops, colour_stop)), CvFill(rule(sh)), CvRestore])
+    end
+    end
+  end
+
+  pfn colour_stop(s : Skee.Scene.GradientStop) : ColourStop needs () do
+    { stop_at: s.offset, stop_css: Skee.Scene.css(s.colour) }
+  end
+
+  doc """setTransform for an affine frame under the device-pixel base: dpr times the frame."""
+  fn framed_by(dpr : Float, f : Skee.Scene.Affine) : CanvasCall needs () do
+    CvSetTransform(dpr *. f.a, dpr *. f.b, dpr *. f.c, dpr *. f.d, dpr *. f.e, dpr *. f.f)
+  end
+
+  pfn ends(e : Skee.Scene.LineEnd) : String needs () do
+    match e do
+    ButtEnd -> "butt"
+    RoundEnd -> "round"
+    end
+  end
+
+  pfn corners(c : Skee.Scene.Corner) : String needs () do
+    match c do
+    MitreCorner -> "miter"
+    RoundCorner -> "round"
+    end
+  end
+
+  pfn stroke(p : Painting, pen : Skee.Scene.Pen) : Painting needs () do
+    push_all(p, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineCap(ends(pen.ends)), CvLineJoin(corners(pen.corners)), CvStroke])
+  end
+
+  -- The edge is stroked first, round-joined, under the fill.
+  pfn letter(p : Painting, t : Skee.Scene.Lettering) : Painting needs () do
+    let ready = push_all(p, [CvSave, framed_by(p.dpr, t.frame), CvFont(t.font), CvTextCentred])
+    let edged =
+      match t.edge do
+      Some(pen) -> push_all(ready, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineJoin("round"), CvStrokeText(t.words, t.middle.x, t.middle.y)])
+      None -> ready
+      end
+    push_all(edged, [CvFillStyle(Skee.Scene.css(t.fill)), CvFillText(t.words, t.middle.x, t.middle.y), CvRestore])
+  end
+
+end

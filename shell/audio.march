@@ -1,0 +1,20 @@
+mod Audio do
+
+  -- STUB, to be replaced by the audio piece: Skee.Synth through Web Audio.
+  -- Entry points the shell uses, which the real one keeps:
+  --   Audio.start() : AudioHandle
+  --   Audio.apply(a : AudioHandle, effects : List(Skee.App.Effect)) : ()
+  -- apply is given every effect of an update; it acts on FxSound (Skee.Synth.play),
+  -- FxRumble (set_rumble) and FxDrum (set_drum) and ignores the rest.
+
+  type AudioHandle = { audio_started : Bool }
+
+  fn start() : AudioHandle do
+    { audio_started: false }
+  end
+
+  fn apply(_a : AudioHandle, _effects : List(Skee.App.Effect)) : () do
+    ()
+  end
+
+end
