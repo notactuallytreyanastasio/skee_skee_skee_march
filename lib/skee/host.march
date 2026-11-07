@@ -870,10 +870,9 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     Result.flat_map(present(fields, path, key), fn v ->
       match v do
       Json.Str(s) -> do
-        if s == Skee.Save.unread_mark() || s == Skee.Save.underflow_mark() do
-          Err(FaultField(field_path(path, key)))
-        else
-          Ok(s)
+        match Skee.Save.text_of(s) do
+        Some(text) -> Ok(text)
+        None -> Err(FaultField(field_path(path, key)))
         end
       end
       Json.Null -> Err(FaultField(field_path(path, key)))
@@ -1299,6 +1298,158 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   end
 
   -- ---- DeepSeek.chat's envelope ----
+  -- JSONSerialization.jsonObject checks every string and number in the body,
+  -- where JSONDecoder (Skee.Save.parse) only scans what nothing reads (golden
+  -- wire rows 35 to 67). Save.parse has checked the structure and the depth;
+  -- these check each string and number token, read or not. Outside a string
+  -- only a number starts with `-` or a digit.
+  pfn serialization_reads(s : String, i : Int) : Bool needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      true
+    else
+      if c == 34 do
+        do
+          let e = serial_string_end(s, i + 1)
+          if e < 0 do false else serialization_reads(s, e) end
+        end
+      else
+        if c == 45 || c >= 48 && c <= 57 do
+          do
+            let e = serial_number_end(s, i)
+            if serial_number_ok(s, i, e) do serialization_reads(s, e) else false end
+          end
+        else
+          serialization_reads(s, i + 1)
+        end
+      end
+    end
+  end
+
+  pfn hex_value(c : Int) : Int needs () do
+    if c >= 48 && c <= 57 do
+      c - 48
+    else
+      if c >= 97 && c <= 102 do
+        c - 87
+      else
+        if c >= 65 && c <= 70 do c - 55 else -1 end
+      end
+    end
+  end
+
+  -- The four hex digits of a `\u` escape at i (just past the u), or -1.
+  pfn hex4(s : String, i : Int) : Int needs () do
+    let a = hex_value(string_byte_at(s, i))
+    let b = hex_value(string_byte_at(s, i + 1))
+    let c = hex_value(string_byte_at(s, i + 2))
+    let d = hex_value(string_byte_at(s, i + 3))
+    if a < 0 || b < 0 || c < 0 || d < 0 do -1 else ((a * 16 + b) * 16 + c) * 16 + d end
+  end
+
+  -- Past a `\uXXXX` at i (the backslash): a high surrogate must be followed
+  -- by a `\u` low one, and a low one alone is refused. -1 if refused.
+  pfn unicode_escape_end(s : String, i : Int) : Int needs () do
+    let u = hex4(s, i + 2)
+    if u < 0 || u >= 56320 && u <= 57343 do
+      -1
+    else
+      if u >= 55296 && u <= 56319 do
+        do
+          let low =
+            if string_byte_at(s, i + 6) == 92 && string_byte_at(s, i + 7) == 117 do hex4(s, i + 8) else -1 end
+          if low >= 56320 && low <= 57343 do i + 12 else -1 end
+        end
+      else
+        i + 6
+      end
+    end
+  end
+
+  -- Past the closing quote of the string whose text starts at i, or -1 for a
+  -- raw byte below 0x20, a bad escape, or no end.
+  pfn serial_string_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c < 32 do
+      -1
+    else
+      if c == 34 do
+        i + 1
+      else
+        if c == 92 do
+          do
+            let x = string_byte_at(s, i + 1)
+            if x == 117 do
+              do
+                let e = unicode_escape_end(s, i)
+                if e < 0 do -1 else serial_string_end(s, e) end
+              end
+            else
+              if x == 34 || x == 92 || x == 47 || x == 98 || x == 102 || x == 110 || x == 114 || x == 116 do
+                serial_string_end(s, i + 2)
+              else
+                -1
+              end
+            end
+          end
+        else
+          serial_string_end(s, i + 1)
+        end
+      end
+    end
+  end
+
+  pfn serial_number_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c >= 48 && c <= 57 || c == 43 || c == 45 || c == 46 || c == 69 || c == 101 do
+      serial_number_end(s, i + 1)
+    else
+      i
+    end
+  end
+
+  pfn digits_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c >= 48 && c <= 57 do digits_end(s, i + 1) else i end
+  end
+
+  -- RFC 8259's number, and finite as a Double (1e400 is refused, 1e-400 read).
+  pfn serial_number_ok(s : String, i : Int, e : Int) : Bool needs () do
+    let a = if string_byte_at(s, i) == 45 do i + 1 else i end
+    let b = digits_end(s, a)
+    let whole =
+      b > a && (string_byte_at(s, a) != 48 || b == a + 1)
+    let c =
+      if string_byte_at(s, b) == 46 do
+        do
+          let f = digits_end(s, b + 1)
+          if f > b + 1 do f else -1 end
+        end
+      else
+        b
+      end
+    let d =
+      if c >= 0 && (string_byte_at(s, c) == 101 || string_byte_at(s, c) == 69) do
+        do
+          let sign = string_byte_at(s, c + 1)
+          let from = if sign == 43 || sign == 45 do c + 2 else c + 1 end
+          let g = digits_end(s, from)
+          if g > from do g else -1 end
+        end
+      else
+        c
+      end
+    if !whole || d != e do
+      false
+    else
+      match Json.parse(String.slice_bytes(s, i, e - i)) do
+      Ok(Json.Number(f)) -> f == f && f -. f == 0.0
+      Ok(_) -> false
+      Err(_) -> false
+      end
+    end
+  end
+
   pfn first_choice(v : JsonValue) : Option(List((String, JsonValue))) needs () do
     match v do
     Json.Object(top) -> do
@@ -1344,13 +1495,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     match lookup(choice, "message") do
     Some(Json.Object(message)) -> do
       match lookup(message, "content") do
-      Some(Json.Str(text)) -> do
-        if text == Skee.Save.unread_mark() || text == Skee.Save.underflow_mark() do
-          None
-        else
-          Some(text)
-        end
-      end
+      Some(Json.Str(text)) -> Skee.Save.text_of(text)
       Some(_) -> None
       None -> None
       end
@@ -1378,7 +1523,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     if status != 200 do
       Err(FailHttp(status, body))
     else
-      match Skee.Save.parse(body) do
+      match Result.flat_map(Skee.Save.parse(body), fn v -> if serialization_reads(body, 0) do Ok(v) else Err(SaveNotJson("JSONSerialization refuses it")) end) do
       Err(_) -> Err(FailMalformed(body))
       Ok(v) -> do
         match first_choice(v) do
@@ -1429,7 +1574,38 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   The relay fixes the model and the token limit itself.
   """
   fn request_body(c : HostCall) : String needs () do
-    Json.to_string(Json.Object([("model", Json.Str("deepseek-chat")), ("messages", Json.Array(List.map(c.call_messages, message_json))), ("max_tokens", Json.encode_int(300)), ("temperature", Json.Number(1.2)), ("response_format", Json.Object([("type", Json.Str("json_object"))]))]))
+    control_escaped(Json.to_string(Json.Object([("model", Json.Str("deepseek-chat")), ("messages", Json.Array(List.map(c.call_messages, message_json))), ("max_tokens", Json.encode_int(300)), ("temperature", Json.Number(1.2)), ("response_format", Json.Object([("type", Json.Str("json_object"))]))])))
+  end
+
+  -- Json.to_string writes U+0000-U+001F raw but for \b \t \n \f \r, and
+  -- Node's JSON.parse (relay.mjs) refuses a raw one: the relay would answer
+  -- 400 for good once one is in the history. JSONSerialization writes
+  -- `\u00XX`; so does this. Outside a string to_string writes none, and
+  -- no byte of a multi-byte UTF-8 character is below 0x80.
+  -- (tools/repros/json_to_string_controls.march)
+  pfn control_escaped(json : String) : String needs () do
+    escape_go(json, 0, 0, [])
+  end
+
+  pfn escape_go(s : String, from : Int, i : Int, acc : List(String)) : String needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      match acc do
+      Nil -> s
+      Cons(_, _) -> String.join(List.reverse(Cons(String.slice_bytes(s, from, i - from), acc)), "")
+      end
+    else
+      if c < 32 do
+        escape_go(s, i + 1, i + 1, Cons(control_escape(c), Cons(String.slice_bytes(s, from, i - from), acc)))
+      else
+        escape_go(s, from, i + 1, acc)
+      end
+    end
+  end
+
+  pfn control_escape(c : Int) : String needs () do
+    let digits = "0123456789abcdef"
+    "\\u00" ++ String.slice_bytes(digits, c / 16, 1) ++ String.slice_bytes(digits, c % 16, 1)
   end
 
   pfn relay_message_ok(i : Int, m : ChatMessage) : Bool needs () do

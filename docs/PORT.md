@@ -532,8 +532,9 @@ Skee.HudView.settle(local, hud)                  the Guide forgets its page when
   eleven model states, that every button drawn is one `Skee.App.accepts`, and
   that the title under Sal or the shop is not tappable.
 - GuideView's `@State` (topic, page) is `HudLocal`, kept by the shell as text in
-  `#hud`'s `data-local` (`save_local`, `load_local`). Nothing else is view
-  state: the lever, bets, offers and charms are all model Intents.
+  `#hud`'s `data-local` (`save_local`, `load_local`), with the lever's drag
+  (Lever's `@State drag`). Nothing else is view state: bets, offers and
+  charms are all model Intents.
 - A pane is rewritten only when its HTML changed (the last text is in the
   pane's `data-src`): an idle frame mutates nothing (the playtest measures 0
   mutations a second on the title), and a press on a button is not lost to a
@@ -551,7 +552,15 @@ Skee.HudView.settle(local, hud)                  the Guide forgets its page when
 
 Deviations from SkeeHUD:
 
-- The lever is tapped, not dragged (SPIN does the same in Swift). No spring.
+- (Was: the lever is tapped, not dragged. Fixed after playtest round 1.) The
+  knob is a drag handle as in Swift's Lever: `Skee.HudView.lever_touch` takes
+  its pointer (`LeverDown/Move/Up/Lost`, from `Glue.on_drag`, captured on the
+  HUD root because the knob is rewritten as it moves); past 2pt it follows the
+  thumb, clamped to its 156pt travel; let go past half way it sends
+  `TapPull`; a tap does nothing; it springs home with SwiftUI's
+  `.spring(response: 0.25, dampingFraction: 0.45)` on the HUD clock, kept in
+  `HudLocal.lever` (saved in `data-local`). A second grab during the spring
+  starts from the top, not from where the spring has got to.
 - No safe-area insets: `topInset` is 0, so the top bar sits 8px down and
   "TARGETS · hit one = combo" always shows when there is no combo, as in
   Swift with no island.

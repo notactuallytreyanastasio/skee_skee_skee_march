@@ -712,7 +712,17 @@ mod HostSuite do
 
   -- What March would POST, read back as the generator read Swift's request.
   fn sent_tokens(c : HostCall) : List(String) do
-    match Json.parse(Skee.Host.request_body(c)) do
+    let body = Skee.Host.request_body(c)
+    let raw = raw_control_at(body, 0)
+    if raw >= 0 do
+      ["raw control byte " ++ int_to_string(string_byte_at(body, raw)) ++ " at " ++ int_to_string(raw)]
+    else
+      sent_tokens_of(body)
+    end
+  end
+
+  fn sent_tokens_of(body : String) : List(String) do
+    match Json.parse(body) do
     Ok(v) -> do
       let ms =
         match json_field(v, "messages") do
@@ -756,7 +766,26 @@ mod HostSuite do
     let seated =
       Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))
     let lines = if said == "-" do [] else String.split(said, ",") end
-    List.fold_left(lines, seated, fn (h, l) -> Skee.Host.say(h, unhex(l)))
+    List.fold_left(lines, seated, wire_step)
+  end
+
+  -- r<hex>: a reply the host gave earlier (its JSON), heard; else a player line.
+  fn wire_step(h : Haggle, token : String) : Haggle do
+    if String.starts_with(token, "r") do
+      match Skee.Host.parse_reply(unhex(String.slice_bytes(token, 1, string_byte_length(token) - 1))) do
+      Ok(r) -> Skee.Host.hear(h, r)
+      Err(_) -> h
+      end
+    else
+      Skee.Host.say(h, unhex(token))
+    end
+  end
+
+  -- A raw byte below 0x20 anywhere in a body: Node's JSON.parse (relay.mjs)
+  -- refuses it ("Bad control character in string literal").
+  fn raw_control_at(s : String, i : Int) : Int do
+    let c = string_byte_at(s, i)
+    if c < 0 do -1 else if c < 32 do i else raw_control_at(s, i + 1) end end
   end
 
   fn wire_start(ask : String, h : Haggle) : WireRun do
