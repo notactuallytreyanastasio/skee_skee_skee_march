@@ -2614,7 +2614,7 @@ mod Skee.Scene do
 
   doc """Rows of Textures.ball each white polar cap takes."""
   fn ball_cap_rows() : Float needs () do
-    20.0
+    18.0
   end
 
   doc """The polar caps' colour."""

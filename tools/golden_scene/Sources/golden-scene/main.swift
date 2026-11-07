@@ -247,7 +247,7 @@ func pixels(_ img: CGImage) -> [UInt8] {
     }
 }
 textureRows(["lanepx"], Textures.lane, rows: stride(from: 4, to: 2048, by: 8))
-for kind in BallKind.allCases { textureRows(["ballpx", kind.rawValue], Textures.ball(kind), rows: stride(from: 4, to: 256, by: 8)) }
+for kind in BallKind.allCases { textureRows(["ballpx", kind.rawValue], Textures.ball(kind), rows: stride(from: 1, to: 256, by: 2)) }
 textureRows(["wavepx"], Textures.wave, rows: stride(from: 2, to: 256, by: 4))
 
 // ---- ScenePresenter.update, frame by frame over real throws ----

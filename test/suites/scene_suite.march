@@ -1471,7 +1471,7 @@ mod SceneSuite do
   end
 
   -- ---- Textures.lane, .ball(kind), .wave, pixel for pixel ----
-  -- Rows of the real images (every 32nd lane row, every 8th ball row, every
+  -- Rows of the real images (every 8th lane row, every 2nd ball row, every
   -- 4th wave row, each run-length coded) against `Skee.Scene.texel` over the
   -- marks the draw paints. Only pixels whose centre is `texel_margin` clear
   -- of every visible mark edge are compared, so CoreGraphics' antialiasing
