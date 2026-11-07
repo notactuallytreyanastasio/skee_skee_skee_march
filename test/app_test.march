@@ -1,0 +1,9 @@
+mod AppTest do
+
+  needs IO.Console
+
+  test "app suite" do
+    assert Harness.failures(AppSuite.cases()) == []
+  end
+
+end

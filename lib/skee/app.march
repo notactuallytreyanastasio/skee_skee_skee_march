@@ -1,0 +1,1384 @@
+mod Skee.App do
+
+  -- App/Sources/GameModel.swift (with SkeeApp's room rebuild and Sound.swift's
+  -- cue routing) as a pure Elm-style model. The shell calls `boot` once,
+  -- `update` for every browser event, performs the effects it returns, and
+  -- draws `scene_ops` and `hud` each frame. Everything GameModel decides is
+  -- decided here: canThrow and busy, fouls, the walkthrough and its parked run,
+  -- tips, the bet, the prize shop, rooms, new games and what is saved when.
+  --
+  -- Every action goes through Skee.Reducer.apply and, in a real game, onto the
+  -- saved action list, so the saved (seed, actions) replays the run.
+  --
+  -- Where GameModel holds two clocks (SceneKit's render thread advancing the
+  -- presentation, and the display link reading cues and the HUD), MsgTick does
+  -- both, in that order, at the time the shell gives it.
+  --
+  -- The host (Haggle, DeepSeek, HostGuard, ScriptedHost) is not ported: where
+  -- GameModel seats the host, this seats a labelled placeholder (`HostTable`,
+  -- shown as HudState's HostPlaceholder) whose only button closes it. See
+  -- docs/PORT.md, "Skee.App", for what closing it does instead of a deal.
+  cap pure
+
+  -- ---- What the shell sends ----
+  -- The HUD's buttons, Swift's HUDActions minus the host's chat. Never strings.
+  type Intent =
+    TapStart
+    | TapHowToPlay
+    | TapPickRoom(Room)
+    | TapOpenShop
+    | TapCloseShop
+    | TapBuyPrize(Prize)
+    | TapOpenGuide
+    | TapCloseGuide
+    | TapReplayLesson
+    | TapArrivalNext
+    | TapOpenHost
+    | TapCloseHost
+    | TapGotIt
+    | TapSkipWalkthrough
+    | TapPull
+    | TapSetBet(Bet)
+    | TapChooseBall(BallKind)
+    | TapArm(Int)
+    | TapSelectOffer(Option(Int))
+    | TapBuyOffer(Int)
+    | TapReroll
+    | TapLeaveCounter
+    | TapCharm(Int)
+    | TapAskNewGame
+    | TapKeepPlaying
+    | TapNewRun
+
+  derive Eq, Show for Intent
+
+  -- Browser events. Times are seconds on one clock (performance.now / 1000:
+  -- requestAnimationFrame's time and every pointer event's timeStamp).
+  -- Pointer positions are CSS pixels in the canvas. MsgAutoplay is
+  -- LaunchArguments' -autoplay: throws to make, one per idle frame.
+  type Msg =
+    MsgTick(Float)
+    | MsgPointerDown(FlickSample)
+    | MsgPointerMove(List(FlickSample))
+    | MsgPointerUp(List(FlickSample))
+    | MsgPointerCancel
+    | MsgTap(Intent)
+    | MsgResize(Float, Float)
+    | MsgVisible(Bool)
+    | MsgAutoplay(List(Launch))
+
+  -- ---- What the shell does ----
+  -- Where a save goes. The shell owns the storage keys.
+  type SaveKey = KeyWallet | KeyRun | KeyTips | KeyWalkthroughDone | KeyArrivalDone
+
+  derive Eq, Show for SaveKey
+
+  -- UIImpactFeedbackGenerator's three styles in GameModel's Haptics.
+  type Impact = ImpactLight | ImpactHeavy | ImpactRigid
+
+  derive Eq, Show for Impact
+
+  -- UINotificationFeedbackGenerator's three kinds.
+  type Notice = NoticeWarning | NoticeError | NoticeSuccess
+
+  derive Eq, Show for Notice
+
+  -- Haptics: a tap of some style and intensity, a notification, or the
+  -- continuous buzz under a rolling ball (its intensity control, 0.2...0.75).
+  type Haptic =
+    HapticImpact(Impact, Float)
+    | HapticNotify(Notice)
+    | HapticBuzz(Float)
+    | HapticBuzzStop
+
+  type Effect =
+    FxSound(Skee.Synth.Sound)
+    | FxRumble(Float)
+    | FxDrum(Bool)
+    | FxSave(SaveKey, String)
+    | FxHaptic(Haptic)
+
+  -- ---- What the shell read from storage at launch ----
+  type SavedStrings = {
+    saved_wallet : Option(String),
+    saved_run : Option(String),
+    saved_tips : Option(String),
+    saved_walk_done : Option(String),
+    saved_arrival_done : Option(String)
+  }
+
+  -- ---- The model ----
+  -- What closing the placeholder host does: the arrival leads into the
+  -- walkthrough, a host who sat down for the next game starts it, and one
+  -- opened from a button just closes.
+  type AfterHost = ThenWalkthrough | ThenNewGame | ThenNothing
+
+  derive Eq, Show for AfterHost
+
+  -- Where GameModel seats a Haggle. `host_visit` and `host_room` are the
+  -- Haggle's, kept for when the host is ported.
+  type HostTable = {
+    host_visit : Skee.Rooms.HostVisit,
+    host_room : Room,
+    host_after : AfterHost
+  }
+
+  -- GameModel.parked: the real run, waiting out the walkthrough.
+  type Parked = {
+    parked_seed : Skee.U64.U64,
+    parked_actions : List(Action),
+    parked_run : RunState
+  }
+
+  -- A thumb-trail point and when it was touched.
+  type TrailPoint = { trail_x : Float, trail_y : Float, trail_t : Float }
+
+  -- GameModel's lastBall: where the ball was on the last frame, and when.
+  type BallMark = { mark_along : Float, mark_t : Float }
+
+  type Model = {
+    k : Skee.Consts.Consts,
+    world : Skee.World.World,
+    palette : Skee.Rooms.CabinetPalette,
+    rig : Skee.Camera.Rig,
+    viewport : Skee.Camera.Viewport,
+    keep : Skee.Scene.Keep,
+    scenery : Skee.Scene.Scenery,
+    pres : Skee.Presentation.Presentation,
+    run : RunState,
+    run_seed : Skee.U64.U64,
+    actions_rev : List(Action),
+    extra : Tickets,
+    wallet : Wallet,
+    screen : HudScreen,
+    selected_offer : Option(Int),
+    selected_charm : Option(Int),
+    fold : Float,
+    shop_open : Bool,
+    confirm_new : Bool,
+    guide_open : Bool,
+    walk : Option(Walkthrough),
+    arrival : Option(Int),
+    tips : TipTracker,
+    parked : Option(Parked),
+    walk_done : Bool,
+    arrival_done : Bool,
+    host : Option(HostTable),
+    bet : Bet,
+    autoplay : List(Launch),
+    flick : List(FlickSample),
+    trail : List(TrailPoint),
+    line : Float,
+    aiming : Bool,
+    held : Option(Skee.World.Vec3),
+    last_render : Option(Float),
+    now : Float,
+    last_ball : Option(BallMark),
+    rumble_sent : Float,
+    drum_sent : Bool,
+    buzz : Option(Float),
+    seeds : Skee.Rng.Rng,
+    out : List(Effect)
+  }
+
+  -- ---- What the HUD draws ----
+  -- The overlay on top, which alone takes taps (SwiftUI's ZStack order).
+  type Layer =
+    LayerBase
+    | LayerCoachBlock
+    | LayerConfirmNew
+    | LayerShop
+    | LayerGuide
+    | LayerArrival
+    | LayerHost
+
+  derive Eq, Show for Layer
+
+  type TrailDot = { dot : ScreenPoint, dot_age : Float }
+
+  -- HUDState's fields GameModel.refreshHUD sets beyond HUDState.make.
+  type AppHud = {
+    app_hud : HudState,
+    app_wallet : Wallet,
+    coach : Option(CoachCard),
+    shop_open_now : Bool,
+    confirm_new_now : Bool,
+    guide_open_now : Bool,
+    guide_topics : List(GuideTopic),
+    arrival_line : Option(String),
+    known : List(Tip),
+    guide_line : List(ScreenPoint),
+    aiming_now : Bool,
+    trail_dots : List(TrailDot),
+    top : Layer
+  }
+
+  -- ---- Constants ----
+  doc """Stage.advance's longest frame, 1/20 s."""
+  fn longest_frame() : Float needs () do
+    0.05
+  end
+
+  doc """How long a thumb-trail point lasts, in seconds."""
+  fn trail_life() : Float needs () do
+    0.35
+  end
+
+  doc """GameModel's viewSize before the first layout."""
+  fn default_size() : (Float, Float) needs () do
+    (626.0, 890.0)
+  end
+
+  doc """Arrival.beats: what Sal says at the door, one line per tap."""
+  fn arrival_beats() : List(String) needs () do
+    [
+      "Well, look who walked in! I'm Sal. I run the Boardwalk Arcade.",
+      "Welcome to Skee Skee Skee. It's half arcade ball-rolling and half slot machine. And it's all for fun: there's no real money here, ever.",
+      "You roll balls up a ramp into glowing rings. Every ring shows a picture, and matching pictures make your score climb.",
+      "Nobody rushes you here. Take as long as you like on every throw.",
+      "One more thing. Around here, everything's negotiable! So let's talk about what you walk in with: your first loadout."
+    ]
+  end
+
+  doc """Nothing in storage: a first launch."""
+  fn nothing_saved() : SavedStrings needs () do
+    {
+      saved_wallet: None,
+      saved_run: None,
+      saved_tips: None,
+      saved_walk_done: None,
+      saved_arrival_done: None
+    }
+  end
+
+  -- ---- Cue to sound, and to touch ----
+  doc """SoundEngine.play: every presentation cue is the synth cue of the same name."""
+  fn sound_of(c : Cue) : Skee.Synth.Sound needs () do
+    match c do
+    CueLaunch -> SndLaunch
+    CueRail -> SndRail
+    CueHump -> SndHump
+    CueLip -> SndLip
+    CueBackwall -> SndBackwall
+    CueLanded -> SndLanded
+    CueDrop(h) -> SndDrop(h)
+    CueGutter -> SndGutter
+    CueHop -> SndHop
+    CueWhoosh -> SndWhoosh
+    CueHotSpot -> SndHotSpot
+    CueLever -> SndLever
+    CuePullWin(n) -> SndPullWin(n)
+    CueReelTick -> SndReelTick
+    CueReelStop -> SndReelStop
+    CueCombo(n) -> SndCombo(n)
+    CueTallyChips(n) -> SndTallyChips(n)
+    CueTallyMult(n) -> SndTallyMult(n)
+    CueFrameDone -> SndFrameDone
+    CueLineWon -> SndLineWon
+    CueJackpot -> SndJackpot
+    CueBanner(t) -> SndBanner(t)
+    CueFoul -> SndFoul
+    end
+  end
+
+  doc """Haptics.cue: light taps timed to the ball. The hump also stops the buzz, which `cue_effects` does."""
+  fn cue_haptic(c : Cue) : Option(Haptic) needs () do
+    match c do
+    CueHump -> Some(HapticImpact(ImpactHeavy, 1.0))
+    CueLanded -> Some(HapticImpact(ImpactHeavy, 0.6))
+    CueLip -> Some(HapticImpact(ImpactLight, 0.8))
+    CueDrop(h) -> do
+      let face = int_to_float(Skee.Physics.face_value(h))
+      Some(HapticImpact(ImpactHeavy, Skee.Maths.min_float(1.0, 0.45 +. face /. 110.0)))
+    end
+    CueReelStop -> Some(HapticImpact(ImpactLight, 0.4))
+    CueLever -> Some(HapticImpact(ImpactHeavy, 0.8))
+    CuePullWin(_) -> Some(HapticImpact(ImpactRigid, 0.9))
+    CueCombo(n) -> do
+      Some(HapticImpact(ImpactRigid, Skee.Maths.min_float(1.0, 0.5 +. int_to_float(n) *. 0.1)))
+    end
+    CueLaunch -> None
+    CueRail -> None
+    CueBackwall -> None
+    CueGutter -> None
+    CueHop -> None
+    CueWhoosh -> None
+    CueHotSpot -> None
+    CueReelTick -> None
+    CueTallyChips(_) -> None
+    CueTallyMult(_) -> None
+    CueFrameDone -> None
+    CueLineWon -> None
+    CueJackpot -> None
+    CueBanner(_) -> None
+    CueFoul -> None
+    end
+  end
+
+  doc """Haptics.play: a beat that has just finished."""
+  fn beat_haptic(b : Beat) : Option(Haptic) needs () do
+    match b do
+    BeatRoll(_, ball) -> if ball.record_hole == Gutter do Some(HapticNotify(NoticeError)) else None end
+    BeatTally(f) -> do
+      if Skee.Scoring.is_jackpot(f) do
+        Some(HapticNotify(NoticeSuccess))
+      else
+        Some(HapticImpact(ImpactLight, 1.0))
+      end
+    end
+    BeatBanner(t, _, _) -> if t == "CLEARED" do Some(HapticNotify(NoticeSuccess)) else None end
+    BeatSpin(_) -> None
+    BeatPull(_) -> None
+    BeatCommit(_) -> None
+    BeatRestyle(_, _) -> None
+    end
+  end
+
+  -- ---- Small helpers ----
+  pfn emit(m : Model, e : Effect) : Model needs () do
+    { m with out: Cons(e, m.out) }
+  end
+
+  pfn tap(m : Model) : Model needs () do
+    emit(m, FxHaptic(HapticImpact(ImpactLight, 1.0)))
+  end
+
+  pfn notify(m : Model, n : Notice) : Model needs () do
+    emit(m, FxHaptic(HapticNotify(n)))
+  end
+
+  pfn is_some(o : Option(a)) : Bool needs () do
+    match o do
+    Some(_) -> true
+    None -> false
+    end
+  end
+
+  pfn is_over(ph : Phase) : Bool needs () do
+    match ph do
+    Lost -> true
+    Won -> true
+    Throwing -> false
+    AtCounter(_) -> false
+    end
+  end
+
+  pfn is_throwing(ph : Phase) : Bool needs () do
+    match ph do
+    Throwing -> true
+    AtCounter(_) -> false
+    Lost -> false
+    Won -> false
+    end
+  end
+
+  pfn at_counter(ph : Phase) : Bool needs () do
+    match ph do
+    AtCounter(_) -> true
+    Throwing -> false
+    Lost -> false
+    Won -> false
+    end
+  end
+
+  pfn is_throw(a : Action) : Bool needs () do
+    match a do
+    ThrowBall(_) -> true
+    PullLever(_) -> false
+    CommitFoul -> false
+    ChooseBall(_) -> false
+    Arm(_) -> false
+    Buy(_, _) -> false
+    Reroll -> false
+    Sell(_) -> false
+    LeaveCounter -> false
+    end
+  end
+
+  -- Events that change the wallet in a real game (Skee.Save.bank_step).
+  pfn banks(e : GameEvent) : Bool needs () do
+    match e do
+    Pulled(_) -> true
+    RoundFailed(_, _) -> true
+    RunWon -> true
+    FreeGamesWon(_) -> false
+    JackpotHit(_) -> false
+    Shot(_, _) -> false
+    Fouled -> false
+    FrameScored(_) -> false
+    FeverLit -> false
+    RoundCleared(_, _, _) -> false
+    CounterOpened -> false
+    Bought(_) -> false
+    Sold(_) -> false
+    Rerolled -> false
+    Armed(_) -> false
+    BallChosen(_) -> false
+    RoundStarted(_, _) -> false
+    AnteStarted(_, _) -> false
+    end
+  end
+
+  pfn has_tip(m : Model, t : Tip) : Bool needs () do
+    Skee.Walkthrough.has_tip(m.tips.tips_seen, t)
+  end
+
+  -- ---- Reading the model ----
+  fn run_of(m : Model) : RunState needs () do
+    m.run
+  end
+
+  doc """The actions applied to this run, oldest first: what RunStore saves."""
+  fn actions_of(m : Model) : List(Action) needs () do
+    List.reverse(m.actions_rev)
+  end
+
+  fn seed_of(m : Model) : Skee.U64.U64 needs () do
+    m.run_seed
+  end
+
+  fn extra_of(m : Model) : Tickets needs () do
+    m.extra
+  end
+
+  fn wallet_of(m : Model) : Wallet needs () do
+    m.wallet
+  end
+
+  fn presentation_of(m : Model) : Skee.Presentation.Presentation needs () do
+    m.pres
+  end
+
+  fn walkthrough_of(m : Model) : Option(Walkthrough) needs () do
+    m.walk
+  end
+
+  fn tips_of(m : Model) : TipTracker needs () do
+    m.tips
+  end
+
+  fn screen_of(m : Model) : HudScreen needs () do
+    m.screen
+  end
+
+  fn host_of(m : Model) : Option(HostTable) needs () do
+    m.host
+  end
+
+  fn bet_of(m : Model) : Bet needs () do
+    m.bet
+  end
+
+  doc """GameModel.busy: the presentation is still playing something."""
+  fn busy(m : Model) : Bool needs () do
+    Skee.Presentation.is_busy(m.pres)
+  end
+
+  doc """GameModel.geometry: the flick's crease and lane on this screen."""
+  fn geometry(m : Model) : FlickGeometry needs () do
+    Skee.Scene.flick_geometry(m.k, m.world, m.rig, m.viewport)
+  end
+
+  doc """GameModel.canThrow."""
+  fn can_throw(m : Model) : Bool needs () do
+    if m.screen != GameScreen || busy(m) || m.shop_open do
+      false
+    else
+      is_throwing(m.run.phase) && is_some(m.run.round.round_pull)
+    end
+  end
+
+  pfn bet_fits(m : Model, b : Bet) : Bool needs () do
+    Skee.Units.bet_rank(b) <= Skee.Units.bet_rank(m.bet) && Skee.Units.tickets_at_least(m.run.tickets, Skee.Scoring.bet_cost(b))
+  end
+
+  doc """GameModel.affordableBet: the bet kept between pulls, never more than the tickets cover, and only once bets have been introduced."""
+  fn affordable_bet(m : Model) : Bet needs () do
+    if has_tip(m, TipBets) do
+      List.fold_left(Skee.HudState.all_bets(), BetOne, fn (acc, b) -> if bet_fits(m, b) do b else acc end)
+    else
+      BetOne
+    end
+  end
+
+  pfn screen_point(v : Vec2) : ScreenPoint needs () do
+    { sx: v.x, sy: v.y }
+  end
+
+  doc """GameModel.refreshHUD's holeOnScreen: every hole's centre in pixels."""
+  fn hole_points(m : Model) : PerHole(ScreenPoint) needs () do
+    let h = Skee.Scene.hole_on_screen(m.k, m.world, m.rig, m.viewport)
+    {
+      gutter: screen_point(h.gutter),
+      ring10: screen_point(h.ring10),
+      ring20: screen_point(h.ring20),
+      ring30: screen_point(h.ring30),
+      ring40: screen_point(h.ring40),
+      ring50: screen_point(h.ring50),
+      pocket_left: screen_point(h.pocket_left),
+      pocket_right: screen_point(h.pocket_right)
+    }
+  end
+
+  pfn coach_card(m : Model) : Option(CoachCard) needs () do
+    match m.walk do
+    Some(w) -> do
+      if w.walk_finished do
+        tip_card(m)
+      else
+        Some(Skee.Walkthrough.card(w))
+      end
+    end
+    None -> tip_card(m)
+    end
+  end
+
+  pfn tip_card(m : Model) : Option(CoachCard) needs () do
+    match m.tips.tip_showing do
+    Some(t) -> Some(Skee.Walkthrough.tip_card(t))
+    None -> None
+    end
+  end
+
+  pfn blocks_play(m : Model) : Bool needs () do
+    match coach_card(m) do
+    Some(c) -> m.screen == GameScreen && c.coach_needs_tap && !busy(m)
+    None -> false
+    end
+  end
+
+  doc """The overlay on top: HUDView's ZStack, last first. Only it takes taps."""
+  fn top_layer(m : Model) : Layer needs () do
+    if is_some(m.host) do
+      LayerHost
+    else
+      if is_some(m.arrival) do
+        LayerArrival
+      else
+        if m.guide_open do
+          LayerGuide
+        else
+          if m.shop_open do
+            LayerShop
+          else
+            if m.confirm_new do
+              LayerConfirmNew
+            else
+              if blocks_play(m) do LayerCoachBlock else LayerBase end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  pfn coach_showing(m : Model) : Bool needs () do
+    m.screen == GameScreen && !busy(m) && is_some(coach_card(m))
+  end
+
+  pfn on_title(m : Model, top : Layer) : Bool needs () do
+    top == LayerBase && m.screen == TitleScreen
+  end
+
+  pfn on_game(m : Model, top : Layer) : Bool needs () do
+    top == LayerBase && m.screen == GameScreen
+  end
+
+  doc """Whether a button is on screen and on top, so a tap on it is real."""
+  fn accepts(m : Model, i : Intent) : Bool needs () do
+    let top = top_layer(m)
+    match i do
+    TapStart -> on_title(m, top)
+    TapHowToPlay -> on_title(m, top)
+    TapPickRoom(_) -> on_title(m, top)
+    TapOpenShop -> top == LayerBase
+    TapOpenHost -> top == LayerBase
+    TapCloseShop -> top == LayerShop
+    TapBuyPrize(_) -> top == LayerShop
+    TapCloseGuide -> top == LayerGuide
+    TapReplayLesson -> top == LayerGuide
+    TapArrivalNext -> top == LayerArrival
+    TapCloseHost -> top == LayerHost
+    TapGotIt -> (top == LayerCoachBlock || top == LayerBase) && coach_showing(m)
+    TapSkipWalkthrough -> (top == LayerCoachBlock || top == LayerBase) && coach_showing(m)
+    TapNewRun -> top == LayerConfirmNew || on_game(m, top)
+    TapKeepPlaying -> top == LayerConfirmNew
+    TapPull -> on_game(m, top)
+    TapSetBet(_) -> on_game(m, top)
+    TapChooseBall(_) -> on_game(m, top)
+    TapArm(_) -> on_game(m, top)
+    TapSelectOffer(_) -> on_game(m, top)
+    TapBuyOffer(_) -> on_game(m, top)
+    TapReroll -> on_game(m, top)
+    TapLeaveCounter -> on_game(m, top)
+    TapCharm(_) -> on_game(m, top)
+    TapAskNewGame -> on_game(m, top)
+    TapOpenGuide -> on_game(m, top)
+    end
+  end
+
+  -- ---- Boot ----
+  pfn fresh_scene(k : Skee.Consts.Consts, w : Skee.World.World, palette : Skee.Rooms.CabinetPalette, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport, p : Skee.Presentation.Presentation) : (Skee.Scene.Scenery, Skee.Scene.Keep) needs () do
+    let cue = Skee.SceneCue.frame_cue(k, p, None)
+    Skee.Scene.present(w, palette, rig, v, Skee.Scene.keep_fresh(), cue, 0.0)
+  end
+
+  -- Where a model starts: the run, its seed and actions, and whether it was
+  -- carried on from the save.
+  type Opening = {
+    open_run : RunState,
+    open_seed : Skee.U64.U64,
+    open_extra : Tickets,
+    open_actions : List(Action),
+    open_wallet : Wallet,
+    open_saves : List(Effect)
+  }
+
+  pfn resumed(k : Skee.Consts.Consts, saved_run : Option(String), wallet : Wallet, seed : Skee.U64.U64, fresh : Bool) : Opening needs () do
+    let carried =
+      if fresh do None else Skee.Save.resume(k, saved_run, wallet.wallet_room) end
+    match carried do
+    Some(r) -> do
+      {
+        open_run: r.replayed_run,
+        open_seed: r.replayed_seed,
+        open_extra: r.replayed_extra,
+        open_actions: r.replayed_actions,
+        open_wallet: wallet,
+        open_saves: []
+      }
+    end
+    None -> do
+      let started = Skee.Save.start_run(k, wallet, seed)
+      {
+        open_run: started.started_run,
+        open_seed: seed,
+        open_extra: extra_of_file(started.started_file),
+        open_actions: [],
+        open_wallet: started.started_wallet,
+        open_saves: [FxSave(KeyWallet, Skee.Save.encode_wallet(started.started_wallet)), FxSave(KeyRun, Skee.Save.encode_run(started.started_file))]
+      }
+    end
+    end
+  end
+
+  pfn extra_of_file(f : RunFile) : Tickets needs () do
+    match f.file_extra do
+    Some(t) -> t
+    None -> Tickets(0)
+    end
+  end
+
+  -- Everything but the run: what a rebuilt model (another room) keeps too.
+  type Carry = {
+    carry_wallet : Wallet,
+    carry_tips : List(Tip),
+    carry_walk_done : Bool,
+    carry_arrival_done : Bool,
+    carry_viewport : Skee.Camera.Viewport,
+    carry_seeds : Skee.Rng.Rng,
+    carry_now : Float
+  }
+
+  -- GameModel.init(fresh:toGame:).
+  pfn build(k : Skee.Consts.Consts, c : Carry, saved_run : Option(String), fresh : Bool, to_game : Bool) : Model needs () do
+    let (seed, seeds) = Skee.Rng.next(c.carry_seeds)
+    let o = resumed(k, saved_run, c.carry_wallet, seed, fresh)
+    let room = o.open_wallet.wallet_room
+    let world = Skee.World.make(k, Skee.Rooms.table(k, room))
+    let palette = Skee.Rooms.palette(room)
+    let rig = Skee.Camera.fit_world(k, world)
+    let pres = Skee.Presentation.make(o.open_run)
+    let (scenery, keep) = fresh_scene(k, world, palette, rig, c.carry_viewport, pres)
+    let played = !List.is_empty(o.open_actions)
+    let first_time = !(c.carry_walk_done && c.carry_arrival_done)
+    let screen =
+      if to_game do
+        GameScreen
+      else
+        if played && !first_time do GameScreen else TitleScreen end
+      end
+    {
+      k: k,
+      world: world,
+      palette: palette,
+      rig: rig,
+      viewport: c.carry_viewport,
+      keep: keep,
+      scenery: scenery,
+      pres: pres,
+      run: o.open_run,
+      run_seed: o.open_seed,
+      actions_rev: List.reverse(o.open_actions),
+      extra: o.open_extra,
+      wallet: o.open_wallet,
+      screen: screen,
+      selected_offer: None,
+      selected_charm: None,
+      fold: 0.0,
+      shop_open: false,
+      confirm_new: false,
+      guide_open: false,
+      walk: None,
+      arrival: None,
+      tips: Skee.Walkthrough.new_tracker(c.carry_tips),
+      parked: None,
+      walk_done: c.carry_walk_done,
+      arrival_done: c.carry_arrival_done,
+      host: None,
+      bet: BetOne,
+      autoplay: [],
+      flick: [],
+      trail: [],
+      line: 0.0,
+      aiming: false,
+      held: None,
+      last_render: None,
+      now: c.carry_now,
+      last_ball: None,
+      rumble_sent: 0.0,
+      drum_sent: false,
+      buzz: None,
+      seeds: seeds,
+      out: List.reverse(o.open_saves)
+    }
+  end
+
+  doc """
+  GameModel.init: carry on the saved run if it decodes and is in the wallet's
+  room, otherwise check in and start one (saving the wallet and the run).
+  `seed` seeds the launch's run, and every later new game draws its seed from
+  it. Returns the model and the saves to make at once.
+  """
+  fn boot(k : Skee.Consts.Consts, saved : SavedStrings, width : Float, height : Float, seed : Skee.U64.U64) : (Model, List(Effect)) needs () do
+    let carry =
+      {
+        carry_wallet: Skee.Save.load_wallet(saved.saved_wallet),
+        carry_tips: Skee.Save.load_tips(saved.saved_tips),
+        carry_walk_done: Skee.Save.load_flag(saved.saved_walk_done),
+        carry_arrival_done: Skee.Save.load_flag(saved.saved_arrival_done),
+        carry_viewport: Skee.Camera.viewport(width, height),
+        carry_seeds: Skee.Rng.seed(seed),
+        carry_now: 0.0
+      }
+    flush(build(k, carry, saved.saved_run, false, false))
+  end
+
+  pfn flush(m : Model) : (Model, List(Effect)) needs () do
+    let effects = List.reverse(m.out)
+    ({ m with out: [] }, effects)
+  end
+
+  -- ---- Update ----
+  doc """One browser event: the next model and the effects to perform, in order."""
+  fn update(m0 : Model, msg : Msg) : (Model, List(Effect)) needs () do
+    let m = { m0 with out: [] }
+    match msg do
+    MsgTick(now) -> flush(tick(m, now))
+    MsgPointerDown(s) -> flush(pointer_down(m, s))
+    MsgPointerMove(ss) -> flush(touch_moved(m, ss))
+    MsgPointerUp(ss) -> flush(touch_ended(m, ss))
+    MsgPointerCancel -> flush({ m with flick: [], aiming: false })
+    MsgTap(i) -> flush(if accepts(m, i) do intent(m, i) else m end)
+    MsgResize(w, h) -> flush(resized(m, w, h))
+    MsgVisible(shown) -> flush(visible(m, shown))
+    MsgAutoplay(ls) -> flush({ m with autoplay: List.append(m.autoplay, ls) })
+    end
+  end
+
+  pfn resized(m : Model, w : Float, h : Float) : Model needs () do
+    if w > 0.0 && h > 0.0 do
+      { m with viewport: Skee.Camera.viewport(w, h) }
+    else
+      m
+    end
+  end
+
+  -- The page was hidden or shown. Hidden: the thumb is gone, the rumble and
+  -- drum stop, and the next frame starts its clock afresh.
+  pfn visible(m : Model, shown : Bool) : Model needs () do
+    if shown do
+      { m with last_render: None }
+    else
+      let quiet = set_drum(set_rumble({ m with flick: [], aiming: false, last_render: None, last_ball: None }, 0.0), false)
+      buzz_to(quiet, 0.0)
+    end
+  end
+
+  -- ---- The frame ----
+  pfn tick(m : Model, now : Float) : Model needs () do
+    let last =
+      match m.last_render do
+      Some(t) -> t
+      None -> now
+      end
+    let dt = Skee.Maths.min_float(longest_frame(), Skee.Maths.max_float(0.0, now -. last))
+    let p = Skee.Presentation.advance(m.k, m.pres, dt)
+    let stepped = { m with pres: p, last_render: Some(now), now: now }
+    let felt = List.fold_left(p.finished, stepped, beat_effects)
+    let heard = List.fold_left(p.cues, felt, cue_effects)
+    let rumbled = rumble(heard, now)
+    let drummed = set_drum(rumbled, Skee.Presentation.anticipation(m.k, p) > 0.0)
+    autoplay_step(scene_step(drummed, dt))
+  end
+
+  pfn beat_effects(m : Model, b : Beat) : Model needs () do
+    match beat_haptic(b) do
+    Some(h) -> emit(m, FxHaptic(h))
+    None -> m
+    end
+  end
+
+  pfn cue_effects(m0 : Model, c : Cue) : Model needs () do
+    let m = emit(m0, FxSound(sound_of(c)))
+    let stopped = if c == CueHump do buzz_to(m, 0.0) else m end
+    match cue_haptic(c) do
+    Some(h) -> emit(stopped, FxHaptic(h))
+    None -> stopped
+    end
+  end
+
+  pfn set_rumble(m : Model, level : Float) : Model needs () do
+    if level == m.rumble_sent do m else emit({ m with rumble_sent: level }, FxRumble(level)) end
+  end
+
+  pfn set_drum(m : Model, on_ : Bool) : Model needs () do
+    if on_ == m.drum_sent do m else emit({ m with drum_sent: on_ }, FxDrum(on_)) end
+  end
+
+  -- Haptics.rumble: under 0.05 stops the buzz; otherwise start it and move
+  -- its intensity when the level has changed by more than 0.03.
+  pfn buzz_to(m : Model, to : Float) : Model needs () do
+    if to < 0.05 do
+      match m.buzz do
+      Some(_) -> emit({ m with buzz: None }, FxHaptic(HapticBuzzStop))
+      None -> m
+      end
+    else
+      do
+        let level =
+          match m.buzz do
+          Some(l) -> l
+          None -> -1.0
+          end
+        if Math.abs(to -. level) > 0.03 do
+          emit({ m with buzz: Some(to) }, FxHaptic(HapticBuzz(0.2 +. 0.55 *. to)))
+        else
+          { m with buzz: Some(level) }
+        end
+      end
+    end
+  end
+
+  pfn rolls(b : PathSample) : Bool needs () do
+    b.phase != InAir || b.height < 0.003
+  end
+
+  pfn phase_share(b : PathSample) : Float needs () do
+    match b.phase do
+    OnLane -> 1.0
+    OnBoard -> 0.5
+    InAir -> 0.0
+    end
+  end
+
+  -- GameModel.tick: the rumble follows the ball while it rolls; silent in the air.
+  pfn rumble(m : Model, now : Float) : Model needs () do
+    match Skee.Presentation.ball(m.pres) do
+    Some(b) -> if rolls(b) do rumble_rolling(m, b, now) else rumble_quiet(m) end
+    None -> rumble_quiet(m)
+    end
+  end
+
+  pfn rumble_quiet(m : Model) : Model needs () do
+    buzz_to(set_rumble({ m with last_ball: None }, 0.0), 0.0)
+  end
+
+  pfn rumble_rolling(m : Model, b : PathSample, now : Float) : Model needs () do
+    let moved =
+      match m.last_ball do
+      Some(l) -> if now > l.mark_t do rumble_level(m, b, l, now) else m end
+      None -> m
+      end
+    { moved with last_ball: Some({ mark_along: b.along, mark_t: now }) }
+  end
+
+  pfn rumble_level(m : Model, b : PathSample, l : BallMark, now : Float) : Model needs () do
+    let speed = Math.abs(b.along -. l.mark_along) /. (now -. l.mark_t) *. Skee.Presentation.roll_speed()
+    let on_ = if busy(m) do 1.0 else 0.0 end
+    let level = Skee.Maths.min_float(1.0, speed /. 4.0) *. on_
+    buzz_to(set_rumble(m, level), level *. phase_share(b))
+  end
+
+  pfn scene_step(m : Model, dt : Float) : Model needs () do
+    let cue = Skee.SceneCue.frame_cue(m.k, m.pres, m.held)
+    let (scenery, keep) =
+      Skee.Scene.present(m.world, m.palette, m.rig, m.viewport, m.keep, cue, dt)
+    { m with scenery: scenery, keep: keep }
+  end
+
+  -- LaunchArguments' -autoplay: pull a one-ticket bet, then throw the next launch.
+  pfn autoplay_step(m : Model) : Model needs () do
+    match m.autoplay do
+    Nil -> m
+    Cons(l, rest) -> do
+      if busy(m) || !is_throwing(m.run.phase) do
+        m
+      else
+        if is_some(m.run.round.round_pull) do
+          send_action({ m with autoplay: rest }, ThrowBall(l))
+        else
+          send_action(m, PullLever(BetOne))
+        end
+      end
+    end
+    end
+  end
+
+  -- ---- Sending an action ----
+  doc """GameModel.send: the rules decide; an accepted action is played, recorded and (in a real game) saved, banked and checked for tips."""
+  fn send_action(m : Model, a : Action) : Model needs () do
+    match Skee.Reducer.apply(m.k, a, m.run) do
+    Err(_) -> notify(m, NoticeWarning)
+    Ok(step) -> accepted(m, a, step)
+    end
+  end
+
+  pfn throw_haptic(m : Model, a : Action) : Model needs () do
+    if is_throw(a) do emit(m, FxHaptic(HapticImpact(ImpactRigid, 0.7))) else tap(m) end
+  end
+
+  pfn accepted(m0 : Model, a : Action, step : Step) : Model needs () do
+    let m =
+      { m0 with run: step.run, actions_rev: Cons(a, m0.actions_rev), pres: Skee.Presentation.enqueue(m0.pres, step, 0.0) }
+    match m.walk do
+    Some(w) -> throw_haptic({ m with walk: Some(Skee.Walkthrough.observe(w, step.step_events)) }, a)
+    None -> throw_haptic(tipped(banked(save_run(m), step), a, step), a)
+    end
+  end
+
+  pfn run_file_of(m : Model) : RunFile needs () do
+    Skee.Save.run_file(m.run_seed, m.run.room, m.extra, actions_of(m))
+  end
+
+  pfn save_run(m : Model) : Model needs () do
+    emit(m, FxSave(KeyRun, Skee.Save.encode_run(run_file_of(m))))
+  end
+
+  pfn save_wallet(m : Model) : Model needs () do
+    emit(m, FxSave(KeyWallet, Skee.Save.encode_wallet(m.wallet)))
+  end
+
+  pfn banked(m : Model, step : Step) : Model needs () do
+    if List.any(step.step_events, banks) do
+      save_wallet({ m with wallet: Skee.Save.bank_step(m.wallet, step) })
+    else
+      m
+    end
+  end
+
+  pfn tipped(m : Model, a : Action, step : Step) : Model needs () do
+    let before = List.length(m.tips.tips_seen)
+    let t = Skee.Walkthrough.track(m.tips, a, step)
+    let next = { m with tips: t }
+    if List.length(t.tips_seen) > before do
+      emit(next, FxSave(KeyTips, Skee.Save.encode_tips(t.tips_seen)))
+    else
+      next
+    end
+  end
+
+  -- ---- The thumb ----
+  -- ThrowPad.touchesBegan: a board tap for a selected stamp, gild or purge
+  -- comes first, then the stroke. Nothing reaches the pad under an overlay.
+  pfn pointer_down(m : Model, s : FlickSample) : Model needs () do
+    if top_layer(m) != LayerBase || m.screen != GameScreen do
+      m
+    else
+      match m.selected_offer do
+      Some(sel) -> tap_board(m, sel, s)
+      None -> touch_began(m, s)
+      end
+    end
+  end
+
+  -- GameModel.tapBoard: the nearest reel hole within 44 points buys the
+  -- selected offer there. The selection goes either way.
+  pfn tap_board(m0 : Model, sel : Int, s : FlickSample) : Model needs () do
+    let m = { m0 with selected_offer: None }
+    match Skee.Camera.tapped_hole(m.k, m.world, m.rig, m.viewport, Skee.Maths.vec2(s.sample_x, s.sample_y)) do
+    Some(h) -> send_action(m, Buy(sel, Some(h)))
+    None -> touch_began(m, s)
+    end
+  end
+
+  pfn touch_began(m : Model, s : FlickSample) : Model needs () do
+    if busy(m) do
+      { m with pres: Skee.Presentation.skip(m.k, m.pres) }
+    else
+      do
+        let g = geometry(m)
+        if can_throw(m) && s.sample_y > g.crease_y do
+          do
+            let line = Skee.Stroke.lane_start(m.k, s.sample_x, g, Skee.Types.standard_tuning())
+            { m with line: line, aiming: true, held: Some(Skee.Camera.waiting_ball(m.world, line)), flick: [s], trail: [trail_point(s)] }
+          end
+        else
+          m
+        end
+      end
+    end
+  end
+
+  pfn trail_point(s : FlickSample) : TrailPoint needs () do
+    { trail_x: s.sample_x, trail_y: s.sample_y, trail_t: s.sample_t }
+  end
+
+  pfn touch_moved(m : Model, ss : List(FlickSample)) : Model needs () do
+    if List.is_empty(m.flick) do
+      m
+    else
+      do
+        let moved =
+          { m with flick: List.append(m.flick, ss), trail: List.append(m.trail, List.map(ss, trail_point)) }
+        if Skee.Stroke.crossed_foul_line(ss, geometry(m)) do
+          fouled({ moved with flick: [], aiming: false })
+        else
+          moved
+        end
+      end
+    end
+  end
+
+  pfn fouled(m : Model) : Model needs () do
+    send_action(notify(m, NoticeError), CommitFoul)
+  end
+
+  pfn touch_ended(m : Model, ss : List(FlickSample)) : Model needs () do
+    if List.is_empty(m.flick) do
+      m
+    else
+      do
+        let samples = List.append(m.flick, ss)
+        let outcome =
+          Skee.Stroke.analyze_flick(m.k, samples, geometry(m), m.fold, Skee.Types.standard_tuning())
+        let lifted = { m with flick: [], aiming: false }
+        match outcome do
+        NoThrow -> lifted
+        StrokeFoul -> fouled(lifted)
+        Release(l) -> send_action(lifted, ThrowBall(l))
+        end
+      end
+    end
+  end
+
+  -- ---- HUD buttons ----
+  pfn intent(m : Model, i : Intent) : Model needs () do
+    match i do
+    TapStart -> tap(start(m))
+    TapHowToPlay -> tap({ m with guide_open: true })
+    TapOpenGuide -> tap({ m with guide_open: true })
+    TapCloseGuide -> tap({ m with guide_open: false })
+    TapReplayLesson -> tap(start_walkthrough(m, false))
+    TapArrivalNext -> tap(arrival_next(m))
+    TapPull -> pull(m)
+    TapSetBet(b) -> tap({ m with bet: b })
+    TapChooseBall(b) -> send_action(m, ChooseBall(b))
+    TapArm(n) -> send_action(m, Arm(n))
+    TapSelectOffer(o) -> tap({ m with selected_offer: o })
+    TapBuyOffer(n) -> send_action(m, Buy(n, None))
+    TapReroll -> send_action(m, Reroll)
+    TapLeaveCounter -> send_action({ m with selected_offer: None }, LeaveCounter)
+    TapCharm(n) -> tap_charm(m, n)
+    TapPickRoom(r) -> pick_room(m, r)
+    TapOpenHost -> tap(open_host(m, ThenNothing))
+    TapCloseHost -> close_host(m)
+    TapSkipWalkthrough -> tap(skip_walkthrough(m))
+    TapGotIt -> tap(got_it(m))
+    TapNewRun -> next_game({ m with confirm_new: false })
+    TapAskNewGame -> tap({ m with confirm_new: true })
+    TapKeepPlaying -> tap({ m with confirm_new: false })
+    TapOpenShop -> tap({ m with shop_open: true })
+    TapCloseShop -> tap({ m with shop_open: false })
+    TapBuyPrize(p) -> buy_prize(m, p)
+    end
+  end
+
+  -- HUDActions.start: Sal at the door first, then the walkthrough, then the game.
+  pfn start(m : Model) : Model needs () do
+    if !m.arrival_done do
+      { m with arrival: Some(0) }
+    else
+      if m.walk_done do { m with screen: GameScreen } else start_walkthrough(m, true) end
+    end
+  end
+
+  pfn pull(m : Model) : Model needs () do
+    if busy(m) || is_some(m.run.round.round_pull) do
+      m
+    else
+      send_action(m, PullLever(affordable_bet(m)))
+    end
+  end
+
+  pfn tap_charm(m : Model, n : Int) : Model needs () do
+    if at_counter(m.run.phase) do
+      if m.selected_charm == Some(n) do
+        send_action({ m with selected_charm: None }, Sell(n))
+      else
+        tap({ m with selected_charm: Some(n) })
+      end
+    else
+      m
+    end
+  end
+
+  pfn buy_prize(m : Model, p : Prize) : Model needs () do
+    match Skee.Rooms.buy(m.wallet, p) do
+    Ok(w) -> notify(save_wallet({ m with wallet: w }), NoticeSuccess)
+    Err(_) -> notify(m, NoticeWarning)
+    end
+  end
+
+  pfn arrival_next(m : Model) : Model needs () do
+    match m.arrival do
+    None -> m
+    Some(beat) -> do
+      if beat + 1 < List.length(arrival_beats()) do
+        { m with arrival: Some(beat + 1) }
+      else
+        seat({ m with arrival: None }, { host_visit: VisitArrival, host_room: Boardwalk, host_after: ThenWalkthrough })
+      end
+    end
+    end
+  end
+
+  pfn seat(m : Model, h : HostTable) : Model needs () do
+    { m with host: Some(h) }
+  end
+
+  -- GameModel.openHost: only when the host is due.
+  pfn open_host(m : Model, after : AfterHost) : Model needs () do
+    match Skee.Rooms.host_due(m.wallet) do
+    None -> m
+    Some(room) -> do
+      let visit =
+        if Skee.Rooms.room_at(m.wallet.rooms, room) do VisitReturning else VisitNewRoom end
+      seat(m, { host_visit: visit, host_room: room, host_after: after })
+    end
+    end
+  end
+
+  -- GameModel.closeHost, for a table where no deal was made. The arrival is
+  -- settled as done (Swift does that when its haggle closes) and leads into
+  -- the walkthrough; a host who sat down for the next game starts it.
+  pfn close_host(m : Model) : Model needs () do
+    match m.host do
+    None -> m
+    Some(h) -> do
+      let left = { m with host: None }
+      match h.host_after do
+      ThenWalkthrough -> start_walkthrough(emit({ left with arrival_done: true }, FxSave(KeyArrivalDone, Skee.Save.encode_flag(true))), true)
+      ThenNewGame -> new_game(left)
+      ThenNothing -> left
+      end
+    end
+    end
+  end
+
+  pfn skip_walkthrough(m : Model) : Model needs () do
+    match m.tips.tip_showing do
+    Some(_) -> { m with tips: Skee.Walkthrough.dismiss_tip(m.tips) }
+    None -> end_walkthrough(m)
+    end
+  end
+
+  pfn got_it(m : Model) : Model needs () do
+    match m.tips.tip_showing do
+    Some(_) -> { m with tips: Skee.Walkthrough.dismiss_tip(m.tips) }
+    None -> do
+      match m.walk do
+      None -> m
+      Some(w) -> do
+        let read = Skee.Walkthrough.got_it(w)
+        let next = { m with walk: Some(read) }
+        if read.walk_finished do end_walkthrough(next) else next end
+      end
+      end
+    end
+    end
+  end
+
+  pfn fresh_presentation(m : Model) : Model needs () do
+    { m with pres: Skee.Presentation.make(m.run) }
+  end
+
+  doc """GameModel.startWalkthrough: park the real run and play the practice game. `fresh`: an untouched run is not parked."""
+  fn start_walkthrough(m : Model, fresh : Bool) : Model needs () do
+    let parked =
+      match m.walk do
+      Some(_) -> m.parked
+      None -> do
+        if fresh && List.is_empty(m.actions_rev) do
+          None
+        else
+          Some({ parked_seed: m.run_seed, parked_actions: actions_of(m), parked_run: m.run })
+        end
+      end
+      end
+    let practice = Skee.Walkthrough.practice_run(m.k, m.wallet.wallet_room)
+    fresh_presentation({ m with parked: parked, walk: Some(Skee.Walkthrough.new_walkthrough()), guide_open: false, tips: Skee.Walkthrough.dismiss_tip(m.tips), run: practice, actions_rev: [], selected_offer: None, selected_charm: None, shop_open: false, screen: GameScreen })
+  end
+
+  doc """GameModel.endWalkthrough: done or skipped, never again unless asked for; the parked run comes back, or a new game if it had ended."""
+  fn end_walkthrough(m0 : Model) : Model needs () do
+    let m = emit({ m0 with walk: None, walk_done: true }, FxSave(KeyWalkthroughDone, Skee.Save.encode_flag(true)))
+    match m.parked do
+    None -> new_game(m)
+    Some(p) -> do
+      let unparked = { m with parked: None }
+      if is_over(p.parked_run.phase) do
+        new_game(unparked)
+      else
+        fresh_presentation({ unparked with run_seed: p.parked_seed, actions_rev: List.reverse(p.parked_actions), run: p.parked_run, selected_offer: None, selected_charm: None, screen: GameScreen })
+      end
+    end
+    end
+  end
+
+  doc """GameModel.nextGame: a game walked away from still counts toward the host, who sits down first if due."""
+  fn next_game(m : Model) : Model needs () do
+    let abandoned = !is_over(m.run.phase) && !List.is_empty(m.actions_rev)
+    let real = !is_some(m.walk)
+    let counted =
+      if abandoned && real do
+        save_wallet({ m with wallet: Skee.Rooms.game_played(m.wallet) })
+      else
+        m
+      end
+    if real && is_some(Skee.Rooms.host_due(counted.wallet)) do
+      open_host(counted, ThenNewGame)
+    else
+      new_game(counted)
+    end
+  end
+
+  doc """GameModel.newGame: check in, start a run and save both."""
+  fn new_game(m : Model) : Model needs () do
+    let (seed, seeds) = Skee.Rng.next(m.seeds)
+    let started = Skee.Save.start_run(m.k, m.wallet, seed)
+    let next =
+      { m with seeds: seeds, run_seed: seed, actions_rev: [], extra: extra_of_file(started.started_file), wallet: started.started_wallet, run: started.started_run, selected_offer: None, selected_charm: None, screen: GameScreen }
+    emit(save_wallet(fresh_presentation(next)), FxSave(KeyRun, Skee.Save.encode_run(started.started_file)))
+  end
+
+  -- GameModel.pickRoom: a room you own, not this one. SkeeApp swaps in a
+  -- model built fresh for it, on the title.
+  pfn pick_room(m : Model, r : Room) : Model needs () do
+    if Skee.Rooms.room_at(m.wallet.rooms, r) && r != m.wallet.wallet_room do
+      do
+        let moved = save_wallet({ m with wallet: { m.wallet with wallet_room: r } })
+        rebuild(moved, false)
+      end
+    else
+      m
+    end
+  end
+
+  pfn rebuild(m : Model, to_game : Bool) : Model needs () do
+    let carry =
+      {
+        carry_wallet: m.wallet,
+        carry_tips: m.tips.tips_seen,
+        carry_walk_done: m.walk_done,
+        carry_arrival_done: m.arrival_done,
+        carry_viewport: m.viewport,
+        carry_seeds: m.seeds,
+        carry_now: m.now
+      }
+    let built = build(m.k, carry, None, true, to_game)
+    { built with out: List.append(built.out, m.out), last_render: m.last_render }
+  end
+
+  -- ---- Views ----
+  doc """The alley this frame, as Canvas 2D operations, back to front."""
+  fn scene_ops(m : Model) : List(Skee.Scene.DrawOp) needs () do
+    Skee.Scene.draw(m.k, { m.scenery with viewport: m.viewport })
+  end
+
+  pfn trail_dots(m : Model) : List(TrailDot) needs () do
+    List.filter_map(m.trail, fn p -> trail_dot(m.now, p))
+  end
+
+  pfn trail_dot(now : Float, p : TrailPoint) : Option(TrailDot) needs () do
+    let age = now -. p.trail_t
+    if age > trail_life() do
+      None
+    else
+      Some({ dot: { sx: p.trail_x, sy: p.trail_y }, dot_age: age /. trail_life() })
+    end
+  end
+
+  pfn with_machine(h : HudState, m : Model) : HudState needs () do
+    match h.machine do
+    None -> h
+    Some(mach) -> do
+      { h with machine: Some({ mach with machine_progressive: m.wallet.progressive, show_bets: has_tip(m, TipBets) }) }
+    end
+    end
+  end
+
+  pfn arrival_text(m : Model) : Option(String) needs () do
+    match m.arrival do
+    Some(n) -> List.nth_opt(arrival_beats(), n)
+    None -> None
+    end
+  end
+
+  pfn guide_points(m : Model) : List(ScreenPoint) needs () do
+    if can_throw(m) do
+      List.map(Skee.Camera.guide(m.k, m.world, m.rig, m.viewport, m.line), screen_point)
+    else
+      []
+    end
+  end
+
+  pfn walk_running(m : Model) : Bool needs () do
+    match m.walk do
+    Some(w) -> !w.walk_finished
+    None -> false
+    end
+  end
+
+  doc """GameModel.refreshHUD: everything the HUD draws this frame."""
+  fn hud(m : Model) : AppHud needs () do
+    let inputs =
+      {
+        hole_on_screen: hole_points(m),
+        center: { sx: m.viewport.width /. 2.0, sy: m.viewport.height *. 0.2 },
+        selected_offer: m.selected_offer,
+        selected_charm: m.selected_charm,
+        screen: m.screen,
+        bet: affordable_bet(m)
+      }
+    let made = with_machine(Skee.HudState.make(m.pres, inputs), m)
+    let hosted = { made with host: if is_some(m.host) do HostPlaceholder else HostClosed end }
+    let shown = if walk_running(m) do { hosted with over: None } else hosted end
+    {
+      app_hud: shown,
+      app_wallet: m.wallet,
+      coach: coach_card(m),
+      shop_open_now: m.shop_open,
+      confirm_new_now: m.confirm_new,
+      guide_open_now: m.guide_open,
+      guide_topics: Skee.Guide.topics(m.tips.tips_seen),
+      arrival_line: arrival_text(m),
+      known: m.tips.tips_seen,
+      guide_line: guide_points(m),
+      aiming_now: m.aiming,
+      trail_dots: trail_dots(m),
+      top: top_layer(m)
+    }
+  end
+
+end
