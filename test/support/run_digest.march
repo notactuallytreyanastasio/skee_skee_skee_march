@@ -190,7 +190,8 @@ mod RunDigest do
     let front = int(points(int(h, kind_index(r.kind)), r.target), r.frames_total)
     let balls = list(list(front, r.frames, frame), r.current_balls, record)
     let armed = option(ints(balls, [r.streak, r.combo]), r.armed, power_up)
-    let hot = option(int(option(armed, r.round_pull, pull), r.free_left), r.round_hot, hole)
+    let hot =
+      option(int(option(armed, r.round_pull, pull), r.free_left), r.round_hot, hole)
     int(hot, Skee.Units.bet_rank(r.last_bet))
   end
 
@@ -208,7 +209,8 @@ mod RunDigest do
     match p do
     Throwing -> word(h, 0)
     AtCounter(c) -> do
-      let held = list(word(h, 1), c.offers, fn (acc, slot) -> option(acc, slot, offer_words))
+      let held =
+        list(word(h, 1), c.offers, fn (acc, slot) -> option(acc, slot, offer_words))
       tickets(held, c.reroll_cost)
     end
     Lost -> word(h, 2)
@@ -218,12 +220,11 @@ mod RunDigest do
 
   fn config(h : Int, c : RunConfig) : Int do
     let counts = ints(h, [c.antes, c.frames_per_round, c.balls_per_frame])
-    let front = ints(tickets(counts, c.start_tickets), [c.charm_slots, c.power_up_slots, c.fever_heat])
+    let front =
+      ints(tickets(counts, c.start_tickets), [c.charm_slots, c.power_up_slots, c.fever_heat])
     let bases = float(list(front, c.ante_base, points), c.target_scale)
     let kinds =
-      List.fold_left(Skee.Items.all_round_kinds(), bases, fn (acc, k) ->
-        tickets(float(acc, Skee.Items.per_round_at(c.kind_scale, k)), Skee.Items.per_round_at(c.round_tickets, k))
-      )
+      List.fold_left(Skee.Items.all_round_kinds(), bases, fn (acc, k) -> tickets(float(acc, Skee.Items.per_round_at(c.kind_scale, k)), Skee.Items.per_round_at(c.round_tickets, k)))
     ints(float(kinds, c.overkill_step), [c.overkill_cap, c.interest_per, c.interest_cap, c.offer_count])
   end
 
@@ -256,10 +257,13 @@ mod RunDigest do
 
   doc """The digest of a whole state."""
   fn run(s : RunState) : Int do
-    let front = int(int(config(start(), s.config), ball_index(s.ball)), Skee.Units.room_rank(s.room))
+    let front =
+      int(int(config(start(), s.config), ball_index(s.ball)), Skee.Units.room_rank(s.room))
     let seeded = u64(u64(front, s.rng.word), s.seed)
-    let phased = phase(round(int(int(seeded, s.ante), boss_index(s.boss)), s.round), s.phase)
-    let reels = List.fold_left(Skee.HoleMap.reel_holes(), phased, fn (acc, x) -> reel(acc, s, x))
+    let phased =
+      phase(round(int(int(seeded, s.ante), boss_index(s.boss)), s.round), s.phase)
+    let reels =
+      List.fold_left(Skee.HoleMap.reel_holes(), phased, fn (acc, x) -> reel(acc, s, x))
     let slotted =
       match s.top_slot.targets do
       Three(a, b, c) -> symbol(symbol(symbol(reels, a), b), c)
@@ -290,7 +294,9 @@ mod RunDigest do
     Pulled(p) -> pull(word(h, 0), p)
     FreeGamesWon(n) -> int(word(h, 1), n)
     JackpotHit(t) -> int(word(h, 2), Skee.Units.tier_rank(t))
-    Shot(s, r) -> record(list(hole(word(h, 3), s.hole), s.events, fn (acc, x) -> shot_event(acc, x.event)), r)
+    Shot(s, r) -> do
+      record(list(hole(word(h, 3), s.hole), s.events, fn (acc, x) -> shot_event(acc, x.event)), r)
+    end
     Fouled -> word(h, 4)
     FrameScored(f) -> frame(word(h, 5), f)
     FeverLit -> word(h, 6)

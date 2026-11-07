@@ -21,13 +21,7 @@ mod ReducerSuite do
       Some(p) -> Skee.Units.points_int(p)
       None -> -1
       end
-    all([
-      expect_int(s.ante, 1, "ante"),
-      expect(s.round.kind == Warmup, "round kind"),
-      expect(is_throwing(s), "phase"),
-      expect_int(Skee.Units.points_int(s.round.target), want, "target"),
-      expect_int(Skee.Units.tickets_int(s.tickets), 4, "tickets")
-    ])
+    all([expect_int(s.ante, 1, "ante"), expect(s.round.kind == Warmup, "round kind"), expect(is_throwing(s), "phase"), expect_int(Skee.Units.points_int(s.round.target), want, "target"), expect_int(Skee.Units.tickets_int(s.tickets), 4, "tickets")])
   end
 
   fn is_throwing(s : RunState) : Bool do
@@ -45,11 +39,9 @@ mod ReducerSuite do
   end
 
   fn same_seed_same_boss() : Outcome do
-    let bosses = List.dedup(List.map(List.range(0, 40), fn n -> Skee.Items.boss_name(boss_of(n))))
-    all([
-      expect(boss_of(5) == boss_of(5), "same seed"),
-      expect(List.length(bosses) > 3, "bosses vary")
-    ])
+    let bosses =
+      List.dedup(List.map(List.range(0, 40), fn n -> Skee.Items.boss_name(boss_of(n))))
+    all([expect(boss_of(5) == boss_of(5), "same seed"), expect(List.length(bosses) > 3, "bosses vary")])
   end
 
   -- ---- Helpers ----
@@ -89,6 +81,13 @@ mod ReducerSuite do
     Skee.Physics.launch_of_power(consts(), 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
   end
 
+  fn pulled(s : RunState) : RunState do
+    match act(PullLever(BetOne), s) do
+    Ok(step) -> step.run
+    Err(_) -> s
+    end
+  end
+
   -- `apply`, pulling the lever first (one line, free) when a ball needs it, for
   -- tests about balls rather than the pull: Swift's `play`.
   fn play(a : Action, s0 : RunState) : Result(Step, ActionError) do
@@ -98,16 +97,7 @@ mod ReducerSuite do
       (None, Throwing, CommitFoul) -> true
       (_, _, _) -> false
       end
-    let s =
-      if needs_pull do
-        match act(PullLever(BetOne), s0) do
-        Ok(step) -> step.run
-        Err(_) -> s0
-        end
-      else
-        s0
-      end
-    act(a, s)
+    act(a, if needs_pull do pulled(s0) else s0 end)
   end
 
   fn is_pulled(e : GameEvent) : Bool do
@@ -120,10 +110,7 @@ mod ReducerSuite do
   -- ---- The pull ----
   fn no_ball_before_the_pull() : Outcome do
     let s = run_of(4)
-    all([
-      expect_err(act(ThrowBall(a_throw()), s), NeedsPull, "throw"),
-      expect_err(act(CommitFoul, s), NeedsPull, "foul")
-    ])
+    all([expect_err(act(ThrowBall(a_throw()), s), NeedsPull, "throw"), expect_err(act(CommitFoul, s), NeedsPull, "foul")])
   end
 
   fn the_pull_costs_its_bet_and_sets_the_targets() : Outcome do
@@ -136,12 +123,7 @@ mod ReducerSuite do
       Some(p) -> show(Skee.Scoring.targets(p))
       None -> "no pull"
       end
-    all([
-      expect_int(tickets_of(s), tickets_of(s0) - 2, "tickets"),
-      expect_string(show(s.top_slot.targets), targets, "targets"),
-      expect(List.any(List.take(events, 1), is_pulled), "first event"),
-      expect_err(act(PullLever(BetOne), s), AlreadyPulled, "second pull")
-    ])
+    all([expect_int(tickets_of(s), tickets_of(s0) - 2, "tickets"), expect_string(show(s.top_slot.targets), targets, "targets"), expect(List.any(List.take(events, 1), is_pulled), "first event"), expect_err(act(PullLever(BetOne), s), AlreadyPulled, "second pull")])
   end
 
   fn a_bet_you_cant_afford_is_refused() : Outcome do
@@ -151,12 +133,12 @@ mod ReducerSuite do
 
   fn every_pull_picks_a_hot_spot() : Outcome do
     all(List.map(List.range(1, 31), fn seed ->
-      do
-        let s = after(PullLever(BetOne), run_of(seed))
-        match s.round.round_hot do
-        Some(hot) -> expect(List.member(Skee.Physics.hot_spots(), hot) && hot != Ring10 && hot != Gutter, "hot " ++ show(hot))
-        None -> Mismatch("no hot spot")
-        end
+      let s = after(PullLever(BetOne), run_of(seed))
+      match s.round.round_hot do
+      Some(hot) -> do
+        expect(List.member(Skee.Physics.hot_spots(), hot) && hot != Ring10 && hot != Gutter, "hot " ++ show(hot))
+      end
+      None -> Mismatch("no hot spot")
       end
     ))
   end
@@ -185,10 +167,7 @@ mod ReducerSuite do
             Major -> tiers.major
             Grand -> tiers.grand
             end
-          all([
-            expect(List.any(step.step_events, fn e -> is_jackpot_of(e, t)), "jackpot event"),
-            expect_int(count, 1, "tier count")
-          ])
+          all([expect(List.any(step.step_events, fn e -> is_jackpot_of(e, t)), "jackpot event"), expect_int(count, 1, "tier count")])
         end
         end
       end
@@ -204,7 +183,8 @@ mod ReducerSuite do
 
   fn a_room_runs_on_its_own_table() : Outcome do
     let k = consts()
-    let s = new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Penthouse, Tickets(0))
+    let s =
+      new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Penthouse, Tickets(0))
     let t = table_for(k, s)
     let room_table = Skee.Rooms.table(k, Penthouse)
     let pulled = after(PullLever(BetOne), s)
@@ -213,12 +193,7 @@ mod ReducerSuite do
       Some(p) -> p.pull_room == Penthouse
       None -> false
       end
-    all([
-      expect(s.room == Penthouse, "room"),
-      expect(t.board.tilt == room_table.board.tilt, "tilt"),
-      expect(room_of_pull, "pull room"),
-      expect_int(tickets_of(new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Boardwalk, Tickets(2))), 6, "extra tickets")
-    ])
+    all([expect(s.room == Penthouse, "room"), expect(t.board.tilt == room_table.board.tilt, "tilt"), expect(room_of_pull, "pull room"), expect_int(tickets_of(new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Boardwalk, Tickets(2))), 6, "extra tickets")])
   end
 
   fn feather_ball_ignores_lips() : Outcome do
@@ -238,25 +213,13 @@ mod ReducerSuite do
     let s0 = run_of(1)
     let s = { s0 with power_ups: [Hold, GoldenBall] }
     let armed = after(Arm(1), s)
-    all([
-      expect(armed.round.armed == Some(GoldenBall), "armed"),
-      expect(armed.power_ups == [Hold], "left"),
-      expect_err(act(Arm(0), armed), AlreadyArmed, "second"),
-      expect_err(act(Arm(2), s), NoSuchItem, "past the end"),
-      expect_err(act(Arm(-1), s), NoSuchItem, "negative")
-    ])
+    all([expect(armed.round.armed == Some(GoldenBall), "armed"), expect(armed.power_ups == [Hold], "left"), expect_err(act(Arm(0), armed), AlreadyArmed, "second"), expect_err(act(Arm(2), s), NoSuchItem, "past the end"), expect_err(act(Arm(-1), s), NoSuchItem, "negative")])
   end
 
   fn outside_the_lane_is_rejected() : Outcome do
     let s = { run_of(1) with phase: Skee.Types.Lost }
     let c = { s with phase: AtCounter({ offers: [], reroll_cost: Tickets(1) }) }
-    all([
-      expect_err(act(ThrowBall(a_throw()), s), WrongPhase, "throw when lost"),
-      expect_err(act(PullLever(BetOne), s), WrongPhase, "pull when lost"),
-      expect_err(act(CommitFoul, c), WrongPhase, "foul at the counter"),
-      expect_err(act(ChooseBall(Comet), c), WrongPhase, "ball at the counter"),
-      expect_err(act(Arm(0), c), WrongPhase, "arm at the counter")
-    ])
+    all([expect_err(act(ThrowBall(a_throw()), s), WrongPhase, "throw when lost"), expect_err(act(PullLever(BetOne), s), WrongPhase, "pull when lost"), expect_err(act(CommitFoul, c), WrongPhase, "foul at the counter"), expect_err(act(ChooseBall(Comet), c), WrongPhase, "ball at the counter"), expect_err(act(Arm(0), c), WrongPhase, "arm at the counter")])
   end
 
   -- ---- Throwing ----
@@ -267,9 +230,14 @@ mod ReducerSuite do
     else
       do
         let k = consts()
-        let l = Skee.Physics.launch_of_power(k, int_to_float(i) /. 200.0, aim, start, 0.0, 0.0, 0.0)
+        let l =
+          Skee.Physics.launch_of_power(k, int_to_float(i) /. 200.0, aim, start, 0.0, 0.0, 0.0)
         let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.of_int(0))
-        if r.hole == hole do Some(l) else scan_power(t, hole, aim, start, i + 1) end
+        if r.hole == hole do
+          Some(l)
+        else
+          scan_power(t, hole, aim, start, i + 1)
+        end
       end
     end
   end
@@ -312,7 +280,11 @@ mod ReducerSuite do
   end
 
   fn played_fouls(s : RunState, times : Int) : RunState do
-    if times == 0 do s else played_fouls(step_run(play(CommitFoul, s)), times - 1) end
+    if times == 0 do
+      s
+    else
+      played_fouls(step_run(play(CommitFoul, s)), times - 1)
+    end
   end
 
   fn step_run(r : Result(Step, ActionError)) : RunState do
@@ -383,14 +355,7 @@ mod ReducerSuite do
 
   fn three_balls_make_a_frame() : Outcome do
     let (s, events) = throwing(run_of(1), Ring30, 3, [])
-    all([
-      expect_int(List.length(s.round.frames), 1, "frames"),
-      expect_int(List.length(s.round.current_balls), 0, "current balls"),
-      expect(List.any(events, is_frame_scored), "frame scored"),
-      expect_int(points_of(round_score(s.round)), points_of(frame_total_at(s, 0)), "score"),
-      expect_int(points_of(s.stats.points), points_of(round_score(s.round)), "stats points"),
-      expect(points_of(s.stats.points) > 0, "points")
-    ])
+    all([expect_int(List.length(s.round.frames), 1, "frames"), expect_int(List.length(s.round.current_balls), 0, "current balls"), expect(List.any(events, is_frame_scored), "frame scored"), expect_int(points_of(round_score(s.round)), points_of(frame_total_at(s, 0)), "score"), expect_int(points_of(s.stats.points), points_of(round_score(s.round)), "stats points"), expect(points_of(s.stats.points) > 0, "points")])
   end
 
   fn frame_total_at(s : RunState, i : Int) : Points do
@@ -410,11 +375,7 @@ mod ReducerSuite do
       Lost -> -1
       Won -> -1
       end
-    all([
-      expect_int(offers, 4, "offers"),
-      expect(tickets_of(done) > tickets_of(s), "tickets"),
-      expect(List.any(events, is_round_cleared), "cleared")
-    ])
+    all([expect_int(offers, 4, "offers"), expect(tickets_of(done) > tickets_of(s), "tickets"), expect(List.any(events, is_round_cleared), "cleared")])
   end
 
   fn missing_the_target_ends_the_run() : Outcome do
@@ -464,11 +425,9 @@ mod ReducerSuite do
     let s = after(Arm(0), { s0 with power_ups: [GoldenBall] })
     let (done, _) = throwing(s, Ring30, 1, [])
     match done.round.current_balls do
-    Cons(b, _) -> all([
-      expect_int(Skee.Units.chips_int(b.record_chips), if b.hot do 216 else 108 end, "chips"),
-      expect(done.round.armed == None, "disarmed"),
-      expect(List.is_empty(done.power_ups), "used")
-    ])
+    Cons(b, _) -> do
+      all([expect_int(Skee.Units.chips_int(b.record_chips), if b.hot do 216 else 108 end, "chips"), expect(done.round.armed == None, "disarmed"), expect(List.is_empty(done.power_ups), "used")])
+    end
     Nil -> Mismatch("no ball")
     end
   end
@@ -499,20 +458,12 @@ mod ReducerSuite do
       Some(f) -> List.any(f.steps, is_fever_step)
       None -> false
       end
-    all([
-      expect(lit.fever, "fever"),
-      expect(List.any(events, is_fever_lit), "event"),
-      expect(fevered, "fever step"),
-      expect(!next.fever, "spent")
-    ])
+    all([expect(lit.fever, "fever"), expect(List.any(events, is_fever_lit), "event"), expect(fevered, "fever step"), expect(!next.fever, "spent")])
   end
 
   fn every_frame_needs_a_new_pull() : Outcome do
     let s = played_fouls(run_of(4), 3)
-    all([
-      expect_int(List.length(s.round.frames), 1, "frames"),
-      expect(no_pull(s), "pull gone")
-    ])
+    all([expect_int(List.length(s.round.frames), 1, "frames"), expect(no_pull(s), "pull gone")])
   end
 
   fn no_pull(s : RunState) : Bool do
@@ -527,14 +478,9 @@ mod ReducerSuite do
     let step = step_of(play(CommitFoul, s))
     let done = step.run
     match done.round.current_balls do
-    Cons(b, _) -> all([
-      expect(b.foul, "foul"),
-      expect_int(Skee.Units.chips_int(b.record_chips), 0, "chips"),
-      expect(b.record_symbol == Blank, "symbol"),
-      expect(List.any(step.step_events, is_fouled), "event"),
-      expect_int(balls_left(done.round), balls_left(s.round) - 1, "balls left"),
-      expect_int(done.heat, s.heat, "heat")
-    ])
+    Cons(b, _) -> do
+      all([expect(b.foul, "foul"), expect_int(Skee.Units.chips_int(b.record_chips), 0, "chips"), expect(b.record_symbol == Blank, "symbol"), expect(List.any(step.step_events, is_fouled), "event"), expect_int(balls_left(done.round), balls_left(s.round) - 1, "balls left"), expect_int(done.heat, s.heat, "heat")])
+    end
     Nil -> Mismatch("no ball")
     end
   end
@@ -554,24 +500,26 @@ mod ReducerSuite do
 
   fn pull_showing(a : ReelSymbol, b : ReelSymbol, c : ReelSymbol, bet : Bet) : Pull do
     match Skee.Rooms.base_strips() do
-    Three(left, middle, right) -> {
-      stops: Three(stop_showing(left, a, 0), stop_showing(middle, b, 0), stop_showing(right, c, 0)),
-      bet: bet,
-      free: false,
-      pull_room: Boardwalk
-    }
+    Three(left, middle, right) -> do
+      {
+        stops: Three(stop_showing(left, a, 0), stop_showing(middle, b, 0), stop_showing(right, c, 0)),
+        bet: bet,
+        free: false,
+        pull_room: Boardwalk
+      }
+    end
     end
   end
 
   fn line_wins_are_banked_into_the_frame() : Outcome do
     let s0 = run_of(4)
-    let s = { s0 with round: { s0.round with round_pull: Some(pull_showing(ReelBell, ReelBell, ReelBell, BetOne)) } }
+    let s =
+      { s0 with round: { s0.round with round_pull: Some(pull_showing(ReelBell, ReelBell, ReelBell, BetOne)) } }
     let done = fouls(s, 3)
     match done.round.frames do
-    Cons(f, _) -> all([
-      expect(List.any(f.steps, is_pull_40), "pull step"),
-      expect_int(points_of(Skee.Scoring.frame_total(f)), 40, "total")
-    ])
+    Cons(f, _) -> do
+      all([expect(List.any(f.steps, is_pull_40), "pull step"), expect_int(points_of(Skee.Scoring.frame_total(f)), 40, "total")])
+    end
     Nil -> Mismatch("no frame")
     end
   end
@@ -592,11 +540,9 @@ mod ReducerSuite do
       { pulled with round: { pulled.round with round_pull: Some(pull_showing(ReelBonus, ReelBonus, ReelBonus, BetThree)), free_left: n, frames_total: pulled.round.frames_total + n } }
     let s = fouls(forced, 3)
     match s.round.round_pull do
-    Some(next) -> all([
-      expect(next.free && next.bet == BetThree, "free at the same bet"),
-      expect_int(s.round.free_left, n - 1, "free left"),
-      expect_int(s.round.frames_total, frames + n, "frames total")
-    ])
+    Some(next) -> do
+      all([expect(next.free && next.bet == BetThree, "free at the same bet"), expect_int(s.round.free_left, n - 1, "free left"), expect_int(s.round.frames_total, frames + n, "frames total")])
+    end
     None -> Mismatch("the machine did not pull")
     end
   end
@@ -604,9 +550,11 @@ mod ReducerSuite do
   fn combo_chains_on_hits_and_breaks_on_a_miss() : Outcome do
     let k = consts()
     let s0 = after(PullLever(BetOne), run_of(1))
-    let s1 = { s0 with top_slot: { targets: Three(showing(s0, Ring30), Diamond, Diamond) } }
+    let s1 =
+      { s0 with top_slot: { targets: Three(showing(s0, Ring30), Diamond, Diamond) } }
     let first = step_run(play(ThrowBall(launch_for(Ring30, table_for(k, s1))), s1))
-    let s2 = { first with top_slot: { targets: Three(showing(first, Ring30), Diamond, Diamond) } }
+    let s2 =
+      { first with top_slot: { targets: Three(showing(first, Ring30), Diamond, Diamond) } }
     let second = step_run(play(ThrowBall(launch_for(Ring30, table_for(k, s2))), s2))
     let broken = step_run(play(CommitFoul, second))
     let last_combo =
@@ -614,16 +562,12 @@ mod ReducerSuite do
       Cons(b, _) -> b.record_combo
       Nil -> -1
       end
-    all([
-      expect_int(first.round.combo, 1, "first"),
-      expect_int(second.round.combo, 2, "second"),
-      expect_int(last_combo, 2, "record"),
-      expect_int(broken.round.combo, 0, "broken")
-    ])
+    all([expect_int(first.round.combo, 1, "first"), expect_int(second.round.combo, 2, "second"), expect_int(last_combo, 2, "record"), expect_int(broken.round.combo, 0, "broken")])
   end
 
   fn a_chosen_ball_stays() : Outcome do
-    let s = after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(Comet), run_of(1))))
+    let s =
+      after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(Comet), run_of(1))))
     match s.round.current_balls do
     Cons(b, _) -> expect(s.ball == Comet && b.record_ball == Comet, "ball")
     Nil -> Mismatch("no ball")
@@ -631,16 +575,15 @@ mod ReducerSuite do
   end
 
   fn chips_for_ball(ball : BallKind) : Outcome do
-    let s = after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(ball), run_of(3))))
+    let s =
+      after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(ball), run_of(3))))
     match s.round.current_balls do
     Cons(b, _) -> do
-      let base = int_to_float(Skee.Units.chips_int(Skee.Scoring.hole_chips(s.setup, b.record_hole)))
+      let base =
+        int_to_float(Skee.Units.chips_int(Skee.Scoring.hole_chips(s.setup, b.record_hole)))
       let hot = if b.hot do 2.0 else 1.0 end
       let want = float_round(base *. Skee.Items.pay(ball) *. hot)
-      all([
-        expect_int(Skee.Units.chips_int(b.record_chips), want, "chips"),
-        expect(b.hot == (Some(b.record_hole) == s.round.round_hot), "hot")
-      ])
+      all([expect_int(Skee.Units.chips_int(b.record_chips), want, "chips"), expect(b.hot == (Some(b.record_hole) == s.round.round_hot), "hot")])
     end
     Nil -> Mismatch("no ball")
     end
@@ -648,10 +591,9 @@ mod ReducerSuite do
 
   fn replay_actions() : List(Action) do
     List.flat_map(List.range(0, 9), fn i ->
-      do
-        let ball = ThrowBall(Skee.Physics.launch_of_power(consts(), 0.4 +. int_to_float(i) *. 0.03, 0.0, 0.0, 0.0, 0.0, 0.0))
-        if i % 3 == 0 do [PullLever(BetThree), ball] else [ball] end
-      end
+      let ball =
+        ThrowBall(Skee.Physics.launch_of_power(consts(), 0.4 +. int_to_float(i) *. 0.03, 0.0, 0.0, 0.0, 0.0, 0.0))
+      if i % 3 == 0 do [PullLever(BetThree), ball] else [ball] end
     )
   end
 
@@ -692,11 +634,7 @@ mod ReducerSuite do
 
   fn buying_a_charm_costs_tickets() : Outcome do
     let s = after(Buy(0, None), at_counter([OfferCharm(MultBall)], 20))
-    all([
-      expect(s.charms == [MultBall], "charms"),
-      expect_int(tickets_of(s), 20 - Skee.Units.tickets_int(Skee.Items.charm_cost(MultBall)), "tickets"),
-      expect(offers_of(s) == [None], "slot emptied")
-    ])
+    all([expect(s.charms == [MultBall], "charms"), expect_int(tickets_of(s), 20 - Skee.Units.tickets_int(Skee.Items.charm_cost(MultBall)), "tickets"), expect(offers_of(s) == [None], "slot emptied")])
   end
 
   fn cannot_afford_it() : Outcome do
@@ -706,15 +644,12 @@ mod ReducerSuite do
   fn no_such_offer() : Outcome do
     let s = at_counter([OfferCharm(MultBall)], 20)
     let bought = after(Buy(0, None), s)
-    all([
-      expect_err(act(Buy(1, None), s), NoSuchOffer, "past the end"),
-      expect_err(act(Buy(-1, None), s), NoSuchOffer, "negative"),
-      expect_err(act(Buy(0, None), bought), NoSuchOffer, "already bought")
-    ])
+    all([expect_err(act(Buy(1, None), s), NoSuchOffer, "past the end"), expect_err(act(Buy(-1, None), s), NoSuchOffer, "negative"), expect_err(act(Buy(0, None), bought), NoSuchOffer, "already bought")])
   end
 
   fn charm_slots_are_limited() : Outcome do
-    let s = { at_counter([OfferCharm(MultBall)], 20) with charms: [LuckyPenny, Ladder, HeavyHand, GutterRat, NearMiss] }
+    let s =
+      { at_counter([OfferCharm(MultBall)], 20) with charms: [LuckyPenny, Ladder, HeavyHand, GutterRat, NearMiss] }
     expect_err(act(Buy(0, None), s), SlotsFull, "buy")
   end
 
@@ -731,28 +666,22 @@ mod ReducerSuite do
 
   fn purge_removes_the_showing_symbol() : Outcome do
     let before0 = at_counter([OfferPurge], 20)
-    let before = { before0 with reel_stops: Skee.HoleMap.reel_put(before0.reel_stops, Ring10, 2) }
+    let before =
+      { before0 with reel_stops: Skee.HoleMap.reel_put(before0.reel_stops, Ring10, 2) }
     let s = after(Buy(0, Some(Ring10)), before)
-    all([
-      expect(Skee.Scoring.reel(s.setup, Ring10) == [Cherry, Cherry, Cherry, Bell], "reel"),
-      expect(Skee.HoleMap.reel_at(s.reel_stops, Ring10) == Some(0), "stop reset")
-    ])
+    all([expect(Skee.Scoring.reel(s.setup, Ring10) == [Cherry, Cherry, Cherry, Bell], "reel"), expect(Skee.HoleMap.reel_at(s.reel_stops, Ring10) == Some(0), "stop reset")])
   end
 
   fn purge_leaves_at_least_one_symbol() : Outcome do
     let before0 = at_counter([OfferPurge], 20)
     let setup = before0.setup
-    let before = { before0 with setup: { setup with reels: Skee.HoleMap.reel_put(setup.reels, Ring10, [Cherry]) } }
+    let before =
+      { before0 with setup: { setup with reels: Skee.HoleMap.reel_put(setup.reels, Ring10, [Cherry]) } }
     expect_err(act(Buy(0, Some(Ring10)), before), ReelTooShort, "buy")
   end
 
   fn stamp_needs_a_target() : Outcome do
-    all([
-      expect_err(act(Buy(0, None), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "none"),
-      expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "gutter"),
-      expect_err(act(Buy(0, None), at_counter([OfferPurge], 20)), NeedsTarget, "purge"),
-      expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferGild], 20)), NeedsTarget, "gild")
-    ])
+    all([expect_err(act(Buy(0, None), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "none"), expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "gutter"), expect_err(act(Buy(0, None), at_counter([OfferPurge], 20)), NeedsTarget, "purge"), expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferGild], 20)), NeedsTarget, "gild")])
   end
 
   fn gild_adds_chips_to_a_hole() : Outcome do
@@ -762,12 +691,7 @@ mod ReducerSuite do
 
   fn selling_a_charm_refunds_half() : Outcome do
     let s = after(Sell(0), { at_counter([], 20) with charms: [GlassCannon] })
-    all([
-      expect(List.is_empty(s.charms), "charms"),
-      expect_int(tickets_of(s), 20 + Skee.Units.tickets_int(Skee.Items.charm_cost(GlassCannon)) / 2, "tickets"),
-      expect_err(act(Sell(0), s), NoSuchItem, "nothing left"),
-      expect_err(act(Sell(-1), s), NoSuchItem, "negative")
-    ])
+    all([expect(List.is_empty(s.charms), "charms"), expect_int(tickets_of(s), 20 + Skee.Units.tickets_int(Skee.Items.charm_cost(GlassCannon)) / 2, "tickets"), expect_err(act(Sell(0), s), NoSuchItem, "nothing left"), expect_err(act(Sell(-1), s), NoSuchItem, "negative")])
   end
 
   fn run_at_counter(seed : Int) : RunState do
@@ -781,22 +705,12 @@ mod ReducerSuite do
     let a = after(Reroll, s)
     let b = after(Reroll, s)
     let broke = { s with tickets: Tickets(0) }
-    all([
-      expect(offers_of(a) == offers_of(b), "same offers"),
-      expect_int(reroll_cost_of(a), 2, "cost"),
-      expect_int(tickets_of(a), tickets_of(s) - 1, "tickets"),
-      expect_err(act(Reroll, broke), CantAfford, "broke")
-    ])
+    all([expect(offers_of(a) == offers_of(b), "same offers"), expect_int(reroll_cost_of(a), 2, "cost"), expect_int(tickets_of(a), tickets_of(s) - 1, "tickets"), expect_err(act(Reroll, broke), CantAfford, "broke")])
   end
 
   fn counter_actions_outside_are_rejected() : Outcome do
     let s = run_of(1)
-    all([
-      expect_err(act(Buy(0, None), s), WrongPhase, "buy"),
-      expect_err(act(Reroll, s), WrongPhase, "reroll"),
-      expect_err(act(Sell(0), s), WrongPhase, "sell"),
-      expect_err(act(LeaveCounter, s), WrongPhase, "leave")
-    ])
+    all([expect_err(act(Buy(0, None), s), WrongPhase, "buy"), expect_err(act(Reroll, s), WrongPhase, "reroll"), expect_err(act(Sell(0), s), WrongPhase, "sell"), expect_err(act(LeaveCounter, s), WrongPhase, "leave")])
   end
 
   fn leave(s : RunState) : RunState do
@@ -813,13 +727,7 @@ mod ReducerSuite do
       Some(p) -> points_of(p)
       None -> -1
       end
-    all([
-      expect(feature.round.kind == Feature, "feature"),
-      expect(boss.round.kind == BossRound, "boss"),
-      expect_int(points_of(boss.round.target), boss_target, "boss target"),
-      expect_int(next_ante.ante, 2, "ante"),
-      expect(next_ante.round.kind == Warmup, "warmup")
-    ])
+    all([expect(feature.round.kind == Feature, "feature"), expect(boss.round.kind == BossRound, "boss"), expect_int(points_of(boss.round.target), boss_target, "boss target"), expect_int(next_ante.ante, 2, "ante"), expect(next_ante.round.kind == Warmup, "warmup")])
   end
 
   -- ---- Swift's clamp, on a range the wrong way round ----
@@ -833,23 +741,29 @@ mod ReducerSuite do
   end
 
   -- ---- Wallet.pulled ----
-  type WalletWalk = { wallet : Wallet, rng : Skee.Rng.Rng, paid : Winnings, pulls : Int }
+  type WalletWalk = {
+    wallet : Wallet,
+    rng : Skee.Rng.Rng,
+    paid : Winnings,
+    pulls : Int
+  }
 
   -- The same pulls as tools/golden/Sources/golden-run: mostly max bets, every
   -- fourth one free.
   fn walk_bet(n : Int) : Bet do
-    if n % 7 == 0 do
-      BetOne
-    else
-      if n % 5 == 0 do BetThree else BetFive end
-    end
+    if n % 7 == 0 do BetOne else if n % 5 == 0 do BetThree else BetFive end end
   end
 
   fn walk_pull(w : WalletWalk, room : Room) : WalletWalk do
     let n = w.pulls + 1
     let (p, rng) = Skee.Scoring.spin(w.rng, walk_bet(n), n % 4 == 0, room)
     let (won, wallet) = wallet_pulled(w.wallet, p)
-    { wallet: wallet, rng: rng, paid: Skee.Units.add_winnings(w.paid, won), pulls: n }
+    {
+      wallet: wallet,
+      rng: rng,
+      paid: Skee.Units.add_winnings(w.paid, won),
+      pulls: n
+    }
   end
 
   fn walk_to(w : WalletWalk, room : Room, n : Int) : WalletWalk do
@@ -866,19 +780,16 @@ mod ReducerSuite do
     Cons(room_at, Cons(pulls, Cons(paid, Cons(balance, Cons(lifetime, Cons(mini, Cons(minor, Cons(major, Cons(grand, Nil))))))))) -> do
       let room = List.nth(Skee.Rooms.all_rooms(), room_at)
       let start =
-        { wallet: Skee.Rooms.empty_wallet(), rng: Skee.Rng.seed(Skee.U64.of_int(room_at + 40)), paid: Winnings(0), pulls: 0 }
+        {
+          wallet: Skee.Rooms.empty_wallet(),
+          rng: Skee.Rng.seed(Skee.U64.of_int(room_at + 40)),
+          paid: Winnings(0),
+          pulls: 0
+        }
       let done = walk_to(start, room, pulls)
       let w = done.wallet
       let meter = fn t -> winnings_of(Skee.Scoring.amount(w.progressive, t))
-      all([
-        expect_int(winnings_of(done.paid), paid, "paid"),
-        expect_int(winnings_of(w.balance), balance, "balance"),
-        expect_int(winnings_of(w.lifetime), lifetime, "lifetime"),
-        expect_int(meter(Mini), mini, "mini"),
-        expect_int(meter(Minor), minor, "minor"),
-        expect_int(meter(Major), major, "major"),
-        expect_int(meter(Grand), grand, "grand")
-      ])
+      all([expect_int(winnings_of(done.paid), paid, "paid"), expect_int(winnings_of(w.balance), balance, "balance"), expect_int(winnings_of(w.lifetime), lifetime, "lifetime"), expect_int(meter(Mini), mini, "mini"), expect_int(meter(Minor), minor, "minor"), expect_int(meter(Major), major, "major"), expect_int(meter(Grand), grand, "grand")])
     end
     _ -> Mismatch("bad wallet row")
     end
@@ -890,21 +801,14 @@ mod ReducerSuite do
     let w = { w0 with progressive: { meters: { meters with minor: Winnings(900) } } }
     let (won, done) = wallet_pulled(w, pull_showing(ReelSeven, ReelSeven, ReelSeven, BetFive))
     let growth = Skee.Units.winnings_int(Skee.Scoring.tier_growth(Minor))
-    all([
-      expect_int(winnings_of(won), 900 + 2 * growth, "won"),
-      expect_int(winnings_of(done.balance), winnings_of(won), "balance"),
-      expect_int(winnings_of(Skee.Scoring.amount(done.progressive, Minor)), winnings_of(Skee.Scoring.tier_seed(Minor)), "meter reset")
-    ])
+    all([expect_int(winnings_of(won), 900 + 2 * growth, "won"), expect_int(winnings_of(done.balance), winnings_of(won), "balance"), expect_int(winnings_of(Skee.Scoring.amount(done.progressive, Minor)), winnings_of(Skee.Scoring.tier_seed(Minor)), "meter reset")])
   end
 
   fn free_games_do_not_feed_the_meters() : Outcome do
     let w = Skee.Rooms.empty_wallet()
     let p = { pull_showing(ReelLemon, ReelCherry, ReelBell, BetFive) with free: true }
     let (won, done) = wallet_pulled(w, p)
-    all([
-      expect_int(winnings_of(won), 0, "won"),
-      expect_string(meters_text(done), meters_text(w), "meters")
-    ])
+    all([expect_int(winnings_of(won), 0, "won"), expect_string(meters_text(done), meters_text(w), "meters")])
   end
 
   fn meters_text(w : Wallet) : String do
@@ -1006,7 +910,11 @@ mod ReducerSuite do
             if c == 108 do
               ShotLip(digit_at(token, i + 1))
             else
-              if c == 100 do ShotDropped(hole_at(digit_at(token, i + 1))) else ShotSettled(hole_at(digit_at(token, i + 1))) end
+              if c == 100 do
+                ShotDropped(hole_at(digit_at(token, i + 1)))
+              else
+                ShotSettled(hole_at(digit_at(token, i + 1)))
+              end
             end
           else
             if c == 68 do
@@ -1027,7 +935,11 @@ mod ReducerSuite do
                       if c == 72 do
                         ShotHop
                       else
-                        if c == 71 do ShotGutter else panic("bad shot token: " ++ token) end
+                        if c == 71 do
+                          ShotGutter
+                        else
+                          panic("bad shot token: " ++ token)
+                        end
                       end
                     end
                   end
@@ -1092,7 +1004,8 @@ mod ReducerSuite do
   end
 
   fn fail(t : Tally, l : Live, token : String, why : String) : Tally do
-    let where = "run " ++ l.label ++ " seed " ++ l.seed_token ++ ", first diverging action #" ++ int_to_string(l.at) ++ " " ++ token ++ ": " ++ why
+    let where =
+      "run " ++ l.label ++ " seed " ++ l.seed_token ++ ", first diverging action #" ++ int_to_string(l.at) ++ " " ++ token ++ ": " ++ why
     let keep = if t.bad < 5 do Cons(where, t.shown) else t.shown end
     { t with bad: t.bad + 1, shown: keep, live: None }
   end
@@ -1184,15 +1097,9 @@ mod ReducerSuite do
 
   fn replay_row(k : Skee.Consts.Consts, mode : Mode, configs : List(RunConfig), t : Tally, row : List(String)) : Tally do
     match (t.live, row) do
-    (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> do
-      started(k, configs, t, label, seed, room, extra, cfg, digest)
-    end
-    (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Nil))))) -> do
-      accepted(k, t, l, token, state_digest, event_digest)
-    end
-    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Nil))))))) -> do
-      thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest)
-    end
+    (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> started(k, configs, t, label, seed, room, extra, cfg, digest)
+    (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Nil))))) -> accepted(k, t, l, token, state_digest, event_digest)
+    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Nil))))))) -> thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest)
     (Some(l), Cons("e", Cons(token, Cons(want, Nil)))) -> refused(k, t, l, token, want)
     (_, _) -> t
     end
@@ -1201,7 +1108,17 @@ mod ReducerSuite do
   fn replay(k : Skee.Consts.Consts, mode : Mode, rows : List(List(String))) : Tally do
     let configs = List.map(GoldenIo.of_kind(rows, "cfg"), config_of)
     let empty =
-      { runs: 0, steps: 0, refused: 0, shots: 0, parted: 0, floats_differ: 0, bad: 0, shown: [], live: None }
+      {
+        runs: 0,
+        steps: 0,
+        refused: 0,
+        shots: 0,
+        parted: 0,
+        floats_differ: 0,
+        bad: 0,
+        shown: [],
+        live: None
+      }
     List.fold_left(rows, empty, fn (t, row) -> replay_row(k, mode, configs, t, row))
   end
 
@@ -1290,58 +1207,58 @@ mod ReducerSuite do
     let recorded = replay(k, RecordedShots, rows)
     let real = replay(k, RealPhysics, rows)
     [
-      case("new run starts at the first warmup", fn -> new_run_starts_at_the_first_warmup()),
-      case("same seed, same boss", fn -> same_seed_same_boss()),
-      case("no ball before the pull", fn -> no_ball_before_the_pull()),
-      case("the pull costs its bet and sets the targets", fn -> the_pull_costs_its_bet_and_sets_the_targets()),
-      case("a bet you can't afford is refused", fn -> a_bet_you_cant_afford_is_refused()),
-      case("every pull picks a hot spot", fn -> every_pull_picks_a_hot_spot()),
-      case("a max-bet jackpot is an event", fn -> jackpot_seed(0)),
-      case("a room runs on its own table", fn -> a_room_runs_on_its_own_table()),
-      case("feather ball ignores lips", fn -> feather_ball_ignores_lips()),
-      case("choosing a ball is free", fn -> choosing_a_ball_is_free()),
-      case("arming takes the item", fn -> arming_takes_the_item()),
-      case("outside the lane is rejected", fn -> outside_the_lane_is_rejected()),
-      case("three balls make a frame", fn -> three_balls_make_a_frame()),
-      case("clearing a round opens the counter and pays", fn -> clearing_a_round_opens_the_counter_and_pays()),
-      case("missing the target ends the run", fn -> missing_the_target_ends_the_run()),
-      case("beating the last boss wins the run", fn -> beating_the_last_boss_wins_the_run()),
-      case("ball takes the symbol showing when thrown", fn -> ball_takes_the_symbol_showing_when_thrown()),
-      case("reels spin after every ball", fn -> reels_spin_after_every_ball()),
-      case("hold keeps the reels still", fn -> hold_keeps_the_reels_still()),
-      case("golden ball triples chips", fn -> golden_ball_triples_chips()),
-      case("wild ball is a clover", fn -> wild_ball_is_a_clover()),
-      case("full heat lights fever for the next frame", fn -> full_heat_lights_fever_for_the_next_frame()),
-      case("every frame needs a new pull", fn -> every_frame_needs_a_new_pull()),
-      case("a foul spends a ball for nothing", fn -> a_foul_spends_a_ball_for_nothing()),
-      case("line wins are banked into the frame", fn -> line_wins_are_banked_into_the_frame()),
-      case("free games add frames the player does not pull", fn -> free_games_add_frames_the_player_does_not_pull()),
-      case("combo chains on hits and breaks on a miss", fn -> combo_chains_on_hits_and_breaks_on_a_miss()),
-      case("a chosen ball stays", fn -> a_chosen_ball_stays()),
-      case("chips are ball pay times hot spot", fn -> all(List.map(Skee.Items.all_balls(), chips_for_ball))),
-      case("replay is exact", fn -> replay_is_exact()),
-      case("buying a charm costs tickets", fn -> buying_a_charm_costs_tickets()),
-      case("cannot afford it", fn -> cannot_afford_it()),
-      case("no such offer", fn -> no_such_offer()),
-      case("charm slots are limited", fn -> charm_slots_are_limited()),
-      case("power-up slots are limited", fn -> power_up_slots_are_limited()),
-      case("stamp adds a symbol to a reel", fn -> stamp_adds_a_symbol_to_a_reel()),
-      case("purge removes the showing symbol", fn -> purge_removes_the_showing_symbol()),
-      case("purge leaves at least one symbol", fn -> purge_leaves_at_least_one_symbol()),
-      case("stamp needs a target", fn -> stamp_needs_a_target()),
-      case("gild adds chips to a hole", fn -> gild_adds_chips_to_a_hole()),
-      case("selling a charm refunds half", fn -> selling_a_charm_refunds_half()),
-      case("reroll is deterministic and gets pricier", fn -> reroll_is_deterministic_and_gets_pricier()),
-      case("counter actions outside are rejected", fn -> counter_actions_outside_are_rejected()),
-      case("leaving the counter advances round and ante", fn -> leaving_the_counter_advances_round_and_ante()),
-      case("clamp_int is Swift's clamp, inverted ranges too", fn -> all(List.map(GoldenIo.of_kind(rows, "clampi"), clamp_row))),
-      case("a jackpot pull pays the meter into the wallet", fn -> a_jackpot_pull_pays_the_meter_into_the_wallet()),
-      case("free games do not feed the meters", fn -> free_games_do_not_feed_the_meters()),
-      case("wallet goldens", fn -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
-      case("golden runs, Swift's recorded shots", fn -> counted(recorded)),
-      case("golden runs, this target's physics", fn -> with_physics(real)),
-      case("golden shots, floats against Swift", fn -> shot_floats(real)),
-      case("seed and actions replay exactly", fn -> seed_and_actions_replay_exactly(k, rows))
+      case("new run starts at the first warmup", fn () -> new_run_starts_at_the_first_warmup()),
+      case("same seed, same boss", fn () -> same_seed_same_boss()),
+      case("no ball before the pull", fn () -> no_ball_before_the_pull()),
+      case("the pull costs its bet and sets the targets", fn () -> the_pull_costs_its_bet_and_sets_the_targets()),
+      case("a bet you can't afford is refused", fn () -> a_bet_you_cant_afford_is_refused()),
+      case("every pull picks a hot spot", fn () -> every_pull_picks_a_hot_spot()),
+      case("a max-bet jackpot is an event", fn () -> jackpot_seed(0)),
+      case("a room runs on its own table", fn () -> a_room_runs_on_its_own_table()),
+      case("feather ball ignores lips", fn () -> feather_ball_ignores_lips()),
+      case("choosing a ball is free", fn () -> choosing_a_ball_is_free()),
+      case("arming takes the item", fn () -> arming_takes_the_item()),
+      case("outside the lane is rejected", fn () -> outside_the_lane_is_rejected()),
+      case("three balls make a frame", fn () -> three_balls_make_a_frame()),
+      case("clearing a round opens the counter and pays", fn () -> clearing_a_round_opens_the_counter_and_pays()),
+      case("missing the target ends the run", fn () -> missing_the_target_ends_the_run()),
+      case("beating the last boss wins the run", fn () -> beating_the_last_boss_wins_the_run()),
+      case("ball takes the symbol showing when thrown", fn () -> ball_takes_the_symbol_showing_when_thrown()),
+      case("reels spin after every ball", fn () -> reels_spin_after_every_ball()),
+      case("hold keeps the reels still", fn () -> hold_keeps_the_reels_still()),
+      case("golden ball triples chips", fn () -> golden_ball_triples_chips()),
+      case("wild ball is a clover", fn () -> wild_ball_is_a_clover()),
+      case("full heat lights fever for the next frame", fn () -> full_heat_lights_fever_for_the_next_frame()),
+      case("every frame needs a new pull", fn () -> every_frame_needs_a_new_pull()),
+      case("a foul spends a ball for nothing", fn () -> a_foul_spends_a_ball_for_nothing()),
+      case("line wins are banked into the frame", fn () -> line_wins_are_banked_into_the_frame()),
+      case("free games add frames the player does not pull", fn () -> free_games_add_frames_the_player_does_not_pull()),
+      case("combo chains on hits and breaks on a miss", fn () -> combo_chains_on_hits_and_breaks_on_a_miss()),
+      case("a chosen ball stays", fn () -> a_chosen_ball_stays()),
+      case("chips are ball pay times hot spot", fn () -> all(List.map(Skee.Items.all_balls(), chips_for_ball))),
+      case("replay is exact", fn () -> replay_is_exact()),
+      case("buying a charm costs tickets", fn () -> buying_a_charm_costs_tickets()),
+      case("cannot afford it", fn () -> cannot_afford_it()),
+      case("no such offer", fn () -> no_such_offer()),
+      case("charm slots are limited", fn () -> charm_slots_are_limited()),
+      case("power-up slots are limited", fn () -> power_up_slots_are_limited()),
+      case("stamp adds a symbol to a reel", fn () -> stamp_adds_a_symbol_to_a_reel()),
+      case("purge removes the showing symbol", fn () -> purge_removes_the_showing_symbol()),
+      case("purge leaves at least one symbol", fn () -> purge_leaves_at_least_one_symbol()),
+      case("stamp needs a target", fn () -> stamp_needs_a_target()),
+      case("gild adds chips to a hole", fn () -> gild_adds_chips_to_a_hole()),
+      case("selling a charm refunds half", fn () -> selling_a_charm_refunds_half()),
+      case("reroll is deterministic and gets pricier", fn () -> reroll_is_deterministic_and_gets_pricier()),
+      case("counter actions outside are rejected", fn () -> counter_actions_outside_are_rejected()),
+      case("leaving the counter advances round and ante", fn () -> leaving_the_counter_advances_round_and_ante()),
+      case("clamp_int is Swift's clamp, inverted ranges too", fn () -> all(List.map(GoldenIo.of_kind(rows, "clampi"), clamp_row))),
+      case("a jackpot pull pays the meter into the wallet", fn () -> a_jackpot_pull_pays_the_meter_into_the_wallet()),
+      case("free games do not feed the meters", fn () -> free_games_do_not_feed_the_meters()),
+      case("wallet goldens", fn () -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
+      case("golden runs, Swift's recorded shots", fn () -> counted(recorded)),
+      case("golden runs, this target's physics", fn () -> with_physics(real)),
+      case("golden shots, floats against Swift", fn () -> shot_floats(real)),
+      case("seed and actions replay exactly", fn () -> seed_and_actions_replay_exactly(k, rows))
     ]
   end
 

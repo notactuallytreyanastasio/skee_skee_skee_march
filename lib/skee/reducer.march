@@ -16,7 +16,8 @@ mod Skee.Reducer do
   """
   fn new_run(_k : Skee.Consts.Consts, seed : Skee.U64.U64, config : RunConfig, room : Room, extra_tickets : Tickets) : RunState needs () do
     let (boss, rng) = pick(Skee.Rng.seed(seed), Skee.Items.all_bosses())
-    let scaled = { config with target_scale: config.target_scale *. Skee.Rooms.target_scale(room) }
+    let scaled =
+      { config with target_scale: config.target_scale *. Skee.Rooms.target_scale(room) }
     let blank_round = bare_round(Warmup, Points(0), 0)
     let start =
       {
@@ -97,7 +98,8 @@ mod Skee.Reducer do
   rounds), then the armed power-up, then the ball.
   """
   fn table_for(k : Skee.Consts.Consts, s : RunState) : Table needs () do
-    let tightened = Skee.Items.difficulty_table(s.ante, Skee.Rooms.table(k, s.room), s.config.antes)
+    let tightened =
+      Skee.Items.difficulty_table(s.ante, Skee.Rooms.table(k, s.room), s.config.antes)
     let bossed =
       match s.round.kind do
       BossRound -> Skee.Items.modify_for_boss(s.boss, tightened)
@@ -127,11 +129,11 @@ mod Skee.Reducer do
   """
   fn apply_with(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Skee.U64.U64 -> ShotResult, a : Action, s : RunState) : Result(Step, ActionError) needs () do
     match a do
-    PullLever(bet) -> on_lane(s, fn -> pull(bet, s))
-    ThrowBall(l) -> on_lane(s, fn -> after_pull(s, fn -> throw_ball(k, simulate, l, s)))
-    CommitFoul -> on_lane(s, fn -> after_pull(s, fn -> foul(s)))
-    Arm(i) -> on_lane(s, fn -> arm(i, s))
-    ChooseBall(b) -> on_lane(s, fn -> Ok(choose_ball(b, s)))
+    PullLever(bet) -> on_lane(s, fn () -> pull(bet, s))
+    ThrowBall(l) -> on_lane(s, fn () -> after_pull(s, fn () -> throw_ball(k, simulate, l, s)))
+    CommitFoul -> on_lane(s, fn () -> after_pull(s, fn () -> foul(s)))
+    Arm(i) -> on_lane(s, fn () -> arm(i, s))
+    ChooseBall(b) -> on_lane(s, fn () -> Ok(choose_ball(b, s)))
     Buy(i, target) -> at_counter(s, fn c -> buy(i, target, c, s))
     Reroll -> at_counter(s, fn c -> reroll(c, s))
     Sell(i) -> at_counter(s, fn _ -> sell(i, s))
@@ -174,7 +176,8 @@ mod Skee.Reducer do
     None -> do
       if Skee.Units.tickets_at_least(s0.tickets, cost) do
         do
-          let paid = { s0 with tickets: Skee.Units.sub_tickets(s0.tickets, cost), round: { s0.round with last_bet: bet } }
+          let paid =
+            { s0 with tickets: Skee.Units.sub_tickets(s0.tickets, cost), round: { s0.round with last_bet: bet } }
           let (p, rng) = Skee.Scoring.spin(paid.rng, bet, false, paid.room)
           Ok(spin({ paid with rng: rng }, p))
         end
@@ -226,7 +229,10 @@ mod Skee.Reducer do
       { s0 with rng: rng, top_slot: { targets: Skee.Scoring.targets(p) }, round: { s0.round with round_pull: Some(p), round_hot: List.nth_opt(spots, spot) }, stats: { stats with pulls: stats.pulls + 1 } }
     let (freed, free_events) = award_free_games(s, p)
     let (paid, jackpot_events) = award_jackpot(freed, p)
-    { run: paid, step_events: List.concat([[Pulled(p)], free_events, jackpot_events]) }
+    {
+      run: paid,
+      step_events: List.concat([[Pulled(p)], free_events, jackpot_events])
+    }
   end
 
   doc """
@@ -238,7 +244,11 @@ mod Skee.Reducer do
   """
   fn wallet_pulled(w : Wallet, p : Pull) : (Winnings, Wallet) needs () do
     let fed =
-      if p.free do w else { w with progressive: Skee.Scoring.feed(w.progressive, p.bet) } end
+      if p.free do
+        w
+      else
+        { w with progressive: Skee.Scoring.feed(w.progressive, p.bet) }
+      end
     match Skee.Scoring.jackpot(p) do
     None -> (Winnings(0), fed)
     Some(tier) -> do
@@ -292,7 +302,11 @@ mod Skee.Reducer do
       Warmup -> face
       Feature -> face
       end
-    if armed == Some(GoldenBall) do Chips(Skee.Units.chips_int(bossed) * 3) else bossed end
+    if armed == Some(GoldenBall) do
+      Chips(Skee.Units.chips_int(bossed) * 3)
+    else
+      bossed
+    end
   end
 
   pfn throw_ball(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Skee.U64.U64 -> ShotResult, launch : Launch, s0 : RunState) : Step needs () do
@@ -311,7 +325,11 @@ mod Skee.Reducer do
     let chips =
       Chips(float_round(int_to_float(Skee.Units.chips_int(base_chips(drawn, hole, armed))) *. Skee.Items.pay(drawn.ball) *. weight))
     let symbol =
-      if armed == Some(WildBall) && hole != Gutter do Clover else showing(drawn, hole) end
+      if armed == Some(WildBall) && hole != Gutter do
+        Clover
+      else
+        showing(drawn, hole)
+      end
     let hits = Skee.Scoring.hits(drawn.top_slot, symbol)
     let combo = if hits > 0 do drawn.round.combo + 1 else 0 end
     let record =
@@ -369,8 +387,14 @@ mod Skee.Reducer do
   pfn bank_frame(s : RunState, frame : FrameScore) : RunState needs () do
     let total = Skee.Scoring.frame_total(frame)
     let stats = s.stats
-    let jackpots = if Skee.Scoring.is_jackpot(frame) do stats.jackpots + 1 else stats.jackpots end
-    let best = Math.max_int(Skee.Units.points_int(stats.best_frame), Skee.Units.points_int(total))
+    let jackpots =
+      if Skee.Scoring.is_jackpot(frame) do
+        stats.jackpots + 1
+      else
+        stats.jackpots
+      end
+    let best =
+      Math.max_int(Skee.Units.points_int(stats.best_frame), Skee.Units.points_int(total))
     { s with round: { s.round with frames: List.append(s.round.frames, [frame]), current_balls: [], round_pull: None, streak: frame.streak_after }, tickets: Skee.Units.add_tickets(s.tickets, frame.frame_tickets), fever: false, stats: { stats with jackpots: jackpots, best_frame: Points(best), points: Skee.Units.add_points(stats.points, total) } }
   end
 
@@ -396,7 +420,8 @@ mod Skee.Reducer do
     if s.round.free_left > 0 do
       do
         let (p, rng) = Skee.Scoring.spin(s.rng, s.round.last_bet, true, s.room)
-        let step = spin({ s with rng: rng, round: { s.round with free_left: s.round.free_left - 1 } }, p)
+        let step =
+          spin({ s with rng: rng, round: { s.round with free_left: s.round.free_left - 1 } }, p)
         { run: step.run, step_events: List.append(events, step.step_events) }
       end
     else
@@ -421,7 +446,10 @@ mod Skee.Reducer do
     if Skee.Units.points_at_least(score, target) do
       clear_round(s, events, score, target)
     else
-      { run: { s with phase: Skee.Types.Lost }, step_events: List.append(events, [RoundFailed(score, target)]) }
+      {
+        run: { s with phase: Skee.Types.Lost },
+        step_events: List.append(events, [RoundFailed(score, target)])
+      }
     end
   end
 
@@ -440,11 +468,17 @@ mod Skee.Reducer do
       { s0 with tickets: Skee.Units.add_tickets(s0.tickets, payout_total(payout)), stats: { stats with rounds_cleared: stats.rounds_cleared + 1 } }
     let cleared = List.append(events, [RoundCleared(score, target, payout)])
     if is_last_boss(s) do
-      { run: { s with phase: Skee.Types.Won }, step_events: List.append(cleared, [RunWon]) }
+      {
+        run: { s with phase: Skee.Types.Won },
+        step_events: List.append(cleared, [RunWon])
+      }
     else
       do
         let (offers, rolled) = roll_offers(s)
-        { run: { rolled with phase: AtCounter({ offers: offers, reroll_cost: Tickets(1) }) }, step_events: List.append(cleared, [CounterOpened]) }
+        {
+          run: { rolled with phase: AtCounter({ offers: offers, reroll_cost: Tickets(1) }) },
+          step_events: List.append(cleared, [CounterOpened])
+        }
       end
     end
   end
@@ -565,7 +599,9 @@ mod Skee.Reducer do
       if Skee.Units.tickets_at_least(s.tickets, cost) do
         match deliver(item, target, s) do
         Err(e) -> Err(e)
-        Ok(stocked) -> Ok({ run: { stocked with tickets: Skee.Units.sub_tickets(stocked.tickets, cost), phase: AtCounter(clear_slot(c, i)) }, step_events: [Bought(item)] })
+        Ok(stocked) -> do
+          Ok({ run: { stocked with tickets: Skee.Units.sub_tickets(stocked.tickets, cost), phase: AtCounter(clear_slot(c, i)) }, step_events: [Bought(item)] })
+        end
         end
       else
         Err(CantAfford)
@@ -602,13 +638,22 @@ mod Skee.Reducer do
     match Skee.Items.round_next(s.round.kind) do
     Some(next_kind) -> do
       let round = fresh_round(next_kind, s)
-      { run: { s with round: round, phase: Throwing }, step_events: [RoundStarted(round.kind, round.target)] }
+      {
+        run: { s with round: round, phase: Throwing },
+        step_events: [RoundStarted(round.kind, round.target)]
+      }
     end
     None -> do
       let (boss, rng) = pick(s.rng, Skee.Items.all_bosses())
       let raised = { s with ante: s.ante + 1, boss: boss, rng: rng }
       let round = fresh_round(Warmup, raised)
-      { run: { raised with round: round, phase: Throwing }, step_events: [AnteStarted(raised.ante, boss), RoundStarted(round.kind, round.target)] }
+      {
+        run: { raised with round: round, phase: Throwing },
+        step_events: [
+          AnteStarted(raised.ante, boss),
+          RoundStarted(round.kind, round.target)
+        ]
+      }
     end
     end
   end
@@ -626,7 +671,9 @@ mod Skee.Reducer do
     match (if i >= 0 do List.nth_opt(s.power_ups, i) else None end, s.round.armed) do
     (None, _) -> Err(NoSuchItem)
     (Some(_), Some(_)) -> Err(AlreadyArmed)
-    (Some(p), None) -> Ok({ run: { s with power_ups: remove_at(s.power_ups, i), round: { s.round with armed: Some(p) } }, step_events: [Armed(p)] })
+    (Some(p), None) -> do
+      Ok({ run: { s with power_ups: remove_at(s.power_ups, i), round: { s.round with armed: Some(p) } }, step_events: [Armed(p)] })
+    end
     end
   end
 

@@ -18,14 +18,13 @@ mod BotsSuite do
     let t = standard()
     let book = aim_book(k, t, 120, default_aims(), 0.0, ClassicBall)
     all(List.map(Skee.HoleMap.reel_holes(), fn hole ->
-      do
-        match Skee.HoleMap.at(book.best, hole) do
-        None -> Mismatch("no window for " ++ show(hole))
-        Some(w) -> do
-          let r = Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Skee.U64.of_int(0))
-          expect(r.hole == hole, "window for " ++ show(hole) ++ " lands in " ++ show(r.hole))
-        end
-        end
+      match Skee.HoleMap.at(book.best, hole) do
+      None -> Mismatch("no window for " ++ show(hole))
+      Some(w) -> do
+        let r =
+          Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Skee.U64.of_int(0))
+        expect(r.hole == hole, "window for " ++ show(hole) ++ " lands in " ++ show(r.hole))
+      end
       end
     ))
   end
@@ -57,34 +56,33 @@ mod BotsSuite do
     match row do
     Cons(seed, Cons(skill, Cons(power, Cons(aim, Cons(start, Cons(fold, Cons(new_power, Cons(new_aim, Cons(word, Nil))))))))) -> do
       let k = consts()
-      let l = Skee.Physics.launch_of_power(k, f(power), f(aim), f(start), f(fold), 0.0, 0.0)
+      let l =
+        Skee.Physics.launch_of_power(k, f(power), f(aim), f(start), f(fold), 0.0, 0.0)
       let (out, hand) = perturb(k, skill_at(skill), l, Skee.Rng.seed(GoldenIo.u64(seed)))
-      all([
-        GoldenIo.expect_libm_float(out.power, new_power, "power"),
-        GoldenIo.expect_libm_float(out.aim, new_aim, "aim"),
-        GoldenIo.expect_float(out.start, start, "start"),
-        GoldenIo.expect_float(out.fold, fold, "fold"),
-        GoldenIo.expect_u64(Skee.Rng.word(hand), word, "rng")
-      ])
+      all([GoldenIo.expect_libm_float(out.power, new_power, "power"), GoldenIo.expect_libm_float(out.aim, new_aim, "aim"), GoldenIo.expect_float(out.start, start, "start"), GoldenIo.expect_float(out.fold, fold, "fold"), GoldenIo.expect_u64(Skee.Rng.word(hand), word, "rng")])
     end
     _ -> Mismatch("bad hand row")
     end
   end
 
   fn grid_hash(book : AimBook) : Int do
-    List.fold_left(book.grid, RunDigest.start(), fn (h, row) ->
-      List.fold_left(row, h, fn (acc, hole) -> RunDigest.word(acc, RunDigest.hole_index(hole)))
-    )
+    List.fold_left(book.grid, RunDigest.start(), fn (h, row) -> List.fold_left(row, h, fn (acc, hole) -> RunDigest.word(acc, RunDigest.hole_index(hole))))
   end
 
-  type BookSpec = { table : Table, ball : BallKind, steps : Int, grid_digest : String }
+  type BookSpec = {
+    table : Table,
+    ball : BallKind,
+    steps : Int,
+    grid_digest : String
+  }
 
   fn book_table(row : List(String)) : BookSpec do
     match row do
     Cons(room, Cons(ante, Cons(boss, Cons(ball, Cons(steps, Cons(digest, Nil)))))) -> do
       let k = consts()
       let kind = List.nth(Skee.Items.all_balls(), GoldenIo.int(ball))
-      let base = Skee.Rooms.table(k, List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)))
+      let base =
+        Skee.Rooms.table(k, List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)))
       let tight = Skee.Items.difficulty_table(GoldenIo.int(ante), base, 8)
       let bossed =
         if boss == "n" do
@@ -92,7 +90,12 @@ mod BotsSuite do
         else
           Skee.Items.modify_for_boss(List.nth(Skee.Items.all_bosses(), GoldenIo.int(boss)), tight)
         end
-      { table: Skee.Items.modify_for_ball(kind, bossed), ball: kind, steps: GoldenIo.int(steps), grid_digest: digest }
+      {
+        table: Skee.Items.modify_for_ball(kind, bossed),
+        ball: kind,
+        steps: GoldenIo.int(steps),
+        grid_digest: digest
+      }
     end
     _ -> panic("bad book row")
     end
@@ -104,11 +107,7 @@ mod BotsSuite do
       match Skee.HoleMap.at(book.best, List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(hole))) do
       None -> Mismatch("no window for hole " ++ hole)
       Some(w) -> do
-        all([
-          GoldenIo.expect_float(w.launch.power, power, "window power"),
-          GoldenIo.expect_float(w.launch.aim, aim, "window aim"),
-          GoldenIo.expect_float(w.width, width, "window width")
-        ])
+        all([GoldenIo.expect_float(w.launch.power, power, "window power"), GoldenIo.expect_float(w.launch.aim, aim, "window aim"), GoldenIo.expect_float(w.width, width, "window width")])
       end
       end
     end
@@ -119,7 +118,8 @@ mod BotsSuite do
   fn rate_row(rates : List(PerHole(Option(PerHole(Float)))), row : List(String)) : Outcome do
     match row do
     Cons(skill, Cons(hole, shares)) -> do
-      let spread = Skee.HoleMap.at(List.nth(rates, GoldenIo.int(skill)), List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(hole)))
+      let spread =
+        Skee.HoleMap.at(List.nth(rates, GoldenIo.int(skill)), List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(hole)))
       match spread do
       None -> Mismatch("no rates for hole " ++ hole)
       Some(s) -> do
@@ -136,14 +136,11 @@ mod BotsSuite do
     let k = consts()
     let spec = book_table(row)
     let book = aim_book(k, spec.table, spec.steps, default_aims(), 0.0, spec.ball)
-    let rates = List.map(all_skills(), fn skill -> landings(k, book, spec.table, skill, spec.ball))
+    let rates =
+      List.map(all_skills(), fn skill -> landings(k, book, spec.table, skill, spec.ball))
     let windows = GoldenIo.of_kind(rows, "window")
     let shares = GoldenIo.of_kind(rows, "rate")
-    all([
-      expect_string(int_to_string(grid_hash(book)), spec.grid_digest, "grid"),
-      all(List.map(windows, fn r -> window_row(book, r))),
-      all(List.map(shares, fn r -> rate_row(rates, r)))
-    ])
+    all([expect_string(int_to_string(grid_hash(book)), spec.grid_digest, "grid"), all(List.map(windows, fn r -> window_row(book, r))), all(List.map(shares, fn r -> rate_row(rates, r)))])
   end
 
   -- A book row owns the rows after it, up to the next book row.
@@ -164,10 +161,9 @@ mod BotsSuite do
   end
 
   -- ---- Whole runs ----
-  -- Bot runs from golden-run: the bot plays again here and every action must be
-  -- Swift's. On JS the hand's noise goes through libm, so a throw may differ by
-  -- what GoldenIo.libm_ulps() allows, counted as drift. A run on JS can therefore
-  -- part from Swift's for good, which is counted and ends that run's comparison.
+  -- Bot runs from golden-run: the bot plays again here, every action must be
+  -- Swift's, and the run must end in Swift's state. Native plays two runs, which
+  -- takes minutes; JS plays the first 24: every ball, room and skill.
   type BotGolden = {
     seed : Skee.U64.U64,
     room : Room,
@@ -238,13 +234,20 @@ mod BotsSuite do
     all([near(a.power, b.power, what ++ " power"), near(a.aim, b.aim, what ++ " aim")])
   end
 
-  -- Exact on native. On JS, within the libm allowance, and reported.
+  -- The hand adds noise to a launch, and the noise goes through libm. Exact on
+  -- native. On JS the noise is within GoldenIo.libm_ulps(), but a sum that lands
+  -- near zero has far smaller ulps than the noise it came from, so ulps of the sum
+  -- mean nothing there. The allowance is 2^-51: two ulps of 1, the largest the
+  -- noise reaches. It covers the bot's hand only, and always reports. The state
+  -- the run ends in is still compared exactly.
   fn near(a : Float, b : Float, what : String) : Outcome do
     let ulps = GoldenIo.ulps_between(GoldenIo.float_bits(a), GoldenIo.float_bits(b))
+    let apart = if a > b do a -. b else b -. a end
+    let k = consts()
     if ulps == 0 do
       Passed(1)
     else
-      if on_js() && ulps <= GoldenIo.libm_ulps() do
+      if on_js() && apart <= k.unit53 *. 4.0 do
         Drifted(1, 1, ulps)
       else
         Mismatch(what ++ ": " ++ int_to_string(ulps) ++ " ulp from Swift's")
@@ -277,10 +280,12 @@ mod BotsSuite do
   end
 
   fn bot_matches(k : Skee.Consts.Consts, g : BotGolden, books : Books) : (Outcome, Books) do
-    let (run, next_books) = play_bot_run(k, g.seed, g.skill, Skee.Types.standard_config(), g.room, g.ball, books)
+    let (run, next_books) =
+      play_bot_run(k, g.seed, g.skill, Skee.Types.standard_config(), g.room, g.ball, books)
     let want = List.map(g.actions, fn token -> ReducerSuite.action_of(k, token))
     let compared = compare_actions(run.bot_actions, want, 0, [])
-    let digest = expect_string(int_to_string(RunDigest.run(run.bot_final)), g.end_digest, "end state")
+    let digest =
+      expect_string(int_to_string(RunDigest.run(run.bot_final)), g.end_digest, "end state")
     (all(Cons(digest, compared)), next_books)
   end
 
@@ -288,35 +293,30 @@ mod BotsSuite do
     let k = consts()
     let (outcomes, _) =
       List.fold_left(picked, ([], no_books()), fn (held, g) ->
-        do
-          let (done, books) = held
-          let (o, next) = bot_matches(k, g, books)
-          (Cons(o, done), next)
-        end
+        let (done, books) = held
+        let (o, next) = bot_matches(k, g, books)
+        (Cons(o, done), next)
       )
     all(outcomes)
   end
 
   fn bot_run_is_deterministic() : Outcome do
     let k = consts()
-    let play = fn books -> play_bot_run(k, Skee.U64.of_int(4), regular(), Skee.Types.standard_config(), Boardwalk, ClassicBall, books)
-    let (a, _) = play(no_books())
-    let (b, _) = play(no_books())
-    all([
-      expect_int(RunDigest.run(a.bot_final), RunDigest.run(b.bot_final), "final"),
-      expect_int(List.length(a.bot_actions), List.length(b.bot_actions), "actions")
-    ])
+    let play =
+      fn books -> play_bot_run(k, Skee.U64.of_int(4), regular(), Skee.Types.standard_config(), Boardwalk, ClassicBall, books)
+    let (a, books) = play(no_books())
+    let (b, _) = play(books)
+    all([expect_int(RunDigest.run(a.bot_final), RunDigest.run(b.bot_final), "final"), expect_int(List.length(a.bot_actions), List.length(b.bot_actions), "actions")])
   end
 
   fn rounds_cleared(k : Skee.Consts.Consts, skill : Skill) : Int do
     let (total, _) =
       List.fold_left([1, 2, 3, 4, 5, 6], (0, no_books()), fn (held, seed) ->
-        do
-          let (n, books) = held
-          let (run, next) = play_bot_run(k, Skee.U64.of_int(seed), skill, Skee.Types.standard_config(), Boardwalk, Comet, books)
-          let done = run.bot_final
-          (n + done.stats.rounds_cleared, next)
-        end
+        let (n, books) = held
+        let (run, next) =
+          play_bot_run(k, Skee.U64.of_int(seed), skill, Skee.Types.standard_config(), Boardwalk, Comet, books)
+        let done = run.bot_final
+        (n + done.stats.rounds_cleared, next)
       )
     total
   end
@@ -332,13 +332,13 @@ mod BotsSuite do
     let rows = GoldenIo.rows(Golden.Bots.chunks())
     let bots = golden_bots(GoldenIo.rows(Golden.Run.chunks()), [])
     [
-      case("aim book finds a window for every hole", fn -> aim_book_finds_a_window_for_every_hole()),
-      case("perfect bot hits what it aims at", fn -> perfect_bot_hits_what_it_aims_at()),
-      case("hand noise goldens", fn -> all(List.map(GoldenIo.of_kind(rows, "hand"), hand_row))),
-      case("aim book and landing goldens", fn -> all(List.map(book_groups(rows, []), fn g -> book_rows(Tuple.first(g), Tuple.second(g))))),
-      case("bot run is deterministic", fn -> bot_run_is_deterministic()),
-      case("skill matters", fn -> skill_matters()),
-      case("bot runs match Swift's, action by action", fn -> bot_runs_match(List.take(bots, 2)))
+      case("aim book finds a window for every hole", fn () -> aim_book_finds_a_window_for_every_hole()),
+      case("perfect bot hits what it aims at", fn () -> perfect_bot_hits_what_it_aims_at()),
+      case("hand noise goldens", fn () -> all(List.map(GoldenIo.of_kind(rows, "hand"), hand_row))),
+      case("aim book and landing goldens", fn () -> all(List.map(book_groups(rows, []), fn g -> book_rows(Tuple.first(g), Tuple.second(g))))),
+      case("bot run is deterministic", fn () -> bot_run_is_deterministic()),
+      case("skill matters", fn () -> skill_matters()),
+      case("bot runs match Swift's, action by action", fn () -> bot_runs_match(List.take(bots, 2)))
     ]
   end
 
