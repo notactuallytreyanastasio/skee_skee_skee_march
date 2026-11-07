@@ -1541,7 +1541,7 @@ mod SceneSuite do
   fn drawn_mark(m : Skee.Scene.Mark) : Bool do
     match m do
     MarkFill(_, _) -> true
-    MarkLine(_, _, _, _) -> true
+    MarkLines(_, _, _) -> true
     MarkEdge(_, _, _) -> true
     MarkRing(_, _, _, _) -> true
     Undrawn(_, _, _) -> false

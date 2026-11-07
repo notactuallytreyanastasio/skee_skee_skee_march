@@ -1788,14 +1788,6 @@ mod Skee.Scene do
     apply(p.frame, v3(-w /. 2.0 +. u /. 512.0 *. w, h /. 2.0, l /. 2.0 -. v /. 2048.0 *. l))
   end
 
-  pfn lane_quad(b : Brush, p : Part, w : Float, h : Float, l : Float, u0 : Float, v0 : Float, u1 : Float, v1 : Float) : List(Vec2) needs () do
-    List.map([lane_uv(p, w, h, l, u0, v0), lane_uv(p, w, h, l, u1, v0), lane_uv(p, w, h, l, u1, v1), lane_uv(p, w, h, l, u0, v1)], fn q -> px(b, q))
-  end
-
-  pfn lane_line(b : Brush, p : Part, w : Float, h : Float, l : Float, u0 : Float, v0 : Float, u1 : Float, v1 : Float) : List(Vec2) needs () do
-    [px(b, lane_uv(p, w, h, l, u0, v0)), px(b, lane_uv(p, w, h, l, u1, v1))]
-  end
-
   -- One maple board's tone and its three grain streaks, drawn from the
   -- texture's SplitMix64(seed: 11) in Swift's order.
   type Plank = { tone : Float, streaks : List((Float, Float, Float)) }
@@ -1852,13 +1844,13 @@ mod Skee.Scene do
   -- suite can hold both against the real images.
   type Mark =
     MarkFill(List(Vec2), Rgba)
-    | MarkLine(Vec2, Vec2, Float, Rgba)
+    | MarkLines(List((Vec2, Vec2)), Float, Rgba)
     | MarkEdge(List(Vec2), Float, Rgba)
     | MarkRing(Vec2, Float, Float, Rgba)
     | Undrawn(Vec2, Vec2, Float)
 
-  -- MarkFill: a convex polygon, filled. MarkLine: a butt-capped segment of
-  -- that width. MarkEdge: a closed outline stroked with round joins.
+  -- MarkFill: a convex polygon, filled. MarkLines: butt-capped segments of
+  -- that width stroked as one path, so where they cross they paint once. MarkEdge: a closed outline stroked with round joins.
   -- MarkRing: a circle (centre, radius) stroked at that width. Undrawn: a
   -- butt-capped stroke Swift paints and the port leaves out (docs/PORT.md,
   -- deviations), so `texel` reads its pixels as unknown.
@@ -1902,7 +1894,7 @@ mod Skee.Scene do
   pfn mark_extent(m : Mark) : (List(Vec2), Float) needs () do
     match m do
     MarkFill(pts, _) -> (pts, 0.0)
-    MarkLine(a, z, width, _) -> ([a, z], width /. 2.0)
+    MarkLines(segs, width, _) -> (List.flat_map(segs, fn sg -> [Tuple.first(sg), Tuple.second(sg)]), width /. 2.0)
     MarkEdge(pts, width, _) -> (pts, width /. 2.0)
     MarkRing(centre, radius, width, _) -> ([centre], radius +. width /. 2.0)
     Undrawn(a, z, width) -> ([a, z], width /. 2.0)
@@ -1941,6 +1933,8 @@ mod Skee.Scene do
   -- enough an edge that antialiasing may reach it.
   type Cover = DeepIn | DeepOut | NearEdge
 
+  derive Eq for Cover
+
   pfn cover_of(inside : Bool, edge : Float) : Cover needs () do
     if edge < texel_margin() do NearEdge else if inside do DeepIn else DeepOut end end
   end
@@ -1948,7 +1942,7 @@ mod Skee.Scene do
   pfn mark_over(t : Texel, i : Int, m : Mark, q : Vec2) : Texel needs () do
     match m do
     MarkFill(pts, c) -> paint_texel(t, i, polygon_cover(pts, q), c)
-    MarkLine(a, z, width, c) -> paint_texel(t, i, polygon_cover(segment_box(a, z, width), q), c)
+    MarkLines(segs, width, c) -> paint_texel(t, i, union_cover(List.map(segs, fn sg -> polygon_cover(segment_box(Tuple.first(sg), Tuple.second(sg), width), q))), c)
     MarkEdge(pts, width, c) -> do
       let d = outline_distance(pts, q)
       paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
@@ -1983,6 +1977,16 @@ mod Skee.Scene do
         top: i
       }
     end
+    end
+  end
+
+  -- One path's strokes together: inside if any covers the pixel, outside
+  -- if all miss it.
+  pfn union_cover(covers : List(Cover)) : Cover needs () do
+    if List.any(covers, fn c -> c == DeepIn) do
+      DeepIn
+    else
+      if List.all(covers, fn c -> c == DeepOut) do DeepOut else NearEdge end
     end
   end
 
@@ -2060,10 +2064,10 @@ mod Skee.Scene do
     let boards =
       List.flat_map(List.enumerate(lane_planks(k)), fn e -> plank_marks(bw, size.y, e))
     let seams =
-      List.map(List.range(1, 9), fn i -> MarkLine(vec2(int_to_float(i) *. bw, 0.0), vec2(int_to_float(i) *. bw, size.y), 3.0, hex(13208398)))
+      MarkLines(List.map(List.range(1, 9), fn i -> (vec2(int_to_float(i) *. bw, 0.0), vec2(int_to_float(i) *. bw, size.y))), 3.0, hex(13208398))
     let arrows =
       List.flat_map(List.enumerate([-2.0, -1.0, 0.0, 1.0, 2.0]), fn e -> arrow_marks(size, bw, e))
-    List.concat([boards, seams, arrows])
+    List.concat([boards, [seams], arrows])
   end
 
   pfn plank_marks(bw : Float, height : Float, e : (Int, Plank)) : List(Mark) needs () do
@@ -2072,17 +2076,17 @@ mod Skee.Scene do
       let x0 = int_to_float(i) *. bw
       let board_fill =
         MarkFill([vec2(x0, 0.0), vec2(x0 +. bw, 0.0), vec2(x0 +. bw, height), vec2(x0, height)], plank_tone(pl))
-      Cons(board_fill, List.map(pl.streaks, fn st -> grain_mark(x0, bw, height, st)))
+      [board_fill, MarkLines(List.map(pl.streaks, fn st -> grain_segment(x0, bw, height, st)), 2.0, with_alpha(hex(14723174), 0.55))]
     end
     end
   end
 
-  pfn grain_mark(x0 : Float, bw : Float, height : Float, st : (Float, Float, Float)) : Mark needs () do
+  pfn grain_segment(x0 : Float, bw : Float, height : Float, st : (Float, Float, Float)) : (Vec2, Vec2) needs () do
     match st do
     (ux, vy, len_) -> do
       let x = x0 +. ux *. bw
       let y0 = vy *. height
-      MarkLine(vec2(x, y0), vec2(x +. 3.0, y0 +. 300.0 +. len_ *. 400.0), 2.0, with_alpha(hex(14723174), 0.55))
+      (vec2(x, y0), vec2(x +. 3.0, y0 +. 300.0 +. len_ *. 400.0))
     end
     end
   end
@@ -2114,7 +2118,7 @@ mod Skee.Scene do
   pfn paint_mark(k : Skee.Consts.Consts, at : Vec2 -> Vec2, metre : Float, tint : Rgba -> Rgba, m : Mark) : List(DrawOp) needs () do
     match m do
     MarkFill(pts, c) -> [fill(Poly(List.map(pts, at)), tint(c))]
-    MarkLine(a, z, width, c) -> [StrokeShape(Poly([at(a), at(z)]), butt_pen(tint(c), width *. metre), Over)]
+    MarkLines(segs, width, c) -> [StrokeShape(Outline(List.flat_map(segs, fn sg -> [MoveTo(at(Tuple.first(sg))), LineTo(at(Tuple.second(sg)))])), butt_pen(tint(c), width *. metre), Over)]
     MarkEdge(pts, width, c) -> [StrokeShape(Poly(List.map(pts, at)), pen(tint(c), width *. metre), Over)]
     MarkRing(centre, radius, width, c) -> [StrokeShape(Poly(List.map(List.range(0, 40), fn i -> at(ring_point(k, centre, radius, i)))), pen(tint(c), width *. metre), Over)]
     Undrawn(_, _, _) -> []
@@ -2610,7 +2614,7 @@ mod Skee.Scene do
 
   doc """Rows of Textures.ball each white polar cap takes."""
   fn ball_cap_rows() : Float needs () do
-    18.0
+    20.0
   end
 
   doc """The polar caps' colour."""
