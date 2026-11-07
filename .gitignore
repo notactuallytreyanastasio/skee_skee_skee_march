@@ -5,3 +5,6 @@
 .swiftpm/
 /dist/
 /.forge/
+node_modules/
+/tools/playtest/shots/
+/tools/scratch-*/
