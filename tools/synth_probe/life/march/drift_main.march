@@ -1,0 +1,16 @@
+mod DriftMain do
+  needs IO.Console
+
+  -- Samples of three cues outside the goldens, one per line; compared with
+  -- tools/synth_probe/life synth-drift (Swift) by hand. Not a suite.
+  fn dump(snd : Sound) : () do
+    let (out, _) = Skee.Synth.render(Skee.Synth.play(Skee.Synth.new(), snd), 44100)
+    List.each(out, fn x -> println(float_to_string(x)))
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    dump(SndTallyChips(200))
+    dump(SndTallyMult(80))
+    dump(SndCombo(40))
+  end
+end

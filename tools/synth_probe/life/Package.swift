@@ -8,5 +8,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     dependencies: [.package(name: "SkeeSkeeSkee", path: "/Users/bobdawg/code/skee_skee_skee")],
     targets: [.executableTarget(name: "synth-life", dependencies: [
-        .product(name: "SkeeRender", package: "SkeeSkeeSkee")])]
+        .product(name: "SkeeRender", package: "SkeeSkeeSkee")]),
+             .executableTarget(name: "synth-drift", dependencies: [
+        .product(name: "SkeeCore", package: "SkeeSkeeSkee"), .product(name: "SkeeRender", package: "SkeeSkeeSkee")])]
 )
