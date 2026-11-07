@@ -685,6 +685,10 @@ dead.board.captureSpeed = -1
 shot(.power(0.6, 0, 0, 0, 0, 0), dead, .classic, hardRng.next())
 dead.board.ringCenter = Vec2(0, 0)
 shot(.power(0.6, 0, 0, 0, 0, 0), dead, .classic, hardRng.next())
+// And with a wall hard against the centre, so the wall test reaches its division.
+var hugged = dead
+hugged.board.ringWalls[0] = 0.01
+shot(.power(0.6, 0, 0, 0, 0, 0), hugged, .classic, hardRng.next())
 // The same ball coming down through a lip below the board, at the centre of a ring
 // wall's band: a radial with no direction, which Swift points up the board.
 var sunken = dead
