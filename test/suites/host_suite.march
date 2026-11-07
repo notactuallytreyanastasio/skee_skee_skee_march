@@ -221,7 +221,7 @@ mod HostSuite do
                   if name == "swear" do
                     Skee.HostGuard.swear_words()
                   else
-                    Skee.Host.perk_words(name)
+                    perk_list(name)
                   end
                 end
               end
@@ -229,6 +229,22 @@ mod HostSuite do
           end
         end
       end
+    end
+  end
+
+  -- The golden's "asks" row is askedForPerks' own set; the others are Perk's.
+  fn perk_list(name : String) : List(String) do
+    match List.find(Skee.Host.perks(), fn p -> perk_name(p) == name) do
+    Some(p) -> Skee.Host.perk_words(p)
+    None -> if name == "asks" do Skee.Host.ask_words() else [] end
+    end
+  end
+
+  fn perk_name(p : Perk) : String do
+    match p do
+    PerkNights -> "nights"
+    PerkTickets -> "tickets"
+    PerkCredit -> "credit"
     end
   end
 
@@ -939,8 +955,29 @@ mod HostSuite do
     end
   end
 
+  -- JSONSerialization over an envelope holding a number token in a field
+  -- DeepSeek.chat never reads: the content "hi" is read, or the body is refused.
+  fn serial_row(row : List(String)) : Outcome do
+    match row do
+    Cons(body, Cons(want, Nil)) -> do
+      let got =
+        match Skee.Host.read_response(200, unhex(body)) do
+        Ok(text) -> if text == "hi" do "ok" else "content " ++ text end
+        Err(FailMalformed(_)) -> "refused"
+        Err(FailHttp(_, _)) -> "http"
+        Err(FailTruncated) -> "truncated"
+        Err(FailNetwork(_)) -> "network"
+        Err(FailUnreadable(_)) -> "unreadable"
+        end
+      expect_string(got, want, "envelope " ++ body)
+    end
+    _ -> Mismatch("bad serial row")
+    end
+  end
+
   fn net_cases(all_rows : List(List(String))) : List(Case) do
     [
+      case("JSONSerialization's number rule over the envelope", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "serial"), serial_row))),
       case("DeepSeek.parse over the corpus", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "parse"), parse_row))),
       case("DeepSeek.guardedReply and greeting against a scripted relay", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "wire"), fn w -> wire_case(all_rows, w))))
     ]

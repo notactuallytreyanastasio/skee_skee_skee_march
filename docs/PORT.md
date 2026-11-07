@@ -733,9 +733,31 @@ Findings, kept as Swift has them:
 - A number past 2^53-1 in a reply is held at 2^53-1 with its sign (every term
   is clamped and mood is read for its sign, so the rules give Swift's
   result), but `Haggle.json` then writes 9007199254740991 where Swift writes
-  the number sent. A number from 2^63 up is refused as in Swift, except that
-  9223372036854775807 and the 511 below it round to 2^63 as doubles and are
-  refused here, where Swift reads them.
+  the number sent. Whether Swift reads such a number at all is decided from
+  the token's text, not its Double (`decoder_numbers`, before
+  `Skee.Save.parse`): JSONDecoder reads an integer token exactly in Int64's
+  range (so 2^63-1 is read and -2^63-1, which is -2^63 as a Double, is
+  refused); any other token through its Double, which must lie in Int64's
+  range, and from 2^53 up through a Decimal (mantissa below 2^128, later
+  digits dropped, trailing zeros off, below 2^64 if it has a fraction, whole
+  part truncated and at most Int64.max, so `-9223372036854775808.0` is
+  refused while `-9223372036854775808` is read, and `9007199254740991.5`
+  reads as 9007199254740991). Repair round 3; the earlier round's note that
+  2^63-512..2^63-1 were refused here is fixed, and it had missed the negative
+  side (-2^63-1 down to -2^63-1024, then read here as -(2^53-1)).
+- JSONSerialization's number rule, which `serialization_reads` applies to
+  every token of the envelope: an exponent written in more than four
+  characters is refused (`1e00001`, `1e-1000`; `1e-400` is read); up to 17
+  digits (a lone `0` before the point not counted) is a Double, refused only
+  at +inf (`-1e400` is read, as -inf); more is a Decimal, refused if its
+  exponent leaves -128...127, checked digit by digit and then with the
+  written exponent (`1` and 200 zeros, `0.` 200 zeros `1`, even `0.` and 200
+  zeros, `9.99999999999999999999e307`). Probed on this machine's Foundation
+  (macOS 27.2, Swift 6.4.2) over about 100000 tokens against a model
+  (`tools/num_probe/model.py`, `batch.swift`), and pinned by golden rows:
+  690 tokens as `serial` envelopes, the same tokens as a reply's mood and as
+  offer.nights (with an unread copy) in `parse` rows, and wire rows 68 to 76.
+  These are Foundation's rules, which another OS release could change.
 
 Swift's String, as `Skee.SwiftText`: every comparison the guard makes is
 Character by Character with canonical equivalence (`"kill myself\u{301}"`
@@ -751,8 +773,8 @@ so a lookup allocates nothing and reads no string on JS (a 4-entry byte-view
 cache made a table string thrash). Segmentation is UAX #29's rules (GB3 to
 GB13, GB9c included) over those classes.
 
-Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 48676
-rows, 4.4 MB; reproducible run to run): 9868 strings' Characters (with each
+Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 50788
+rows, 5.5 MB; reproducible run to run): 9868 strings' Characters (with each
 one's letter, number, whitespace and ASCII key), lowercasing and every
 lowercase mapping, 5936 scalars' properties, prefix and count; HostGuard.screen
 over 8720 lines (every phrase and word in about forty spellings: case, punctuation,
@@ -765,19 +787,24 @@ haggles (every Haggle and HostGuard test in Swift, plus 160 fuzzed) step by step
 offer, patience, status, wantsModel, askedForPerks, final, last line and a
 digest of every message, with 110 system prompts (60 distinct) and 235
 transcript messages compared whole; standIn, accepts, json, deflection; DeepSeek.parse
-over 524 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
+over 1896 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
 escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting, text
-spelling Save.parse's marks); and
-72 runs of DeepSeek's real client (guardedReply and greeting) against a
+spelling Save.parse's marks, and 686 number tokens as mood and as
+offer.nights); JSONSerialization over the same 686 tokens in an envelope; and
+81 runs of DeepSeek's real client (guardedReply and greeting) against a
 URLProtocol standing in for the relay, comparing every request body and the
 outcome (envelopes JSONSerialization refuses or reads, and histories holding
 every control character), and each March body must hold no raw byte below
-0x20. All exact on native and JS. `make test-host`: 57 cases, about 12 s
+0x20. All exact on native and JS. `make test-host`: 58 cases, about 12 s
 native, 8 s on node. Eighteen hand mutations (a crisis phrase, Unicode
 whitespace, GB9c, GB11, GB12, the canonical singletons, the digit separators,
 the sweetener, a prompt word, the try count, truncation, the fence, the
 trickery deflection, the turn limit, the failure state, the push rule, the
-control escape in `request_body`, the envelope check) each turn the suite red.
+control escape in `request_body`, the envelope check), and nine more in repair
+round 3 (the 17-digit Double limit, the four-character exponent, -inf read,
+the 39th mantissa digit, -2^63 as an integer token, the 2^64 mantissa bound,
+skipping `decoder_numbers`, the fraction's exponent check, a Perk left out
+of `perks`) each turn the suite red.
 
 ## Rules every core module follows
 

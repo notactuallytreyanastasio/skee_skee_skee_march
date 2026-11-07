@@ -206,6 +206,13 @@ func wireRows(_ g: inout GoldenFile) {
         "{\"choices\": [{\"message\": {\"content\": \"\\u0007skee-unreadable\\u0007\"}}]}",
         "{\"choices\": [{\"message\": {\"content\": \"\\u0007skee-underflow\\u0007\"}}]}",
         env("\"\\u0007skee-unreadable\\u0007\": 1, "), env("", ", \"finish_reason\": \"\\u0007skee-unreadable\\u0007\""),
+        // JSONSerialization's number rule (repair round 3): more than 17
+        // digits is a Decimal, an exponent of more than four characters is
+        // refused, and -inf is read.
+        "{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"hi\"}, \"finish_reason\": \"stop\", \"x\": 9.99999999999999999999e307}]}",
+        env("", ", \"x\": 9.99999999999999999999e307"), env("\"n\": 0." + String(repeating: "0", count: 200) + "1, "),
+        env("\"n\": 1" + String(repeating: "0", count: 200) + ", "), env("\"n\": 1e00001, "), env("\"n\": 1e-1000, "),
+        env("\"n\": -1e400, "), env("\"n\": 9.9999999999999999e307, "), env("\"n\": 123456789012345678901234567890, "),
     ]
     // Each three times, so content that reads but is no reply runs out its tries.
     for m in envelopes { wires.append(Wire(greeting: false, room: .boardwalk, visit: .newRoom, seed: 11, said: ask, answers: [(200, m), (200, m), (200, m)])) }
