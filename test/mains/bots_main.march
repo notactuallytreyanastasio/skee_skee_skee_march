@@ -1,11 +1,9 @@
 mod BotsMain do
 
-  -- Replace Harness.pending with Harness.report("bots", BotsSuite.cases()) when
-  -- the first case exists, and uncomment the test in test/bots_test.march.
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.pending("bots")
+    Harness.report("bots", BotsSuite.cases())
   end
 
 end

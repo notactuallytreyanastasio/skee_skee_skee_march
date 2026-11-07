@@ -660,13 +660,7 @@ mod ReducerSuite do
   end
 
   fn replay_is_exact() : Outcome do
-    let a = replayed()
-    let b = replayed()
-    all([
-      expect(Skee.U64.equal(a.rng.word, b.rng.word), "rng"),
-      expect_string(stops_text(a), stops_text(b), "stops"),
-      expect_int(tickets_of(a), tickets_of(b), "tickets")
-    ])
+    expect_int(RunDigest.run(replayed()), RunDigest.run(replayed()), "state")
   end
 
   -- ---- The prize counter ----
@@ -1219,6 +1213,77 @@ mod ReducerSuite do
     end
   end
 
+  -- A parted shot is libm's doing, and PORT.md accepts it on JS. Native shares
+  -- Swift's libm, so there it is a failure. Everything before the parting was
+  -- still checked, and every run was checked with recorded shots too.
+  fn with_physics(t : Tally) : Outcome do
+    if t.bad > 0 do
+      counted(t)
+    else
+      if t.parted == 0 do
+        counted(t)
+      else
+        if on_js() do
+          Drifted(t.steps, t.parted, 0)
+        else
+          Mismatch(int_to_string(t.parted) ++ " shots parted from Swift's on native")
+        end
+      end
+    end
+  end
+
+  -- Shots that landed the same but whose times, heights or speeds differ in the
+  -- last bits. Measured, never compared away: the digest of the run ignores them.
+  fn shot_floats(t : Tally) : Outcome do
+    if t.floats_differ == 0 do
+      expect(t.shots > 0, "no shots")
+    else
+      Drifted(t.shots, t.floats_differ, 0)
+    end
+  end
+
+  fn digest_row(k : Skee.Consts.Consts, s : RunState, token : String, acc : List(Int)) : (RunState, List(Int)) do
+    match apply(k, action_of(k, token), s) do
+    Ok(step) -> (step.run, Cons(RunDigest.run(step.run), acc))
+    Err(_) -> (s, acc)
+    end
+  end
+
+  fn run_digests(k : Skee.Consts.Consts, rows : List(List(String)), s : RunState, acc : List(Int)) : List(Int) do
+    match rows do
+    Nil -> acc
+    Cons(row, rest) -> do
+      match row do
+      Cons("run", _) -> acc
+      Cons(_, Cons(token, _)) -> do
+        let (next, digests) = digest_row(k, s, token, acc)
+        run_digests(k, rest, next, digests)
+      end
+      _ -> acc
+      end
+    end
+    end
+  end
+
+  -- The first run of a golden, from its seed and actions alone.
+  fn replay_alone(k : Skee.Consts.Consts, rows : List(List(String))) : List(Int) do
+    let from_run = List.drop_while(rows, fn row -> List.head_opt(row) != Some("run"))
+    match from_run do
+    Cons(Cons(_, Cons(_, Cons(seed, Cons(room, _)))), rest) -> do
+      let s =
+        new_run(k, GoldenIo.u64(seed), Skee.Types.standard_config(), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(0))
+      run_digests(k, rest, s, [])
+    end
+    _ -> []
+    end
+  end
+
+  fn seed_and_actions_replay_exactly(k : Skee.Consts.Consts, rows : List(List(String))) : Outcome do
+    let a = replay_alone(k, rows)
+    let b = replay_alone(k, rows)
+    all([expect(List.length(a) > 50, "a real run"), expect(a == b, "two replays differ")])
+  end
+
   fn cases() : List(Case) do
     let k = consts()
     let rows = golden_rows()
@@ -1274,7 +1339,9 @@ mod ReducerSuite do
       case("free games do not feed the meters", fn -> free_games_do_not_feed_the_meters()),
       case("wallet goldens", fn -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
       case("golden runs, Swift's recorded shots", fn -> counted(recorded)),
-      case("golden runs, this target's physics", fn -> counted(real))
+      case("golden runs, this target's physics", fn -> with_physics(real)),
+      case("golden shots, floats against Swift", fn -> shot_floats(real)),
+      case("seed and actions replay exactly", fn -> seed_and_actions_replay_exactly(k, rows))
     ]
   end
 
