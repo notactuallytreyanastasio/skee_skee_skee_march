@@ -1,7 +1,105 @@
 mod Skee.Reducer do
 
-  -- The reducer piece. See docs/PORT.md for what ports here, and for the rules every
-  -- module under lib/ follows. Replace this comment as the first behaviour lands.
+  -- The run state machine (Run/Reducer.swift, Run/RunState.swift). Everything that
+  -- changes a run goes through `apply`: a pure function from an action and a state
+  -- to a new state and its ordered events, or a typed error. A run is fully
+  -- described by its seed and actions.
   cap pure
+
+  import Skee.Rng
+
+  -- ---- A new run ----
+  doc """
+  Start a run. The first ante's boss is drawn immediately so it can be shown from
+  the start. `extra_tickets` are a comped night's: part of how the run starts, so
+  a save (seed and actions) must carry them to replay exactly.
+  """
+  fn new_run(_k : Skee.Consts.Consts, seed : Skee.U64.U64, config : RunConfig, room : Room, extra_tickets : Tickets) : RunState needs () do
+    let (boss, rng) = pick(Skee.Rng.seed(seed), Skee.Items.all_bosses())
+    let scaled = { config with target_scale: config.target_scale *. Skee.Rooms.target_scale(room) }
+    let blank_round = bare_round(Warmup, Points(0), 0)
+    let start =
+      {
+        config: scaled,
+        ball: ClassicBall,
+        room: room,
+        rng: rng,
+        seed: seed,
+        ante: 1,
+        boss: boss,
+        round: blank_round,
+        phase: Throwing,
+        setup: Skee.Rooms.setup(room),
+        reel_stops: Skee.HoleMap.fill_reels(0),
+        top_slot: Skee.Scoring.empty_slot(),
+        charms: [],
+        power_ups: [],
+        tickets: Skee.Units.add_tickets(config.start_tickets, extra_tickets),
+        heat: 0,
+        fever: false,
+        stats: fresh_stats()
+      }
+    spin_reels({ start with round: fresh_round(Warmup, start) })
+  end
+
+  pfn fresh_stats() : RunStats needs () do
+    {
+      stat_balls: 0,
+      stat_holes: Skee.HoleMap.fill(0),
+      jackpots: 0,
+      stat_rattles: 0,
+      best_frame: Points(0),
+      pulls: 0,
+      free_games: 0,
+      jackpot_tiers: { mini: 0, minor: 0, major: 0, grand: 0 },
+      points: Points(0),
+      rounds_cleared: 0
+    }
+  end
+
+  pfn bare_round(kind : RoundKind, target : Points, frames_total : Int) : RoundState needs () do
+    {
+      kind: kind,
+      target: target,
+      frames_total: frames_total,
+      frames: [],
+      current_balls: [],
+      streak: 0,
+      combo: 0,
+      armed: None,
+      round_pull: None,
+      free_left: 0,
+      round_hot: None,
+      last_bet: BetOne
+    }
+  end
+
+  -- `target` is None only for an empty `ante_base`, a config Swift traps on here
+  -- too, so this arm is that same trap.
+  pfn fresh_round(kind : RoundKind, s : RunState) : RoundState needs () do
+    let base = s.config.frames_per_round
+    let with_charm = if List.member(s.charms, ExtraBall) do base + 1 else base end
+    let frames =
+      match kind do
+      BossRound -> with_charm + Skee.Items.frame_delta(s.boss)
+      Warmup -> with_charm
+      Feature -> with_charm
+      end
+    match Skee.Items.target(s.config, s.ante, kind) do
+    Some(target) -> bare_round(kind, target, frames)
+    None -> unreachable()
+    end
+  end
+
+  -- ---- The reels ----
+  pfn spin_reel(s : RunState, hole : Hole) : RunState needs () do
+    let (stop, rng) = next_int_below(s.rng, List.length(Skee.Scoring.reel(s.setup, hole)))
+    { s with rng: rng, reel_stops: Skee.HoleMap.reel_put(s.reel_stops, hole, stop) }
+  end
+
+  -- Every reel lands on a fresh seeded stop.
+  pfn spin_reels(s : RunState) : RunState needs () do
+    List.fold_left(Skee.HoleMap.reel_holes(), s, spin_reel)
+  end
 
 end

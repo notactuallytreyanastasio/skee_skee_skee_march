@@ -1,9 +1,62 @@
 mod ReducerSuite do
 
-  -- Owned by the reducer piece. Add cases here; see docs/PORT.md.
-  -- Add `import Harness` with the first case: it brings in case, all and expect.
+  -- Owned by the reducer piece. The ported Swift RunTests, and the goldens that
+  -- tools/golden/Sources/golden-run writes from the real Swift.
+  import Harness
+  import Skee.Reducer
+
+  fn consts() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  fn run_of(seed : Int) : RunState do
+    new_run(consts(), Skee.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+  end
+
+  fn new_run_starts_at_the_first_warmup() : Outcome do
+    let s = run_of(1)
+    let config = Skee.Types.standard_config()
+    let want =
+      match Skee.Items.target(config, 1, Warmup) do
+      Some(p) -> Skee.Units.points_int(p)
+      None -> -1
+      end
+    all([
+      expect_int(s.ante, 1, "ante"),
+      expect(s.round.kind == Warmup, "round kind"),
+      expect(is_throwing(s), "phase"),
+      expect_int(Skee.Units.points_int(s.round.target), want, "target"),
+      expect_int(Skee.Units.tickets_int(s.tickets), 4, "tickets")
+    ])
+  end
+
+  fn is_throwing(s : RunState) : Bool do
+    match s.phase do
+    Throwing -> true
+    AtCounter(_) -> false
+    Lost -> false
+    Won -> false
+    end
+  end
+
+  fn boss_of(seed : Int) : Boss do
+    let s = run_of(seed)
+    s.boss
+  end
+
+  fn same_seed_same_boss() : Outcome do
+    let bosses = List.dedup(List.map(List.range(0, 40), fn n -> Skee.Items.boss_name(boss_of(n))))
+    all([
+      expect(boss_of(5) == boss_of(5), "same seed"),
+      expect(List.length(bosses) > 3, "bosses vary")
+    ])
+  end
+
   fn cases() : List(Case) do
-    []
+    [
+      case("new run starts at the first warmup", fn -> new_run_starts_at_the_first_warmup()),
+      case("same seed, same boss", fn -> same_seed_same_boss())
+    ]
   end
 
 end

@@ -1,9 +1,9 @@
 mod ReducerTest do
 
-  -- Pending. When the first case exists, add:
-  --   test "reducer suite" do
-  --     assert (Harness.failures(ReducerSuite.cases()) == [])
-  --   end
   needs IO.Console
+
+  test "reducer suite" do
+    assert Harness.failures(ReducerSuite.cases()) == []
+  end
 
 end

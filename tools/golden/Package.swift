@@ -8,7 +8,7 @@ let package = Package(
     name: "SkeeGolden",
     platforms: [.macOS(.v15)],
     dependencies: [
-        .package(name: "SkeeSkeeSkee", path: "/Users/bobdawg/code/skee_skee_skee"),
+        .package(name: "SkeeSkeeSkee", path: "../../../skee_skee_skee"),
     ],
     targets: [
         .target(name: "GoldenSupport"),

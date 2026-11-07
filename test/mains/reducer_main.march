@@ -1,11 +1,9 @@
 mod ReducerMain do
 
-  -- Replace Harness.pending with Harness.report("reducer", ReducerSuite.cases()) when
-  -- the first case exists, and uncomment the test in test/reducer_test.march.
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.pending("reducer")
+    Harness.report("reducer", ReducerSuite.cases())
   end
 
 end
