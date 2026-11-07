@@ -659,14 +659,13 @@ mod Skee.Physics do
   -- Counts time at rest, and nudges or stops the ball when it has rested enough.
   pfn rest(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
     let board = c.table.board
-    let moving =
+    -- `< 0.05`, as in Swift: a NaN speed is not at rest. `>= 0.05` is not its negation.
+    let at_rest =
       match b.mode do
-      BallAirborne -> true
-      BallRolling -> length(b.v) >= 0.05
+      BallAirborne -> false
+      BallRolling -> length(b.v) < 0.05
       end
-    if moving do
-      KeepGoing(sim, { b with resting: 0.0 })
-    else
+    if at_rest do
       do
         let resting = b.resting +. c.table.dt
         if resting > 0.2 do
@@ -679,6 +678,8 @@ mod Skee.Physics do
           KeepGoing(sim, { b with resting: resting })
         end
       end
+    else
+      KeepGoing(sim, { b with resting: 0.0 })
     end
   end
 

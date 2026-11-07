@@ -270,19 +270,28 @@ mod PhysicsSuite do
 
   -- How a set of Floats compared with Swift's. Times are kept apart from
   -- positions: t only ever adds dt, so no libm reaches it and it must be exact.
-  type ShotCheck = { same : Bool, gap : Float, ulps : Int, time_gap : Float }
+  -- `structural` is any difference that is not a distance: a phase, a Some against
+  -- a None, a missing sample, a NaN against a number. No tolerance covers it.
+  type ShotCheck = {
+    same : Bool,
+    structural : Bool,
+    gap : Float,
+    ulps : Int,
+    time_gap : Float
+  }
 
   fn fine() : ShotCheck do
-    { same: true, gap: 0.0, ulps: 0, time_gap: 0.0 }
+    { same: true, structural: false, gap: 0.0, ulps: 0, time_gap: 0.0 }
   end
 
   fn differs() : ShotCheck do
-    { same: false, gap: 0.0, ulps: 0, time_gap: 0.0 }
+    { same: false, structural: true, gap: 0.0, ulps: 0, time_gap: 0.0 }
   end
 
   fn both(a : ShotCheck, b : ShotCheck) : ShotCheck do
     {
       same: a.same && b.same,
+      structural: a.structural || b.structural,
       gap: Skee.Maths.max_float(a.gap, b.gap),
       ulps: Math.max_int(a.ulps, b.ulps),
       time_gap: Skee.Maths.max_float(a.time_gap, b.time_gap)
@@ -299,22 +308,35 @@ mod PhysicsSuite do
   end
 
   fn position(x : Float, want : String) : ShotCheck do
-    let ulps = GoldenIo.ulps_between(GoldenIo.float_bits(x), GoldenIo.u64(want))
-    {
-      same: same_bits(x, want),
-      gap: Math.abs(x -. f(want)),
-      ulps: ulps,
-      time_gap: 0.0
-    }
+    let gap = Math.abs(x -. f(want))
+    if same_bits(x, want) do
+      fine()
+    else
+      if GoldenIo.is_nan(gap) do
+        differs()
+      else
+        {
+          same: false,
+          structural: false,
+          gap: gap,
+          ulps: GoldenIo.ulps_between(GoldenIo.float_bits(x), GoldenIo.u64(want)),
+          time_gap: 0.0
+        }
+      end
+    end
   end
 
   fn time(x : Float, want : String) : ShotCheck do
-    {
-      same: same_bits(x, want),
-      gap: 0.0,
-      ulps: 0,
-      time_gap: Math.abs(x -. f(want))
-    }
+    let gap = Math.abs(x -. f(want))
+    if same_bits(x, want) do
+      fine()
+    else
+      if GoldenIo.is_nan(gap) do
+        differs()
+      else
+        { same: false, structural: false, gap: 0.0, ulps: 0, time_gap: gap }
+      end
+    end
   end
 
   -- One golden shot, replayed: what Swift said against what March did.
@@ -412,14 +434,16 @@ mod PhysicsSuite do
     end
   end
 
-  -- Whether the sums over every sample are the same. A sum's gap adds up every
-  -- sample's and is no distance on the board, so it is not counted as a gap.
-  fn sums_check(t : Float, x : Float, along : Float, height : Float, row : List(String)) : ShotCheck do
-    if same_bits(x, token(row, 23)) && same_bits(along, token(row, 24)) && same_bits(height, token(row, 25)) do
-      time(t, token(row, 22))
-    else
-      both(differs(), time(t, token(row, 22)))
-    end
+  -- A sum over `n` samples. Its gap adds up every sample's, so it is judged as the
+  -- mean gap per sample: a distance, held to the same tolerance as a position.
+  fn sum_position(x : Float, want : String, n : Int) : ShotCheck do
+    let c = position(x, want)
+    { c with gap: c.gap /. int_to_float(Math.max_int(n, 1)) }
+  end
+
+  -- Whether the sums over every sample are the same.
+  fn sums_check(t : Float, x : Float, along : Float, height : Float, n : Int, row : List(String)) : ShotCheck do
+    every([time(t, token(row, 22)), sum_position(x, token(row, 23), n), sum_position(along, token(row, 24), n), sum_position(height, token(row, 25), n)])
   end
 
   fn judge(row : List(String), r : ShotResult) : ShotVerdict do
@@ -432,7 +456,7 @@ mod PhysicsSuite do
         ("peak", position(r.peak_height, token(row, 16))),
         ("duration", time(r.duration, token(row, 17))),
         ("times", times_check(r.events, token(row, 20))),
-        ("sums", sums_check(t, x, along, height, row)),
+        ("sums", sums_check(t, x, along, height, List.length(r.path), row)),
         ("samples", walk_samples(r.path, 0, String.split(token(row, 26), ","), fine()))
       ]
     let bad =
@@ -463,8 +487,10 @@ mod PhysicsSuite do
   end
 
   -- The declared tolerance for a shot on JS, in metres. V8's sin and cos differ
-  -- from Darwin's by an ulp, and bounces amplify that. Holes, events, every time
-  -- and the sample counts get no tolerance at all, and native gets none anywhere.
+  -- from Darwin's by an ulp, and bounces amplify that. It covers position values
+  -- and the mean gap of the path sums, nothing else: holes, events, phases, every
+  -- time, sample counts, Some against None and NaN against a number get no
+  -- tolerance at all, and native gets none anywhere.
   -- Measured worst case: see the DIVERGENCE line the runner prints.
   fn js_path_tolerance() : Float do
     0.00000001
@@ -475,7 +501,7 @@ mod PhysicsSuite do
   end
 
   fn shape_ok(v : ShotVerdict) : Bool do
-    v.hole_ok && v.events_ok && v.count_ok && v.check.time_gap == 0.0
+    v.hole_ok && v.events_ok && v.count_ok && !v.check.structural && v.check.time_gap == 0.0
   end
 
   fn outcome_of(v : ShotVerdict) : Outcome do
@@ -502,6 +528,68 @@ mod PhysicsSuite do
   fn divergence_line(vs : List(ShotVerdict)) : String do
     let n = fn p -> int_to_string(count_if(vs, p))
     "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
+  end
+
+  -- ---- What counts as drift ----
+  -- The JS tolerance is for position values alone. Anything else that differs is
+  -- a real difference on every target, so these must be Mismatch on JS too.
+  fn zero_bits() : String do
+    "0000000000000000"
+  end
+
+  fn one_bits() : String do
+    "3ff0000000000000"
+  end
+
+  fn nan_bits() : String do
+    "7ff8000000000000"
+  end
+
+  fn lane_sample() : PathSample do
+    { t: 0.0, phase: OnLane, px: 0.0, along: 0.0, height: 0.0 }
+  end
+
+  fn sample_text(phase : String) : String do
+    String.join(["0", phase, zero_bits(), zero_bits(), zero_bits(), zero_bits()], ":")
+  end
+
+  fn verdict_of(c : ShotCheck) : ShotVerdict do
+    { index: "self", hole_ok: true, events_ok: true, count_ok: true, check: c, first_diff: "self" }
+  end
+
+  fn is_real_difference(c : ShotCheck, what : String) : Outcome do
+    match outcome_of(verdict_of(c)) do
+    Mismatch(_) -> Passed(1)
+    Passed(_) -> Mismatch(what ++ " was passed")
+    Drifted(_, _, _) -> Mismatch(what ++ " was filed as drift")
+    end
+  end
+
+  fn is_tolerated(c : ShotCheck, what : String) : Outcome do
+    let want_drift = Harness.on_js()
+    match outcome_of(verdict_of(c)) do
+    Mismatch(text) -> if want_drift do Mismatch(what ++ ": " ++ text) else Passed(1) end
+    Passed(_) -> Mismatch(what ++ " was passed")
+    Drifted(_, _, _) -> if want_drift do Passed(1) else Mismatch(what ++ " drifted on native") end
+    end
+  end
+
+  -- The row sums_check reads: only tokens 22 to 25 matter.
+  fn sums_row(t : String, x : String, along : String, height : String) : List(String) do
+    List.append(List.map(List.range(0, 22), fn _ -> ""), [t, x, along, height])
+  end
+
+  fn drift_is_only_position() : Outcome do
+    let zero = zero_bits()
+    let k = consts()
+    let sums = sums_row(zero, zero, zero, zero)
+    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance")])
+  end
+
+  fn agreement_is_not_difference() : Outcome do
+    let k = consts()
+    let c = both(position(k.nan, nan_bits()), position(1.0, one_bits()))
+    expect(c.same && c.gap == 0.0, "NaN against NaN must compare equal")
   end
 
   -- ---- BulkRun ----
@@ -677,6 +765,40 @@ mod PhysicsSuite do
     let duo = Skee.Stroke.flick_geometry(445.0, 313.0, 260.0)
     let flat = Skee.Stroke.flick_geometry(445.0, 313.0, 0.0)
     all(List.append(List.map(GoldenIo.of_kind(rows, "lanestart"), fn row -> lane_start_row(k, duo, row)), List.map(GoldenIo.of_kind(rows, "lanestartflat"), fn row -> lane_start_row(k, flat, row))))
+  end
+
+  -- What a caller gets by not saying: Skee.Stroke.flick_geometry's give, and the
+  -- standard tuning.
+  fn flick_defaults_case(rows : List(List(String))) : Outcome do
+    let g = Skee.Stroke.flick_geometry(445.0, 313.0, 260.0)
+    let tn = Skee.Types.standard_tuning()
+    let tuning =
+      [
+        tn.slowest,
+        tn.fastest,
+        tn.release_weight,
+        tn.snap_gain,
+        tn.full_aim_angle,
+        tn.smooth_jerk,
+        tn.skid_per_jerk,
+        tn.line_reach
+      ]
+    let geometry = [g.foul_give, Skee.Stroke.foul_y(g)]
+    all(List.append(expect_each(geometry, GoldenIo.of_kind(rows, "flickdefaults"), "geometry default"), expect_each(tuning, GoldenIo.of_kind(rows, "tuningdefaults"), "tuning default")))
+  end
+
+  -- Every value against the one row of its kind, which must be as long.
+  fn expect_each(got : List(Float), want : List(List(String)), what : String) : List(Outcome) do
+    match want do
+    Cons(row, Nil) -> do
+      Cons(expect(List.length(got) == List.length(row), what ++ " row length"), List.map(List.zip(got, row), fn pair ->
+        match pair do
+        (x, bits) -> GoldenIo.expect_float(x, bits, what)
+        end
+      ))
+    end
+    _ -> [Mismatch(what ++ ": expected one row")]
+    end
   end
 
   -- ---- The Swift tests, ported ----
@@ -1163,6 +1285,8 @@ mod PhysicsSuite do
 
   fn golden_cases(rows : List(List(String)), shots : List(ShotVerdict), bulk : BulkRun) : List(Case) do
     [
+      case("a structural difference is never drift", fn () -> drift_is_only_position()),
+      case("NaN agrees with NaN", fn () -> agreement_is_not_difference()),
       case("speed curve", fn () -> curve_case(rows)),
       case("inverse speed curve", fn () -> inverse_case(rows)),
       case("hinge launch angle", fn () -> angle_case(rows)),
@@ -1172,7 +1296,8 @@ mod PhysicsSuite do
       case("golden shots", fn () -> all(List.map(shots, outcome_of))),
       case("bulk golden shots", fn () -> bulk_outcome(bulk)),
       case("lane start", fn () -> lane_start_case(rows)),
-      case("golden flicks", fn () -> flick_case(rows))
+      case("golden flicks", fn () -> flick_case(rows)),
+      case("flick defaults", fn () -> flick_defaults_case(rows))
     ]
   end
 
