@@ -15,7 +15,8 @@ mod Skee.Consts do
     unit53 : Float,
     floor_u1 : Float,
     infinity : Float,
-    nan : Float
+    nan : Float,
+    marshmallow_drawn : Float
   }
 
   -- Only ever called on the fixed strings below, and the rng suite pins each
@@ -36,7 +37,8 @@ mod Skee.Consts do
       unit53: parse("1.1102230246251565e-16"),
       floor_u1: 0.000000000001,
       infinity: parse("1e308") *. 10.0,
-      nan: Math.sqrt(-1.0)
+      nan: Math.sqrt(-1.0),
+      marshmallow_drawn: parse("1.2999999523162842")
     }
   end
 

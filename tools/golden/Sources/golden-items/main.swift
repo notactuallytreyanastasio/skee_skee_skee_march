@@ -282,8 +282,7 @@ for room in Room.allCases {
     c.targetScale *= room.targetScale
     for ante in -1...10 { for kind in RoundKind.allCases { targetLine(c, ante, kind) } }
 }
-// Scales that land on and either side of .5: rounding is away from zero, and the
-// three-way product groups left to right.
+// Scales that land on and either side of .5: rounding is away from zero.
 let scales: [Double] = [0.1, 0.25, 0.3, 0.49999999999999994, 0.5, 0.5000000000000001, 0.7, 1.1, 1.25, 1.37,
                         2.5, -0.1, -0.25, -0.5, -1.5, 0]
 for scale in scales {
@@ -292,13 +291,41 @@ for scale in scales {
     c.anteBase = [1, 2, 3, 5, 7, 9, 11, 1001]
     for ante in 1...8 { for kind in RoundKind.allCases { targetLine(c, ante, kind) } }
 }
-// A kind scale of 0.1 is the case where (base * kind) * scale differs from
-// base * (kind * scale), and a short ante list moves the clamp.
+// A short ante list moves the clamp.
 var odd = RunConfig.standard
 odd.anteBase = [333, 777, 1]
 odd.kindScale = [.warmup: 0.1, .feature: 0.7, .boss: 3.3]
 odd.targetScale = 1.1
 for ante in -1...5 { for kind in RoundKind.allCases { targetLine(odd, ante, kind) } }
+
+// The three-way product groups left to right. None of the rows above can see
+// that: a witness needs a product that lands within an ulp of .5, so these are
+// searched for, and each row is one where the other grouping rounds differently.
+@MainActor func groupingLine(_ base: Int, _ kind: Double, _ scale: Double) {
+    var c = RunConfig.standard
+    c.anteBase = [base]
+    c.kindScale = [.warmup: kind, .feature: 1.3, .boss: 1.6]
+    c.targetScale = scale
+    targetLine(c, 1, .warmup)
+}
+groupingLine(375, 2.32, 2.25)
+@MainActor func groupingWitnesses(_ other: (Double, Double, Double) -> Double) {
+    var found = 0
+    for base in stride(from: 25, through: 1000, by: 25) {
+        for kindHundredths in 1...400 {
+            for scaleHundredths in stride(from: 5, through: 400, by: 5) {
+                let kind = Double(kindHundredths) / 100, scale = Double(scaleHundredths) / 100
+                let swift = (Double(base) * kind * scale).rounded()
+                guard swift != other(Double(base), kind, scale).rounded(), found < 6 else { continue }
+                groupingLine(base, kind, scale)
+                found += 1
+            }
+        }
+    }
+    precondition(found == 6, "no witness: the golden would not constrain the grouping")
+}
+groupingWitnesses { base, kind, scale in base * (kind * scale) }
+groupingWitnesses { base, kind, scale in (base * scale) * kind }
 
 // ---- BallTests and DifficultyTests, as values ----
 
@@ -312,6 +339,16 @@ let throwOne = Launch(power: 0.6, aim: 0)
 }
 for ball in [BallKind.bean, .wobbler] { for seed in UInt64(0)..<20 { seedLine(ball, seed) } }
 for seed in UInt64(1)...2 { seedLine(.classic, seed) }
+
+// Swift's == on two whole ShotResults: every field, every path sample. Equal for
+// a replay and for any ball that is not random, and not otherwise.
+for ball in BallKind.allCases {
+    for (x, y) in [(UInt64(1), UInt64(2)), (5, 5), (0, 7)] {
+        let same = simulateShot(throwOne, on: .standard, ball: ball, seed: x)
+            == simulateShot(throwOne, on: .standard, ball: ball, seed: y)
+        g.line("ball_same", ball.rawValue, u64(x), u64(y), b(same))
+    }
+}
 
 // aCometLeavesFaster.
 g.line("hinge_speed", "classic", f64(simulateShot(throwOne, on: .standard).hingeSpeed!))

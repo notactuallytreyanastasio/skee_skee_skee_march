@@ -88,12 +88,11 @@ mod Skee.Items do
   doc """
   Drawn size against a classic ball. The physics radius does not change: only
   the holes' welcome does. Swift holds this as a 32-bit Float, so 1.3 here is
-  the nearest Float32, written as a ratio of two exact values because it has
-  too many digits for a literal.
+  the nearest Float32, which has too many digits for a literal.
   """
-  fn drawn_size(b : BallKind) : Float needs () do
+  fn drawn_size(k : Skee.Consts.Consts, b : BallKind) : Float needs () do
     match b do
-    Marshmallow -> 10905190.0 /. 8388608.0
+    Marshmallow -> k.marshmallow_drawn
     ClassicBall -> 1.0
     JumpingBean -> 1.0
     Wobbler -> 1.0
