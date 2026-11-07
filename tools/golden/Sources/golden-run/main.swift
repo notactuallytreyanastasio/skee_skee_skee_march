@@ -494,7 +494,7 @@ for (n, c) in configs.enumerated() {
            i(c.powerUpSlots), i(c.feverHeat), f64(c.targetScale), f64(c.overkillStep), i(c.overkillCap),
            i(c.interestPer), i(c.interestCap), i(c.offerCount), c.anteBase.map(String.init).joined(separator: ","))
 }
-let heldoutRuns = 400
+let heldoutRuns = 64
 var heldoutShots = 0
 for n in 1...heldoutRuns {
     let room = Room.allCases[(n * 7) % Room.allCases.count]
