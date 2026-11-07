@@ -540,6 +540,29 @@ for window in [0.06, 0.05] {
     flickRow(track(ts, xs, ys), duo, 0)
 }
 
+// One velocity in the tail that is not the last: out of order, the last pair's
+// midpoint is older than the tail. Swift reads v.last, not the tail.
+flickRow(track([0, 8, 16, 24, 40, 10, 34].map { $0 / 64 }, [313, 316, 319, 322, 330, 335, 340],
+               [820, 780, 740, 700, 600, 590, 400]), duo, 0)
+
+// A flat lane and no speed: s is exactly 0 after the first step, which is `s <= 0`.
+var level = Table.standard
+level.lane.incline = 0
+shot(.speed(0, 0, 0, 0, 0, 0, 0), level, .classic, hardRng.next())
+
+// A coarse clock on a level board: `resting` lands exactly on 0.2, which is not
+// `resting > 0.2` yet.
+for dt in [0.1, 0.2] {
+    var coarse = Table.standard
+    coarse.dt = dt
+    coarse.board.tilt = 0
+    coarse.board.captureSpeed = -1
+    coarse.board.rollingFriction = 0.02
+    for n in 0...30 {
+        shot(.power(0.2 + Double(n) * 0.02, 0, 0, 0, 0, 0), coarse, .classic, hardRng.next())
+    }
+}
+
 // What a caller gets by not saying: the default give, and the standard tuning.
 let plainGeometry = FlickGeometry(creaseY: 445, laneCenterX: 313, laneHalfWidth: 260)
 g.line("flickdefaults", f64(plainGeometry.foulGive), f64(plainGeometry.foulY))

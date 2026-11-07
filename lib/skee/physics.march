@@ -659,7 +659,6 @@ mod Skee.Physics do
   -- Counts time at rest, and nudges or stops the ball when it has rested enough.
   pfn rest(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
     let board = c.table.board
-    -- `< 0.05`, as in Swift: a NaN speed is not at rest. `>= 0.05` is not its negation.
     let at_rest =
       match b.mode do
       BallAirborne -> false
@@ -683,6 +682,7 @@ mod Skee.Physics do
     end
   end
 
+  -- `< 0.05`, as in Swift: a NaN speed is not at rest. `>= 0.05` is not its negation.
   -- What the step left: captured, gone past the bottom, or still in play.
   pfn after_step(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
     match capture(c, sim, b) do
