@@ -1,0 +1,20 @@
+=== rooms (phone)
+  title live TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk) | BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-1-title.png
+  wallet room boardwalk
+  after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-3-neon-reload.png
+  start in neon: layer LayerBase | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-4-neon-game.png
+  wallet comps after checkin []
+  console: clean
+=== shop (phone)
+  shop: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 1340 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 1340 WINNINGS just for show · prizes never change a run Gold Star Sticker 50 Rubber Duck 150 Kazoo 250 Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK live TapBuyPrize(Sticker),TapBuyPrize(RubberDuck),TapBuyPrize(Kazoo),TapBuyPrize(Yoyo),TapBuyPrize(Slinky),TapBuyPrize(PlushFrog),TapBuyPrize(LavaLamp),TapBuyPrize(Robot),TapBuyPrize(GiantBear),TapBuyPrize(Trophy),TapCloseShop
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-1-shop.png
+  after buys: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 490 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 490 WINNINGS just for show · prizes never change a run Gold Star Sticker ON SHELF Rubber Duck ON SHELF Kazoo ON SHELF Yo-yo ON SHELF Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-2-bought.png
+  clickable now TapBuyPrize(Slinky),TapBuyPrize(PlushFrog),TapBuyPrize(LavaLamp),TapBuyPrize(Robot),TapBuyPrize(GiantBear),TapBuyPrize(Trophy),TapCloseShop
+  wallet balance 490 lifetime 1340 owned sticker,rubberDuck,kazoo,yoyo
+  title after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 490 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-3-title-reload.png
+  console: clean

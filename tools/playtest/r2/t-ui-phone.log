@@ -1,0 +1,37 @@
+=== rooms (phone)
+  title live TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk) | BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-1-title.png
+  wallet room boardwalk
+  after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-3-neon-reload.png
+  start in neon: layer LayerBase | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-4-neon-game.png
+  wallet comps after checkin []
+  console: clean
+=== shop (phone)
+  shop: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 0 WINNINGS just for show · prizes never change a run Gold Star Sticker 50 Rubber Duck 150 Kazoo 250 Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK live TapBuyPrize(Sticker),TapBuyPrize(RubberDuck),TapBuyPrize(Kazoo),TapBuyPrize(Yoyo),TapBuyPrize(Slinky),TapBuyPrize(PlushFrog),TapBuyPrize(LavaLamp),TapBuyPrize(Robot),TapBuyPrize(GiantBear),TapBuyPrize(Trophy),TapCloseShop
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-1-shop.png
+  after buys: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 0 WINNINGS just for show · prizes never change a run Gold Star Sticker 50 Rubber Duck 150 Kazoo 250 Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-2-bought.png
+  clickable now TapBuyPrize(Sticker),TapBuyPrize(RubberDuck),TapBuyPrize(Kazoo),TapBuyPrize(Yoyo),TapBuyPrize(Slinky),TapBuyPrize(PlushFrog),TapBuyPrize(LavaLamp),TapBuyPrize(Robot),TapBuyPrize(GiantBear),TapBuyPrize(Trophy),TapCloseShop
+  wallet balance 0 lifetime 0 owned 
+  title after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-shop-3-title-reload.png
+  console: clean
+=== guide (phone)
+  guide from title: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 THE GUIDE more appears here as you play The Big Idea Rolling the Ball The Lever Scoring Tickets and the Co live Topic(0),Topic(1),Topic(2),Topic(3),Topic(4),TapReplayLesson,TapCloseGuide
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-1-title-guide.png
+  topics Topic(0),Topic(1),Topic(2),Topic(3),Topic(4)
+    Topic(0): 4 pages
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-2-Topic0.png
+    Topic(1): 4 pages
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-2-Topic1.png
+    Topic(2): 2 pages
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-2-Topic2.png
+    Topic(3): 8 pages
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-2-Topic3.png
+    Topic(4): 5 pages
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-guide-2-Topic4.png
+  close intent TapCloseGuide
+  after close layer LayerBase live TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk)
+  console: clean

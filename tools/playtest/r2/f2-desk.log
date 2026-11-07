@@ -1,0 +1,51 @@
+=== lever (desktop)
+lever knob/track {"b":[750,490.203125],"t":[468.203125,668.203125]}
+lever drag pulled: true busy=1
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-001-lever-drag.png
+console(lever): clean
+=== foul (desktop)
+crease 421
+after foul drag: BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 1/3 · 9 BALLS FOUL THUMB PAST THE CREASE
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-002-foul.png
+settled: BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 1/3 · 8 BALLS gutter · the next two can still pair
+console(foul): clean
+=== stamp (desktop)
+counter: BAR 7 ANTE 1/8 WARM-UP 1614 / 60 16 COMBO x6 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 16 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to a hole's reel 3 TIX W Wild Ball This ball's symbol is a wild clover 2 TIX REROLL 1 NEXT ROUND THE PRIZE COUNTER SKIP Clearing a round pays tickets. Spend 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-003-stamp-selected.png
+tap board at y=288: PRIZE COUNTER 13 sel=
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-004-stamp-applied.png
+after stamp: BAR 7 ANTE 1/8 WARM-UP 1614 / 60 13 COMBO x6 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 13 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX SOLD W Wild Ball This ball's symbol is a wild clover 2 TIX REROLL 1 NEXT ROUND THE PRIZE COUNTER SKIP Clearing a round pays tickets. Spend them here on things that help, or save t
+console(stamp): clean
+=== shop (desktop)
+title: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 1340 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+shop: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 1340 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 1340 WINNINGS just for show · prizes never change a run Gold Star Sticker 50 Rubber Duck 150 Kazoo 250 Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK
+shop live: ["TapBuyPrize(Sticker)","TapBuyPrize(RubberDuck)","TapBuyPrize(Kazoo)","TapBuyPrize(Yoyo)","TapBuyPrize(Slinky)","TapBuyPrize(PlushFrog)","TapBuyPrize(LavaLamp)","TapBuyPrize(Robot)","TapBuyPrize(GiantBear)","TapBuyPrize(Trophy)","TapCloseShop"]
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-005-shop.png
+after buys: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 890 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 890 WINNINGS just for show · prizes never change a run Gold Star Sticker ON SHELF Rubber Duck ON SHELF Kazoo ON SHELF Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-006-shop-bought.png
+wallet: {"balance":890,"comps":[],"gamesSinceHost":0,"hostVisits":0,"lifetime":1340,"owned":["sticker","rubberDuck","kazoo"],"progressive":{"meters":["mini",50,"minor",150,"major",600,"grand",2500]},"room":"boardwalk","rooms":["boardwalk"]}
+title after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 890 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-007-title-after-shop.png
+shop after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 890 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 PRIZE SHOP THE BOARDWALK ARCADE 890 WINNINGS just for show · prizes never change a run Gold Star Sticker ON SHELF Rubber Duck ON SHELF Kazoo ON SHELF Yo-yo 400 Slinky 600 Plush Frog 1000 Lava Lamp 1600 Wind-up Robot 2500 Giant Bear 5000 Golden Skee Trophy 10000 BACK
+console(shop): clean
+=== reloads (desktop)
+mid-roll busy=1; run save grew on release: true
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-008-mid-roll.png
+after mid-roll reload: BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing rings pair it
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-009-after-mid-roll-reload.png
+console(reloads): clean
+=== guide (desktop)
+  card: TOP SLOT! A COMBO!
+guide: BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing rings pair it TOP SLOT! THE GUIDE more appears here as you play The Big Idea Rolling the Ball The Lever Scoring Tickets and the Counter Targets and Combos PLAY THE FIRST LOADOUT AGAIN DONE
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-010-guide.png
+topics ["Topic(0)","Topic(1)","Topic(2)","Topic(3)","Topic(4)","Topic(5)"]
+  Topic(0): 4 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+  Topic(1): 4 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+  Topic(2): 2 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+  Topic(3): 6 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+  Topic(4): 5 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+  Topic(5): 3 pages; BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing ri
+back from guide same state: false
+console(guide): clean
+=== long (desktop)
+ROUND ANTE 1/8 WARM-UP target 400
