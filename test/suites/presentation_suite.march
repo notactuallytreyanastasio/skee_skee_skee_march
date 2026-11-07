@@ -11,7 +11,7 @@ mod PresentationSuite do
 
   -- ---- Runs, as PresentationTests builds them ----
   fn new_run(seed : Int) : RunState do
-    Skee.Reducer.new_run(consts(), Skee.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+    Skee.Reducer.new_run(consts(), Arcade.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
   end
 
   fn step_of(r : Result(Step, ActionError)) : Step do
@@ -324,7 +324,7 @@ mod PresentationSuite do
     let ball = { bell_ball() with slot_hits: 2, record_combo: 3 }
     let after = { s with round: { s.round with current_balls: [ball] } }
     let shot =
-      Skee.Physics.simulate_shot(k, launch(0.5, 0.0), Skee.Types.standard_table(k), ClassicBall, Skee.U64.of_int(0))
+      Skee.Physics.simulate_shot(k, launch(0.5, 0.0), Skee.Types.standard_table(k), ClassicBall, Arcade.U64.of_int(0))
     let step = { run: after, step_events: [Shot(shot, ball)] }
     let (_, cues) =
       play_out(Skee.Presentation.enqueue(Skee.Presentation.make(s), step, 0.0), 1.0 /. 60.0, [])

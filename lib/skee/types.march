@@ -529,7 +529,7 @@ mod Skee.Types do
     ball : BallKind,
     room : Room,
     rng : Skee.Rng.Rng,
-    seed : Skee.U64.U64,
+    seed : Arcade.U64.U64,
     ante : { Int | ante >= 1 },
     boss : Boss,
     round : RoundState,

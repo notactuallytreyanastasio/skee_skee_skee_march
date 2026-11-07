@@ -176,7 +176,7 @@ mod PainterSuite do
   -- and the frame opens with the device-pixel transform.
   fn real_frame() : Outcome do
     let (m, _) =
-      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Arcade.U64.of_int(42))
     let (ticked, _) = Skee.App.update(m, MsgTick(1.0))
     let ops = Skee.App.scene_ops(ticked)
     let cs = Skee.Painter.calls(k(), 3.0, 390.0, 844.0, ops)

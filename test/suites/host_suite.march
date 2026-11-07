@@ -582,7 +582,8 @@ mod HostSuite do
   fn accepts_row(row : List(String)) : Outcome do
     match row do
     Cons(line, Cons(say, Cons(want, Nil))) -> do
-      let seated = Skee.Host.new_haggle(k(), Boardwalk, Skee.U64.make(0, 3), VisitArrival)
+      let seated =
+        Skee.Host.new_haggle(k(), Boardwalk, Arcade.U64.make(0, 3), VisitArrival)
       let h = if line == "-" do seated else Skee.Host.say(seated, unhex(line)) end
       let r =
         Skee.Host.reply(unhex(say), { terms_nights: 2, terms_tickets: 0, terms_credit: 0 })
@@ -610,7 +611,7 @@ mod HostSuite do
     match row do
     Cons(room, Cons(visit, Cons(concern, Cons(turn, want)))) -> do
       let seated =
-        Skee.Host.new_haggle(k(), room_of(room), Skee.U64.make(0, 5), visit_of(visit))
+        Skee.Host.new_haggle(k(), room_of(room), Arcade.U64.make(0, 5), visit_of(visit))
       let h =
         List.fold_left(List.range(0, GoldenIo.int(turn)), seated, fn (acc, _) -> Skee.Host.say(acc, "hi"))
       expect_string(reply_tokens(Skee.Host.deflection(h, concern_of(concern))), String.join(want, " "), "deflection " ++ String.join([room, visit, concern, turn], " "))
@@ -902,7 +903,7 @@ mod HostSuite do
 
   -- ---- The Swift tests, by name ----
   fn seat(room : Room, seed : Int, v : Skee.Rooms.HostVisit) : Haggle do
-    Skee.Host.new_haggle(k(), room, Skee.U64.make(0, seed), v)
+    Skee.Host.new_haggle(k(), room, Arcade.U64.make(0, seed), v)
   end
 
   fn terms(n : Int, t : Int, c : Int) : HostTerms do

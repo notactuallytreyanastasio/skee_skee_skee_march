@@ -193,7 +193,7 @@ mod Game do
     let dpr = Glue.device_pixel_ratio()
     let (hi, lo) = Glue.seed_limbs()
     Glue.size_canvas(canvas, w, h, dpr)
-    let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Skee.U64.make(hi, lo))
+    let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Arcade.U64.make(hi, lo))
     let s =
       {
         model: m,

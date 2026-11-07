@@ -1440,7 +1440,7 @@ mod SceneSuite do
   -- one in hand and the rest in the trough.
   fn bridge_case() : Outcome do
     let run =
-      Skee.Reducer.new_run(k(), Skee.U64.make(0, 7), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+      Skee.Reducer.new_run(k(), Arcade.U64.make(0, 7), Skee.Types.standard_config(), Boardwalk, Tickets(0))
     let p = Skee.Presentation.make(run)
     let cue = Skee.SceneCue.frame_cue(k(), p, None)
     let w = boardwalk()

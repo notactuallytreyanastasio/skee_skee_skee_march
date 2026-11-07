@@ -18,7 +18,7 @@ mod AppSuite do
   end
 
   fn boot_with(saved : Skee.App.SavedStrings, seed : Int) : Run do
-    let (m, fx) = Skee.App.boot(k(), saved, 390.0, 844.0, Skee.U64.of_int(seed))
+    let (m, fx) = Skee.App.boot(k(), saved, 390.0, 844.0, Arcade.U64.of_int(seed))
     { model: m, fx_rev: List.reverse(fx) }
   end
 
@@ -237,7 +237,7 @@ mod AppSuite do
   end
 
   fn same_run(a : RunState, b : RunState) : Bool do
-    Skee.U64.equal(Skee.Rng.word(a.rng), Skee.Rng.word(b.rng)) && RunDigest.run(a) == RunDigest.run(b)
+    Arcade.U64.equal(Skee.Rng.word(a.rng), Skee.Rng.word(b.rng)) && RunDigest.run(a) == RunDigest.run(b)
   end
 
   fn has_pull(m : Skee.App.Model) : Bool do
@@ -379,7 +379,7 @@ mod AppSuite do
     let s = stored(Skee.App.nothing_saved(), fx_of(r))
     match Skee.Save.resume(k(), s.saved_run, Boardwalk) do
     Some(back) -> do
-      all([expect(same_run(back.replayed_run, Skee.App.run_of(r.model)), "the saved run is the run"), expect(Skee.U64.equal(back.replayed_seed, Skee.App.seed_of(r.model)), "seed")])
+      all([expect(same_run(back.replayed_run, Skee.App.run_of(r.model)), "the saved run is the run"), expect(Arcade.U64.equal(back.replayed_seed, Skee.App.seed_of(r.model)), "seed")])
     end
     None -> Mismatch("the run boot saved does not load")
     end
@@ -440,7 +440,7 @@ mod AppSuite do
     let before = into_walkthrough(boot_fresh())
     let r = tap(fresh_effects(before), TapSkipWalkthrough)
     let m = r.model
-    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(fx_of(r), KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "a new game is saved"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
+    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(fx_of(r), KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "a new game is saved"), expect(!Arcade.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
   end
 
   fn a_second_launch_skips_the_door() : Outcome do
@@ -591,7 +591,7 @@ mod AppSuite do
     let before = wallet_games_since_host(played.model)
     let r = tap(tap(fresh_effects(played), TapAskNewGame), TapNewRun)
     let m = r.model
-    all([expect(wallet_games_since_host(m) == before + 1, "an abandoned game counts"), expect(List.is_empty(Skee.App.actions_of(m)), "a fresh run"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(played.model)), "a new seed"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "the new run is saved")])
+    all([expect(wallet_games_since_host(m) == before + 1, "an abandoned game counts"), expect(List.is_empty(Skee.App.actions_of(m)), "a fresh run"), expect(!Arcade.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(played.model)), "a new seed"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "the new run is saved")])
   end
 
   fn an_untouched_game_does_not_count() : Outcome do

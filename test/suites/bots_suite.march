@@ -22,7 +22,7 @@ mod BotsSuite do
       None -> Mismatch("no window for " ++ show(hole))
       Some(w) -> do
         let r =
-          Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Skee.U64.of_int(0))
+          Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Arcade.U64.of_int(0))
         expect(r.hole == hole, "window for " ++ show(hole) ++ " lands in " ++ show(r.hole))
       end
       end
@@ -36,8 +36,8 @@ mod BotsSuite do
     match Skee.HoleMap.at(book.best, Ring50) do
     None -> Mismatch("no window for the 50")
     Some(w) -> do
-      let (l, _) = perturb(k, perfect(), w.launch, Skee.Rng.seed(Skee.U64.of_int(1)))
-      let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.of_int(0))
+      let (l, _) = perturb(k, perfect(), w.launch, Skee.Rng.seed(Arcade.U64.of_int(1)))
+      let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.of_int(0))
       expect(r.hole == Ring50, "landed in " ++ show(r.hole))
     end
     end
@@ -165,7 +165,7 @@ mod BotsSuite do
   -- Swift's, and the run must end in Swift's state. Native plays two runs, which
   -- takes minutes; JS plays the first 24: every ball, room and skill.
   type BotGolden = {
-    seed : Skee.U64.U64,
+    seed : Arcade.U64.U64,
     room : Room,
     skill : Skill,
     ball : BallKind,
@@ -303,7 +303,7 @@ mod BotsSuite do
   fn bot_run_is_deterministic() : Outcome do
     let k = consts()
     let play =
-      fn books -> play_bot_run(k, Skee.U64.of_int(4), regular(), Skee.Types.standard_config(), Boardwalk, ClassicBall, books)
+      fn books -> play_bot_run(k, Arcade.U64.of_int(4), regular(), Skee.Types.standard_config(), Boardwalk, ClassicBall, books)
     let (a, books) = play(no_books())
     let (b, _) = play(books)
     all([expect_int(RunDigest.run(a.bot_final), RunDigest.run(b.bot_final), "final"), expect_int(List.length(a.bot_actions), List.length(b.bot_actions), "actions")])
@@ -314,7 +314,7 @@ mod BotsSuite do
       List.fold_left([1, 2, 3, 4, 5, 6], (0, no_books()), fn (held, seed) ->
         let (n, books) = held
         let (run, next) =
-          play_bot_run(k, Skee.U64.of_int(seed), skill, Skee.Types.standard_config(), Boardwalk, Comet, books)
+          play_bot_run(k, Arcade.U64.of_int(seed), skill, Skee.Types.standard_config(), Boardwalk, Comet, books)
         let done = run.bot_final
         (n + done.stats.rounds_cleared, next)
       )

@@ -1,4 +1,4 @@
-mod Skee.U64 do
+mod Arcade.U64 do
 
   -- UInt64 arithmetic for targets that cannot hold 64 bits in an Int.
   --
@@ -22,7 +22,7 @@ mod Skee.U64 do
     int_and(x, two32() - 1)
   end
 
-  doc """Equality. U64 is a record, and records do not derive Eq: see Skee.Types."""
+  doc """Equality. U64 is a record, and records do not derive Eq."""
   fn equal(a : U64, b : U64) : Bool needs () do
     a.hi == b.hi && a.lo == b.lo
   end

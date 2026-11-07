@@ -619,8 +619,8 @@ mod ItemsSuite do
     Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
   end
 
-  fn seed_of(n : Int) : Skee.U64.U64 do
-    Skee.U64.make(0, n)
+  fn seed_of(n : Int) : Arcade.U64.U64 do
+    Arcade.U64.make(0, n)
   end
 
   fn hops(r : ShotResult) : Int do

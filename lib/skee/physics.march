@@ -811,7 +811,7 @@ mod Skee.Physics do
 
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
   -- The annotation on `blank` is load-bearing natively: tools/repros/none_float_field.march.
-  pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : ShotSim needs () do
+  pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Arcade.U64.U64) : ShotSim needs () do
     let rng0 = Skee.Rng.seed(seed)
     let blank : ShotSim =
       {
@@ -865,7 +865,7 @@ mod Skee.Physics do
   One ball from release to rest, on the libm answers in `trig`. Only a test wants
   this: the game throws with `simulate_shot`.
   """
-  fn simulate_with(k : Skee.Consts.Consts, trig : ShotTrig, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
+  fn simulate_with(k : Skee.Consts.Consts, trig : ShotTrig, l : Launch, t : Table, ball : BallKind, seed : Arcade.U64.U64) : ShotResult needs () do
     let lane = t.lane
     let board = t.board
     let w = board.ring_walls
@@ -905,7 +905,7 @@ mod Skee.Physics do
   One ball from release to rest. Random balls take their mischief from `seed`,
   so the same throw with the same seed is still the same shot.
   """
-  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
+  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Arcade.U64.U64) : ShotResult needs () do
     simulate_with(k, shot_trig(l, t), l, t, ball, seed)
   end
 

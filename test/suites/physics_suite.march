@@ -342,7 +342,7 @@ mod PhysicsSuite do
 
   -- Bit equality: == cannot tell 0.0 from -0.0.
   fn same_bits(x : Float, want : String) : Bool do
-    Skee.U64.equal(GoldenIo.float_bits(x), GoldenIo.u64(want))
+    Arcade.U64.equal(GoldenIo.float_bits(x), GoldenIo.u64(want))
   end
 
   fn position(x : Float, want : String) : ShotCheck do
@@ -793,7 +793,7 @@ mod PhysicsSuite do
 
   fn bulk_of(compared : Int, parted_shots : Int) : BulkRun do
     {
-      rng_now: Skee.Rng.seed(Skee.U64.make(0, 0)),
+      rng_now: Skee.Rng.seed(Arcade.U64.make(0, 0)),
       position: 0,
       compared: compared,
       parted: parted_shots,
@@ -1058,7 +1058,7 @@ mod PhysicsSuite do
   -- ---- The Swift tests, ported ----
   fn power_shot(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, start : Float, fold : Float, spin : Float, skid : Float) : ShotResult do
     let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
-    Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.make(0, 0))
+    Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.make(0, 0))
   end
 
   fn std(k : Skee.Consts.Consts) : Table do
@@ -1259,7 +1259,7 @@ mod PhysicsSuite do
 
   fn ball_shot(k : Skee.Consts.Consts, ball : BallKind, seed : Int) : ShotResult do
     let l = Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
-    Skee.Physics.simulate_shot(k, l, Skee.Items.modify_for_ball(ball, std(k)), ball, Skee.U64.make(0, seed))
+    Skee.Physics.simulate_shot(k, l, Skee.Items.modify_for_ball(ball, std(k)), ball, Arcade.U64.make(0, seed))
   end
 
   fn seeds_matter(k : Skee.Consts.Consts, ball : BallKind) : Outcome do
@@ -1301,7 +1301,7 @@ mod PhysicsSuite do
       List.map(grid, fn pair ->
         let l =
           Skee.Physics.launch_of_power(k, Tuple.first(pair), Tuple.second(pair), 0.0, 0.0, 0.0, 0.0)
-        Skee.Physics.simulate_shot(k, l, t, ball, Skee.U64.make(0, 0))
+        Skee.Physics.simulate_shot(k, l, t, ball, Arcade.U64.make(0, 0))
       )
     List.length(List.filter(shots, fn r -> r.hole == Ring50))
   end
@@ -1314,7 +1314,8 @@ mod PhysicsSuite do
   fn shot_starts_where_let_go() : Outcome do
     let k = consts()
     let l = Skee.Physics.launch_of_speed(k, 3.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0)
-    let r = Skee.Physics.simulate_shot(k, l, std(k), ClassicBall, Skee.U64.make(0, 0))
+    let r =
+      Skee.Physics.simulate_shot(k, l, std(k), ClassicBall, Arcade.U64.make(0, 0))
     match r.path do
     Cons(s, _) -> expect(Math.abs(s.along -. 0.8) < 0.000000001, "first sample")
     Nil -> Mismatch("no path")

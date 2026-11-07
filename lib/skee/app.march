@@ -130,7 +130,7 @@ mod Skee.App do
 
   -- GameModel.parked: the real run, waiting out the walkthrough.
   type Parked = {
-    parked_seed : Skee.U64.U64,
+    parked_seed : Arcade.U64.U64,
     parked_actions : List(Action),
     parked_run : RunState
   }
@@ -151,7 +151,7 @@ mod Skee.App do
     scenery : Skee.Scene.Scenery,
     pres : Skee.Presentation.Presentation,
     run : RunState,
-    run_seed : Skee.U64.U64,
+    run_seed : Arcade.U64.U64,
     actions_rev : List(Action),
     extra : Tickets,
     wallet : Wallet,
@@ -444,7 +444,7 @@ mod Skee.App do
     List.reverse(m.actions_rev)
   end
 
-  fn seed_of(m : Model) : Skee.U64.U64 needs () do
+  fn seed_of(m : Model) : Arcade.U64.U64 needs () do
     m.run_seed
   end
 
@@ -632,14 +632,14 @@ mod Skee.App do
   -- carried on from the save.
   type Opening = {
     open_run : RunState,
-    open_seed : Skee.U64.U64,
+    open_seed : Arcade.U64.U64,
     open_extra : Tickets,
     open_actions : List(Action),
     open_wallet : Wallet,
     open_saves : List(Effect)
   }
 
-  pfn resumed(k : Skee.Consts.Consts, saved_run : Option(String), wallet : Wallet, seed : Skee.U64.U64, fresh : Bool) : Opening needs () do
+  pfn resumed(k : Skee.Consts.Consts, saved_run : Option(String), wallet : Wallet, seed : Arcade.U64.U64, fresh : Bool) : Opening needs () do
     let carried =
       if fresh do
         None
@@ -762,7 +762,7 @@ mod Skee.App do
   `seed` seeds the launch's run, and every later new game draws its seed from
   it. Returns the model and the saves to make at once.
   """
-  fn boot(k : Skee.Consts.Consts, saved : SavedStrings, width : Float, height : Float, seed : Skee.U64.U64) : (Model, List(Effect)) needs () do
+  fn boot(k : Skee.Consts.Consts, saved : SavedStrings, width : Float, height : Float, seed : Arcade.U64.U64) : (Model, List(Effect)) needs () do
     let carry =
       {
         carry_wallet: Skee.Save.load_wallet(saved.saved_wallet),

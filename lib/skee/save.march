@@ -39,7 +39,7 @@ mod Skee.Save do
   -- RunStore.File: room and comped tickets are optional so that saves from
   -- before rooms still load, as Boardwalk runs.
   type RunFile = {
-    file_seed : Skee.U64.U64,
+    file_seed : Arcade.U64.U64,
     file_room : Option(Room),
     file_extra : Option(Tickets),
     file_actions : List(Action)
@@ -50,7 +50,7 @@ mod Skee.Save do
   -- A saved run rebuilt: the actions the rules still accepted, in order.
   type Replayed = {
     replayed_run : RunState,
-    replayed_seed : Skee.U64.U64,
+    replayed_seed : Arcade.U64.U64,
     replayed_extra : Tickets,
     replayed_actions : List(Action)
   }
@@ -220,7 +220,7 @@ mod Skee.Save do
   end
 
   doc """16 lowercase hex digits."""
-  fn u64_hex(v : Skee.U64.U64) : String needs () do
+  fn u64_hex(v : Arcade.U64.U64) : String needs () do
     hex_digits(v.hi, 8, "") ++ hex_digits(v.lo, 8, "")
   end
 
@@ -252,10 +252,10 @@ mod Skee.Save do
   end
 
   doc """The IEEE-754 bits of a finite Float. Non-finite values never reach a save: a Launch is clamped."""
-  fn float_bits(x : Float) : Skee.U64.U64 needs () do
+  fn float_bits(x : Float) : Arcade.U64.U64 needs () do
     let sign = if is_negative(x) do 2147483648 else 0 end
     if x == 0.0 || !is_finite(x) do
-      Skee.U64.make(sign, 0)
+      Arcade.U64.make(sign, 0)
     else
       do
         let (scaled, e) = normalise(if x < 0.0 do 0.0 -. x else x end, 0)
@@ -267,13 +267,13 @@ mod Skee.Save do
           else
             (0, int_shr(m, 1 - biased))
           end
-        Skee.U64.make(sign + exponent * 1048576 + fraction / two32(), fraction % two32())
+        Arcade.U64.make(sign + exponent * 1048576 + fraction / two32(), fraction % two32())
       end
     end
   end
 
   doc """The finite Float with these bits, or None for an infinity or NaN."""
-  fn float_of_bits(v : Skee.U64.U64) : Option(Float) needs () do
+  fn float_of_bits(v : Arcade.U64.U64) : Option(Float) needs () do
     let negative = v.hi >= 2147483648
     let rest = if negative do v.hi - 2147483648 else v.hi end
     let biased = rest / 1048576
@@ -836,7 +836,7 @@ mod Skee.Save do
         if string_byte_length(s) != 16 do
           Err(SaveWrongType(path))
         else
-          match Skee.U64.of_hex(s) do
+          match Arcade.U64.of_hex(s) do
           Some(bits) -> do
             match float_of_bits(bits) do
             Some(f) -> Ok(f)
@@ -1060,7 +1060,7 @@ mod Skee.Save do
 
   -- ---- The run (RunStore) ----
   doc """RunStore.save's File: a new save always names its room and comped tickets."""
-  fn run_file(seed : Skee.U64.U64, room : Room, extra : Tickets, actions : List(Action)) : RunFile needs () do
+  fn run_file(seed : Arcade.U64.U64, room : Room, extra : Tickets, actions : List(Action)) : RunFile needs () do
     {
       file_seed: seed,
       file_room: Some(room),
@@ -1105,7 +1105,7 @@ mod Skee.Save do
     end
   end
 
-  pfn seed_json(seed : Skee.U64.U64) : JsonValue needs () do
+  pfn seed_json(seed : Arcade.U64.U64) : JsonValue needs () do
     if seed.hi < 2097152 do
       Json.encode_int(seed.hi * two32() + seed.lo)
     else
@@ -1127,17 +1127,17 @@ mod Skee.Save do
     Json.to_string(Json.Object(fields))
   end
 
-  pfn seed_of(v : JsonValue, path : String) : Result(Skee.U64.U64, SaveError) needs () do
+  pfn seed_of(v : JsonValue, path : String) : Result(Arcade.U64.U64, SaveError) needs () do
     match v do
     Json.Str(s) -> do
       if s == underflow_mark() do
-        Ok(Skee.U64.of_int(0))
+        Ok(Arcade.U64.of_int(0))
       else
         seed_of_hex(s, path)
       end
     end
     Json.Number(_) -> do
-      bind(int_of(v, path), fn n -> if n < 0 do Err(SaveOutOfRange(path)) else Ok(Skee.U64.of_int(n)) end)
+      bind(int_of(v, path), fn n -> if n < 0 do Err(SaveOutOfRange(path)) else Ok(Arcade.U64.of_int(n)) end)
     end
     Json.Null -> Err(SaveWrongType(path))
     Json.Bool(_) -> Err(SaveWrongType(path))
@@ -1146,8 +1146,8 @@ mod Skee.Save do
     end
   end
 
-  pfn seed_of_hex(s : String, path : String) : Result(Skee.U64.U64, SaveError) needs () do
-    match Skee.U64.of_hex(s) do
+  pfn seed_of_hex(s : String, path : String) : Result(Arcade.U64.U64, SaveError) needs () do
+    match Arcade.U64.of_hex(s) do
     Some(seed) -> do
       if string_byte_length(s) == 16 do
         Ok(seed)
@@ -1330,7 +1330,7 @@ mod Skee.Save do
   end
 
   doc """GameModel.newGame: use a comped night if one is left, and start the run the shell saves at once."""
-  fn start_run(k : Skee.Consts.Consts, w : Wallet, seed : Skee.U64.U64) : StartedRun needs () do
+  fn start_run(k : Skee.Consts.Consts, w : Wallet, seed : Arcade.U64.U64) : StartedRun needs () do
     let (extra, checked) = Skee.Rooms.check_in(w)
     let room = checked.wallet_room
     {

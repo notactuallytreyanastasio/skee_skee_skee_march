@@ -10,7 +10,7 @@ mod ReducerSuite do
   end
 
   fn run_of(seed : Int) : RunState do
-    new_run(consts(), Skee.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+    new_run(consts(), Arcade.U64.of_int(seed), Skee.Types.standard_config(), Boardwalk, Tickets(0))
   end
 
   fn new_run_starts_at_the_first_warmup() : Outcome do
@@ -184,7 +184,7 @@ mod ReducerSuite do
   fn a_room_runs_on_its_own_table() : Outcome do
     let k = consts()
     let s =
-      new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Penthouse, Tickets(0))
+      new_run(k, Arcade.U64.of_int(5), Skee.Types.standard_config(), Penthouse, Tickets(0))
     let t = table_for(k, s)
     let room_table = Skee.Rooms.table(k, Penthouse)
     let pulled = after(PullLever(BetOne), s)
@@ -193,7 +193,7 @@ mod ReducerSuite do
       Some(p) -> p.pull_room == Penthouse
       None -> false
       end
-    all([expect(s.room == Penthouse, "room"), expect(t.board.tilt == room_table.board.tilt, "tilt"), expect(room_of_pull, "pull room"), expect_int(tickets_of(new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Boardwalk, Tickets(2))), 6, "extra tickets")])
+    all([expect(s.room == Penthouse, "room"), expect(t.board.tilt == room_table.board.tilt, "tilt"), expect(room_of_pull, "pull room"), expect_int(tickets_of(new_run(k, Arcade.U64.of_int(5), Skee.Types.standard_config(), Boardwalk, Tickets(2))), 6, "extra tickets")])
   end
 
   fn feather_ball_ignores_lips() : Outcome do
@@ -232,7 +232,7 @@ mod ReducerSuite do
         let k = consts()
         let l =
           Skee.Physics.launch_of_power(k, int_to_float(i) /. 200.0, aim, start, 0.0, 0.0, 0.0)
-        let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.of_int(0))
+        let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.of_int(0))
         if r.hole == hole do
           Some(l)
         else
@@ -782,7 +782,7 @@ mod ReducerSuite do
       let start =
         {
           wallet: Skee.Rooms.empty_wallet(),
-          rng: Skee.Rng.seed(Skee.U64.of_int(room_at + 40)),
+          rng: Skee.Rng.seed(Arcade.U64.of_int(room_at + 40)),
           paid: Winnings(0),
           pulls: 0
         }
@@ -1135,7 +1135,7 @@ mod ReducerSuite do
     (Some(x), false) -> do
       let bits = GoldenIo.float_bits(x)
       let wanted = GoldenIo.u64(want)
-      if Skee.U64.equal(bits, wanted) do
+      if Arcade.U64.equal(bits, wanted) do
         { m with values: m.values + 1 }
       else
         { m with values: m.values + 1, differ: m.differ + 1, ulps: Math.max_int(m.ulps, GoldenIo.ulps_between(bits, wanted)) }
@@ -1335,7 +1335,7 @@ mod ReducerSuite do
     Cons(room, Cons(ante, Cons(antes, Cons(kind, Cons(boss, Cons(power, Cons(ball, Cons(want, Nil)))))))) -> do
       let n = GoldenIo.int
       let base =
-        new_run(k, Skee.U64.of_int(7), { Skee.Types.standard_config() with antes: n(antes) }, List.nth(Skee.Rooms.all_rooms(), n(room)), Tickets(0))
+        new_run(k, Arcade.U64.of_int(7), { Skee.Types.standard_config() with antes: n(antes) }, List.nth(Skee.Rooms.all_rooms(), n(room)), Tickets(0))
       let a = n(ante)
       if a < 1 do
         Mismatch("ante below 1 in a tablefor row")

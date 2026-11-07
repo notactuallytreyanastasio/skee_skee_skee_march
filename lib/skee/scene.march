@@ -1820,7 +1820,7 @@ mod Skee.Scene do
 
   doc """Textures.lane's nine boards: tone and grain, deterministic."""
   fn lane_planks(k : Skee.Consts.Consts) : List(Plank) needs () do
-    planks(k, Skee.Rng.seed(Skee.U64.make(0, 11)), 9)
+    planks(k, Skee.Rng.seed(Arcade.U64.make(0, 11)), 9)
   end
 
   doc """Textures.lane's maple: the base fill, and where every board's tone starts."""

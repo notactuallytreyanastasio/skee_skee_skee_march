@@ -6,7 +6,7 @@ mod Skee.Rng do
   -- run is fully described by its seed and actions.
   cap pure
 
-  import Skee.U64
+  import Arcade.U64
 
   type Rng = { word : U64 }
 

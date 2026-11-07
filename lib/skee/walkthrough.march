@@ -303,7 +303,7 @@ mod Skee.Walkthrough do
   doc """practiceRun(room:): a fixed seed and a low target, so a first try clears it and sees the counter."""
   fn practice_run(k : Skee.Consts.Consts, room : Room) : RunState needs () do
     let s =
-      Skee.Reducer.new_run(k, Skee.U64.of_int(2024), Skee.Types.standard_config(), room, Tickets(0))
+      Skee.Reducer.new_run(k, Arcade.U64.of_int(2024), Skee.Types.standard_config(), room, Tickets(0))
     { s with round: { s.round with target: practice_target() } }
   end
 

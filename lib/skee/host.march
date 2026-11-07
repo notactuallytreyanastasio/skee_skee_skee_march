@@ -86,7 +86,7 @@ mod Skee.Host do
     haggle_host : HostPerson,
     haggle_visit : Skee.Rooms.HostVisit,
     budget : Int,
-    haggle_seed : Skee.U64.U64,
+    haggle_seed : Arcade.U64.U64,
     haggle_offer : Comp,
     patience : Int,
     lines : List(HaggleLine),
@@ -219,8 +219,8 @@ mod Skee.Host do
   arrival) and the host's starting patience (3 or 4; always 4 for the
   arrival).
   """
-  fn new_haggle(k : Skee.Consts.Consts, r : Room, seed : Skee.U64.U64, v : Skee.Rooms.HostVisit) : Haggle needs () do
-    let rng0 = Skee.Rng.seed(Skee.U64.xor(seed, Skee.U64.make(0, 263541)))
+  fn new_haggle(k : Skee.Consts.Consts, r : Room, seed : Arcade.U64.U64, v : Skee.Rooms.HostVisit) : Haggle needs () do
+    let rng0 = Skee.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.make(0, 263541)))
     let host = host_of(r)
     let opening = Skee.Rooms.comp_opening(r)
     let top = Skee.Rooms.comp_ceiling(r)

@@ -254,7 +254,7 @@ mod AudioSuite do
   -- through SoundOut and the feed, against Skee.Synth driven by hand.
   fn boot_effects_feed_the_synth() : Outcome do
     let (_, fx) =
-      Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(7))
+      Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Arcade.U64.of_int(7))
     let cmds = Skee.SoundOut.commands(fx)
     let (got, _) = Skee.SynthFeed.block(fresh(), cmds, 512)
     let by_hand = List.fold_left(fx, fresh(), fn (s, e) -> by_hand_effect(s, e))

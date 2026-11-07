@@ -15,7 +15,7 @@ mod HudSuite do
   -- ---- Driving the model ----
   fn boot_fresh() : Skee.App.Model do
     let (m, _) =
-      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Arcade.U64.of_int(42))
     m
   end
 

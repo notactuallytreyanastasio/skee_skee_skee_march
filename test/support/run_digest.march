@@ -34,7 +34,7 @@ mod RunDigest do
     word(h, if x do 1 else 0 end)
   end
 
-  fn u64(h : Int, x : Skee.U64.U64) : Int do
+  fn u64(h : Int, x : Arcade.U64.U64) : Int do
     word(word(h, x.hi), x.lo)
   end
 

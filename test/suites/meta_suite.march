@@ -241,7 +241,7 @@ mod MetaSuite do
     let kk = k()
     let launch = Skee.Physics.launch_of_power(kk, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
     let shot =
-      Skee.Physics.simulate_shot(kk, launch, Skee.Types.standard_table(kk), ClassicBall, Skee.U64.of_int(0))
+      Skee.Physics.simulate_shot(kk, launch, Skee.Types.standard_table(kk), ClassicBall, Arcade.U64.of_int(0))
     let ball = Skee.Scoring.ball_record(Ring30, Bell, Chips(30))
     Shot(shot, { ball with hot: hot, slot_hits: slot })
   end
@@ -1229,7 +1229,7 @@ mod MetaSuite do
   end
 
   fn seed_rng(n : Int) : Skee.Rng.Rng do
-    Skee.Rng.seed(Skee.U64.of_int(n))
+    Skee.Rng.seed(Arcade.U64.of_int(n))
   end
 
   fn wallet_round_trip() : Outcome do
@@ -1322,9 +1322,9 @@ mod MetaSuite do
         let (actions, r4) = random_actions(r3, count, [])
         let seed =
           if n % 2 == 0 do
-            Skee.U64.make(hi, lo)
+            Arcade.U64.make(hi, lo)
           else
-            Skee.U64.make(hi % 2097152, lo)
+            Arcade.U64.make(hi % 2097152, lo)
           end
         let f = Skee.Save.run_file(seed, Boardwalk, Tickets(n % 4), actions)
         let o =
@@ -1421,7 +1421,7 @@ mod MetaSuite do
     let samples =
       [
         Skee.Save.encode_wallet(w),
-        Skee.Save.encode_run(Skee.Save.run_file(Skee.U64.of_int(5), Penthouse, Tickets(2), actions)),
+        Skee.Save.encode_run(Skee.Save.run_file(Arcade.U64.of_int(5), Penthouse, Tickets(2), actions)),
         Skee.Save.encode_tips(Skee.Walkthrough.all_tips())
       ]
     expect_int(fuzz(r2, 1500, samples, 0), 1500, "decoded every damaged save")
@@ -1449,7 +1449,7 @@ mod MetaSuite do
   -- of tokens, which must not grow the stack on either target.
   fn long_saves_read() : Outcome do
     let f =
-      Skee.Save.run_file(Skee.U64.of_int(5), Boardwalk, Tickets(0), pulls(6000, []))
+      Skee.Save.run_file(Arcade.U64.of_int(5), Boardwalk, Tickets(0), pulls(6000, []))
     let text = Skee.Save.encode_run(f)
     let spaced = String.replace_all(text, ",", " ,\n ")
     let read =
@@ -1480,7 +1480,7 @@ mod MetaSuite do
   fn resume_cases() : Outcome do
     let kk = k()
     let f =
-      Skee.Save.run_file(Skee.U64.of_int(2024), NeonLounge, Tickets(1), [PullLever(BetOne), throw_at(0.6)])
+      Skee.Save.run_file(Arcade.U64.of_int(2024), NeonLounge, Tickets(1), [PullLever(BetOne), throw_at(0.6)])
     let text = Skee.Save.encode_run(f)
     let here =
       match Skee.Save.resume(kk, Some(text), NeonLounge) do
@@ -1488,7 +1488,7 @@ mod MetaSuite do
       None -> Mismatch("did not resume")
       end
     let started =
-      Skee.Save.start_run(kk, { Skee.Rooms.empty_wallet() with comps: { boardwalk: Some({ comp_room: Boardwalk, nights: 1, comp_tickets: Tickets(2), credit: Winnings(0) }), neon_lounge: None, high_roller: None, penthouse: None } }, Skee.U64.of_int(9))
+      Skee.Save.start_run(kk, { Skee.Rooms.empty_wallet() with comps: { boardwalk: Some({ comp_room: Boardwalk, nights: 1, comp_tickets: Tickets(2), credit: Winnings(0) }), neon_lounge: None, high_roller: None, penthouse: None } }, Arcade.U64.of_int(9))
     all([here, expect(Option.is_none(Skee.Save.resume(kk, Some(text), Boardwalk)), "another room starts fresh"), expect(Option.is_none(Skee.Save.resume(kk, Some("garbage"), NeonLounge)), "garbage starts fresh"), expect(Option.is_none(Skee.Save.resume(kk, None, NeonLounge)), "nothing saved"), expect_int(Skee.Units.tickets_int(started.started_run.tickets), 6, "a comped night's tickets"), expect(Option.is_none(started.started_wallet.comps.boardwalk), "the night is used"), expect_string(Skee.Save.encode_run(started.started_file), "{\"actions\":[],\"extraTickets\":2,\"room\":\"boardwalk\",\"seed\":9}", "the file saved at once")])
   end
 

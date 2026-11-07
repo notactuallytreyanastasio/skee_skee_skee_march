@@ -111,7 +111,7 @@ mod RngSuite do
   -- Replay one kind of row in file order. Rows of one seed are contiguous, and
   -- the generator carries from row to row, so any drift fails every later row.
   fn replay(rows : List(List(String)), step : Skee.Rng.Rng -> List(String) -> (Outcome, Skee.Rng.Rng)) : Outcome do
-    let start = (("", Skee.Rng.seed(Skee.U64.make(0, 0))), [])
+    let start = (("", Skee.Rng.seed(Arcade.U64.make(0, 0))), [])
     let (_, outcomes) =
       List.fold_left(rows, start, fn (acc, row) ->
         match (acc, row) do
@@ -208,7 +208,7 @@ mod RngSuite do
 
   fn shuffle_is_permutation() : Outcome do
     let xs = List.range(0, 20)
-    let rng = Skee.Rng.seed(Skee.U64.of_int(3))
+    let rng = Skee.Rng.seed(Arcade.U64.of_int(3))
     let (a, _) = Skee.Rng.shuffled(rng, xs)
     let (b, _) = Skee.Rng.shuffled(rng, xs)
     all([expect(a == b, "same seed, same shuffle"), expect(List.sort_by(a, fn (x, y) -> x < y) == xs, "shuffle is a permutation")])
@@ -266,8 +266,8 @@ mod RngSuite do
   end
 
   fn first_value() : Outcome do
-    let (v, _) = Skee.Rng.next(Skee.Rng.seed(Skee.U64.make(0, 0)))
-    expect(Skee.U64.equal(v, Skee.U64.make(3793791033, 2065550767)), "reference value 0xE220A8397B1DCDAF")
+    let (v, _) = Skee.Rng.next(Skee.Rng.seed(Arcade.U64.make(0, 0)))
+    expect(Arcade.U64.equal(v, Arcade.U64.make(3793791033, 2065550767)), "reference value 0xE220A8397B1DCDAF")
   end
 
   -- A comparator that cannot fail proves nothing, so prove this one can.
@@ -283,7 +283,7 @@ mod RngSuite do
         Passed(_) -> false
         Drifted(_, _, _) -> false
         end
-    all([expect(!Skee.U64.equal(zero, minus_zero), "0.0 and -0.0 have different bits"), expect(is_mismatch(GoldenIo.expect_float(next_up, "3ff0000000000000", "control")), "one ulp is a mismatch"), expect(Skee.U64.equal(GoldenIo.float_bits(one), GoldenIo.u64("3ff0000000000000")), "1.0 reads back")])
+    all([expect(!Arcade.U64.equal(zero, minus_zero), "0.0 and -0.0 have different bits"), expect(is_mismatch(GoldenIo.expect_float(next_up, "3ff0000000000000", "control")), "one ulp is a mismatch"), expect(Arcade.U64.equal(GoldenIo.float_bits(one), GoldenIo.u64("3ff0000000000000")), "1.0 reads back")])
   end
 
   fn cases() : List(Case) do

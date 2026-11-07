@@ -27,7 +27,7 @@ mod Skee.Bots do
 
   pfn hole_of(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, fold : Float, ball : BallKind) : Hole needs () do
     let l = Skee.Physics.launch_of_power(k, power, aim, 0.0, fold, 0.0, 0.0)
-    let r = Skee.Physics.simulate_shot(k, l, t, ball, Skee.U64.of_int(1))
+    let r = Skee.Physics.simulate_shot(k, l, t, ball, Arcade.U64.of_int(1))
     r.hole
   end
 
@@ -132,7 +132,7 @@ mod Skee.Bots do
     List.fold_left(List.range(0, samples), (Skee.HoleMap.fill(0.0), rng), fn (held, i) ->
       let (spread, r) = held
       let (l, next) = perturb(k, skill, w.launch, r)
-      let shot = Skee.Physics.simulate_shot(k, l, table, ball, Skee.U64.of_int(i))
+      let shot = Skee.Physics.simulate_shot(k, l, table, ball, Arcade.U64.of_int(i))
       (Skee.HoleMap.put(spread, shot.hole, Skee.HoleMap.at(spread, shot.hole) +. share), next)
     )
   end
@@ -143,7 +143,7 @@ mod Skee.Bots do
   order because the rng is shared.
   """
   fn landings(k : Skee.Consts.Consts, book : AimBook, table : Table, skill : Skill, ball : BallKind) : PerHole(Option(PerHole(Float))) needs () do
-    let start = Skee.Rng.seed(Skee.U64.of_int(24301))
+    let start = Skee.Rng.seed(Arcade.U64.of_int(24301))
     let (rates, _) =
       List.fold_left(Skee.HoleMap.reel_holes(), (Skee.HoleMap.fill(None), start), fn (held, hole) ->
         let (rates, rng) = held
@@ -460,14 +460,14 @@ mod Skee.Bots do
   Boardwalk and the classic ball. Books are returned to be passed to the next run,
   which only saves time: the same table always gets the same book.
   """
-  fn play_bot_run(k : Skee.Consts.Consts, seed : Skee.U64.U64, skill : Skill, config : RunConfig, room : Room, ball : BallKind, books : Books) : (BotRun, Books) needs () do
+  fn play_bot_run(k : Skee.Consts.Consts, seed : Arcade.U64.U64, skill : Skill, config : RunConfig, room : Room, ball : BallKind, books : Books) : (BotRun, Books) needs () do
     let start =
       {
         k: k,
         skill: skill,
         held_ball: ball,
         now: Skee.Reducer.new_run(k, seed, config, room, Tickets(0)),
-        hand: Skee.Rng.seed(Skee.U64.xor(seed, Skee.U64.of_int(2823))),
+        hand: Skee.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.of_int(2823))),
         done_actions: [],
         done_events: [],
         played: 0,

@@ -14,7 +14,7 @@ mod Skee.Reducer do
   the start. `extra_tickets` are a comped night's: part of how the run starts, so
   a save (seed and actions) must carry them to replay exactly.
   """
-  fn new_run(_k : Skee.Consts.Consts, seed : Skee.U64.U64, config : RunConfig, room : Room, extra_tickets : Tickets) : RunState needs () do
+  fn new_run(_k : Skee.Consts.Consts, seed : Arcade.U64.U64, config : RunConfig, room : Room, extra_tickets : Tickets) : RunState needs () do
     let (boss, rng) = pick(Skee.Rng.seed(seed), Skee.Items.all_bosses())
     let scaled =
       { config with target_scale: config.target_scale *. Skee.Rooms.target_scale(room) }
@@ -127,7 +127,7 @@ mod Skee.Reducer do
   `apply` with the physics passed in. The game uses `apply`; a replay of recorded
   shots passes them here, which keeps libm out of a test of the rules.
   """
-  fn apply_with(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Skee.U64.U64 -> ShotResult, a : Action, s : RunState) : Result(Step, ActionError) needs () do
+  fn apply_with(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Arcade.U64.U64 -> ShotResult, a : Action, s : RunState) : Result(Step, ActionError) needs () do
     match a do
     PullLever(bet) -> on_lane(s, fn () -> pull(bet, s))
     ThrowBall(l) -> on_lane(s, fn () -> after_pull(s, fn () -> throw_ball(k, simulate, l, s)))
@@ -309,12 +309,12 @@ mod Skee.Reducer do
     end
   end
 
-  pfn throw_ball(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Skee.U64.U64 -> ShotResult, launch : Launch, s0 : RunState) : Step needs () do
+  pfn throw_ball(k : Skee.Consts.Consts, simulate : Launch -> Table -> BallKind -> Arcade.U64.U64 -> ShotResult, launch : Launch, s0 : RunState) : Step needs () do
     let (seed, drawn) =
       if Skee.Items.is_random(s0.ball) do
         draw_shot_seed(s0)
       else
-        (Skee.U64.of_int(0), s0)
+        (Arcade.U64.of_int(0), s0)
       end
     let shot = simulate(launch, table_for(k, drawn), drawn.ball, seed)
     let armed = drawn.round.armed
@@ -353,7 +353,7 @@ mod Skee.Reducer do
     finish_ball(held, [Shot(shot, record)])
   end
 
-  pfn draw_shot_seed(s : RunState) : (Skee.U64.U64, RunState) needs () do
+  pfn draw_shot_seed(s : RunState) : (Arcade.U64.U64, RunState) needs () do
     let (seed, rng) = next(s.rng)
     (seed, { s with rng: rng })
   end

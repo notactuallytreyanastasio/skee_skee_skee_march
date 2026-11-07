@@ -49,7 +49,7 @@ mod PresentationGolden do
   end
 
   fn is_bits(token : String) : Bool do
-    match Skee.U64.of_hex(token) do
+    match Arcade.U64.of_hex(token) do
     Some(_) -> String.byte_size(token) == 16
     None -> false
     end
@@ -95,7 +95,7 @@ mod PresentationGolden do
     let want = GoldenIo.u64(token)
     let ulps = GoldenIo.ulps_between(got, want)
     let gap = float_abs(x -. GoldenIo.float_of_bits(token))
-    if Skee.U64.equal(got, want) do
+    if Arcade.U64.equal(got, want) do
       Passed(1)
     else
       if ulps <= shot_ulps() || gap <= shot_metres() do
@@ -481,7 +481,7 @@ mod PresentationGolden do
   fn replay() : Outcome do
     let k = Skee.Consts.make()
     let s =
-      Skee.Reducer.new_run(k, Skee.U64.of_int(0), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+      Skee.Reducer.new_run(k, Arcade.U64.of_int(0), Skee.Types.standard_config(), Boardwalk, Tickets(0))
     let start =
       {
         k: k,

@@ -30,7 +30,7 @@ foundation: ask before changing it.
 |---|---|---|
 | `Skee.Types` | `types.march` | Shared types, default specs |
 | `Skee.Consts` | `consts.march` | Float constants a literal cannot hold |
-| `Skee.U64` | `u64.march` | UInt64 as two 32-bit limbs |
+| `Arcade.U64` | `../arcade/u64.march` | UInt64 as two 32-bit limbs |
 | `Skee.Maths` | `maths.march` | clamp, degrees, Vec2, `ieee_div` |
 | `Skee.Rng` | `rng.march` | SplitMix64 |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
@@ -104,7 +104,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `Skee.Rooms.target_scale(r : Room)` | `Float` |
 | `Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)` | `Launch` |
 | `Skee.Physics.launch_of_speed(k, speed, from, aim, start, fold, spin, skid)` | `Launch` |
-| `Skee.Physics.simulate_shot(k, l : Launch, t : Table, b : BallKind, seed : Skee.U64.U64)` | `ShotResult` |
+| `Skee.Physics.simulate_shot(k, l : Launch, t : Table, b : BallKind, seed : Arcade.U64.U64)` | `ShotResult` |
 | `Skee.Physics.rattles(r : ShotResult)` | `Int` |
 | `Skee.Scoring.score_frame(balls : List(BallRecord), c : ScoringContext)` | `FrameScore` |
 | `Skee.Scoring.frame_total(f : FrameScore)` | `Points` |
@@ -815,7 +815,7 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   built for the first record seen: wrong answers or a segfault. Records in this
   project do not derive Eq, so `==` on one is a compile error, and `run-suite.sh`
   also rejects any native build containing that symbol. Write a named comparison,
-  as `Skee.U64.equal` does. (`record_eq/`)
+  as `Arcade.U64.equal` does. (`record_eq/`)
 - **`derive Ord` (guard).** Compiles, and `<` type-checks, but `<` is false and
   `compare` is 0 on native and JS. Nothing here derives Ord, so `<` on an ADT is a
   compile error. Use `Skee.Units`' ranks. (`derive_ord.march`)
@@ -835,7 +835,7 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   segfaults. JS is right. Use named functions; Skee.Scene and Skee.Camera have
   no let-bound lambdas. (`lambda_tagged_int/`)
 - **Int on JS.** Doubles: exact to 2^53-1. The JS runners use `--js-int-check`, which
-  throws past that. Anything wider goes through `Skee.U64`.
+  throws past that. Anything wider goes through `Arcade.U64`.
 
 ### Tools
 
@@ -1000,7 +1000,7 @@ core. Only the first can reach zero, and only through the shell's geometry.
 
 ## Modelling notes
 
-- A `UInt64` seed is `Skee.U64.U64`: `make(hi, lo)` or `of_hex`, never a single Int.
+- A `UInt64` seed is `Arcade.U64.U64`: `make(hi, lo)` or `of_hex`, never a single Int.
 - `[Hole: T]` became `PerHole(T)`, or `PerReel(T)` where the gutter has no entry.
   `Skee.HoleMap.reel_holes()` is `BoardSetup.reelHoles`, and spins draw in that order.
 - `events` and `eventTimes` became one `List(TimedEvent)`.
