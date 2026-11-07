@@ -142,8 +142,437 @@ mod HostSuite do
     ]
   end
 
+  -- ---- Skee.HostGuard ----
+  fn concern_name(c : Option(Concern)) : String do
+    match c do
+    None -> "-"
+    Some(ConcernCrisis) -> "crisis"
+    Some(ConcernPersonalInfo) -> "personalInfo"
+    Some(ConcernAdult) -> "adult"
+    Some(ConcernRealMoney) -> "realMoney"
+    Some(ConcernOffTopic) -> "offTopic"
+    Some(ConcernTrickery) -> "trickery"
+    end
+  end
+
+  fn hex_digit(d : Int) : String do
+    String.slice("0123456789abcdef", d, 1)
+  end
+
+  fn hex_ascii(s : String) : String do
+    String.join(List.map(String.to_codepoints(s), fn c -> hex_digit(c / 16) ++ hex_digit(c % 16)), "")
+  end
+
+  fn sorted_words(ws : List(String)) : String do
+    let uniq = List.dedup(List.sort_by(ws, fn (a, b) -> a < b))
+    if List.is_empty(uniq) do "-" else String.join(List.map(uniq, hex_ascii), ",") end
+  end
+
+  -- Swift's lower, as the keys Skee.HostGuard searches.
+  fn lower_keys(h : String) : String do
+    Skee.SwiftText.ascii_keys(Skee.SwiftText.characters(unhex_scalars(h)))
+  end
+
+  fn screen_row(row : List(String)) : Outcome do
+    match row do
+    [text, concern, personal, ws, lower] -> do
+      let t = unhex(text)
+      all([expect_string(concern_name(Skee.HostGuard.screen(t)), concern, "screen " ++ text), expect_string(bit(Skee.HostGuard.has_personal_info(t)), personal, "hasPersonalInfo " ++ text), expect_string(sorted_words(Skee.HostGuard.words(t)), ws, "words " ++ text), expect_string(Skee.HostGuard.screen_lower(t), lower_keys(lower), "lower " ++ text)])
+    end
+    _ -> Mismatch("bad screen row")
+    end
+  end
+
+  fn allows_row(row : List(String)) : Outcome do
+    match row do
+    [say, budget, want] -> do
+      expect_string(bit(Skee.HostGuard.allows(unhex(say), GoldenIo.int(budget))), want, "allows " ++ say ++ " under " ++ budget)
+    end
+    _ -> Mismatch("bad allows row")
+    end
+  end
+
+  fn phrase_list(name : String) : List(String) do
+    if name == "crisis" do
+      Skee.HostGuard.crisis_phrases()
+    else
+      if name == "personal" do
+        Skee.HostGuard.personal_phrases()
+      else
+        if name == "trick" do
+          Skee.HostGuard.trick_phrases()
+        else
+          if name == "money" do
+            Skee.HostGuard.money_phrases()
+          else
+            if name == "leak" do
+              Skee.HostGuard.leak_phrases()
+            else
+              if name == "adult" do
+                Skee.HostGuard.adult_words()
+              else
+                if name == "offTopic" do
+                  Skee.HostGuard.off_topic_words()
+                else
+                  if name == "swear" do Skee.HostGuard.swear_words() else Skee.Host.perk_words(name) end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  fn phrase_of(name : String, row : List(String)) : Option(String) do
+    match row do
+    [list, text] -> if list == name do Some(unhex(text)) else None end
+    _ -> None
+    end
+  end
+
+  -- Every list, entry for entry and in order, against Swift's.
+  fn phrase_lists() : Outcome do
+    let names = ["crisis", "personal", "trick", "money", "leak", "adult", "offTopic", "swear", "asks", "nights", "tickets", "credit"]
+    all(List.map(names, fn name ->
+      expect_string(String.join(phrase_list(name), "|"), String.join(List.filter_map(rows("phrase"), fn r -> phrase_of(name, r)), "|"), "list " ++ name)
+    ))
+  end
+
+  fn limits() : Outcome do
+    match rows("limits") do
+    [[line, reply, turns, patience]] -> do
+      all([expect_int(Skee.HostGuard.max_line(), GoldenIo.int(line), "maxLine"), expect_int(Skee.HostGuard.max_reply(), GoldenIo.int(reply), "maxReply"), expect_int(Skee.HostGuard.max_model_turns(), GoldenIo.int(turns), "maxModelTurns"), expect_int(Skee.Host.max_patience(), GoldenIo.int(patience), "maxPatience")])
+    end
+    _ -> Mismatch("bad limits rows")
+    end
+  end
+
+  fn guard_cases() : List(Case) do
+    [
+      case("HostGuard.screen over the corpus", fn -> all(List.map(rows("screen"), screen_row))),
+      case("HostGuard.allows over the corpus", fn -> all(List.map(rows("allows"), allows_row))),
+      case("the phrase and word lists are Swift's", fn -> phrase_lists()),
+      case("the limits are Swift's", fn -> limits())
+    ]
+  end
+
+  -- ---- Skee.Host: Host, Haggle ----
+  fn k() : Skee.Consts.Consts do
+    Skee.Consts.make()
+  end
+
+  fn room_of(name : String) : Room do
+    if name == "boardwalk" do
+      Boardwalk
+    else
+      if name == "neonLounge" do
+        NeonLounge
+      else
+        if name == "highRoller" do HighRoller else Penthouse end
+      end
+    end
+  end
+
+  fn visit_of(name : String) : Skee.Rooms.HostVisit do
+    if name == "arrival" do
+      VisitArrival
+    else
+      if name == "newRoom" do VisitNewRoom else VisitReturning end
+    end
+  end
+
+  fn concern_of(name : String) : Concern do
+    if name == "crisis" do
+      ConcernCrisis
+    else
+      if name == "personalInfo" do
+        ConcernPersonalInfo
+      else
+        if name == "adult" do
+          ConcernAdult
+        else
+          if name == "realMoney" do
+            ConcernRealMoney
+          else
+            if name == "offTopic" do ConcernOffTopic else ConcernTrickery end
+          end
+        end
+      end
+    end
+  end
+
+  fn status_name(st : HaggleStatus) : String do
+    match st do
+    HaggleOpen -> "open"
+    HaggleSigned -> "signed"
+    HaggleWalked -> "walked"
+    end
+  end
+
+  fn speaker_name(sp : Speaker) : String do
+    match sp do
+    SpeakerHost -> "host"
+    SpeakerPlayer -> "player"
+    SpeakerStage -> "stage"
+    end
+  end
+
+  fn role_name(r : ChatRole) : String do
+    match r do
+    RoleSystem -> "system"
+    RoleUser -> "user"
+    RoleAssistant -> "assistant"
+    end
+  end
+
+  fn off_token(o : Option(Bool)) : String do
+    match o do
+    Some(b) -> bit(b)
+    None -> "-"
+    end
+  end
+
+  fn off_of(token : String) : Option(Bool) do
+    if token == "-" do None else Some(token == "1") end
+  end
+
+  -- UTF-8, from scalars, the same on both targets.
+  fn utf8(cp : Int) : List(Int) do
+    if cp < 128 do
+      [cp]
+    else
+      if cp < 2048 do
+        [192 + cp / 64, 128 + cp % 64]
+      else
+        if cp < 65536 do
+          [224 + cp / 4096, 128 + cp / 64 % 64, 128 + cp % 64]
+        else
+          [240 + cp / 262144, 128 + cp / 4096 % 64, 128 + cp / 64 % 64, 128 + cp % 64]
+        end
+      end
+    end
+  end
+
+  -- The generator's digest: byte length and two polynomial hashes.
+  fn digest(s : String) : String do
+    let bytes = List.flat_map(Skee.SwiftText.scalars(s), utf8)
+    let (h1, h2, n) =
+      List.fold_left(bytes, (0, 0, 0), fn (acc, b) ->
+        match acc do
+        (a, c, m) -> ((a * 257 + b) % 999983, (c * 263 + b) % 1000037, m + 1)
+        end
+      )
+    int_to_string(n) ++ "." ++ int_to_string(h1) ++ "." ++ int_to_string(h2)
+  end
+
+  fn message_digest(m : ChatMessage) : String do
+    String.slice(role_name(m.chat_role), 0, 1) ++ digest(m.content)
+  end
+
+  fn messages_digest(ms : List(ChatMessage)) : String do
+    String.join(List.map(ms, message_digest), ",")
+  end
+
+  fn terms_tokens(c : Comp) : List(String) do
+    [int_to_string(c.nights), int_to_string(Skee.Units.tickets_int(c.comp_tickets)), int_to_string(Skee.Units.winnings_int(c.credit))]
+  end
+
+  fn host_reply(say : String, nights : String, tickets : String, credit : String, mood : String, walk : String, off : String) : HostReply do
+    { say: unhex(say), reply_terms: { terms_nights: GoldenIo.int(nights), terms_tickets: GoldenIo.int(tickets), terms_credit: GoldenIo.int(credit) }, mood: GoldenIo.int(mood), walk: walk == "1", off_topic: off_of(off) }
+  end
+
+  fn hostof_row(row : List(String)) : Outcome do
+    match row do
+    [room, name, manner] -> do
+      let h = Skee.Host.host_of(room_of(room))
+      all([expect_string(h.host_name, unhex(name), "name " ++ room), expect_string(h.manner, unhex(manner), "manner " ++ room)])
+    end
+    _ -> Mismatch("bad hostof row")
+    end
+  end
+
+  fn first_text(h : Haggle) : String do
+    match h.lines do
+    Cons(l, _) -> l.line_text
+    Nil -> ""
+    end
+  end
+
+  fn haggle_row(row : List(String)) : Outcome do
+    match row do
+    [room, visit, seed, budget, patience, hello, flavor] -> do
+      let h = Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))
+      let what = room ++ " " ++ visit ++ " " ++ seed
+      all([expect_int(h.budget, GoldenIo.int(budget), "budget " ++ what), expect_int(h.patience, GoldenIo.int(patience), "patience " ++ what), expect_string(first_text(h), unhex(hello), "hello " ++ what), expect_string(Skee.Host.flavor(h), Option.unwrap_or(List.nth_opt(Skee.Host.flavors(), GoldenIo.int(flavor)), "?"), "flavor " ++ what)])
+    end
+    _ -> Mismatch("bad haggle row")
+    end
+  end
+
+  -- A scripted haggle replayed row by row: `seq` seats it, `do` applies a
+  -- step, `state`, `msg` and `greetmsgs` compare.
+  type HaggleReplay = { replay_haggle : Option(Haggle), replay_out : List(Outcome) }
+
+  fn last_line(h : Haggle) : Option(HaggleLine) do
+    List.fold_left(h.lines, None, fn (_, l) -> Some(l))
+  end
+
+  fn apply_step(h : Haggle, step : List(String)) : Haggle do
+    match step do
+    ["say", text] -> Skee.Host.say(h, unhex(text))
+    ["hear", say, n, t, c, mood, walk, off] -> Skee.Host.hear(h, host_reply(say, n, t, c, mood, walk, off))
+    ["greet", say, n, t, c] -> Skee.Host.greet(h, host_reply(say, n, t, c, "0", "0", "-"))
+    ["deflect", "-"] -> h
+    ["deflect", concern] -> Skee.Host.hear(h, Skee.Host.deflection(h, concern_of(concern)))
+    ["accept"] -> Skee.Host.accept(h)
+    _ -> h
+    end
+  end
+
+  fn state_check(h : Haggle, rest : List(String)) : Outcome do
+    let mine =
+      match last_line(h) do
+      Some(l) -> List.concat([terms_tokens(h.haggle_offer), [int_to_string(h.patience), status_name(h.haggle_status), int_to_string(List.length(h.lines)), bit(Skee.Host.wants_model(h)), bit(Skee.Host.asked_for_perks(h))], terms_tokens(Skee.Host.final_comp(h)), [speaker_name(l.speaker), hex_text(l.line_text), messages_digest(Skee.Host.messages(h))]])
+      None -> []
+      end
+    expect_string(String.join(mine, " "), String.join(rest, " "), "state")
+  end
+
+  fn hex_text(s : String) : String do
+    let bytes = List.flat_map(Skee.SwiftText.scalars(s), utf8)
+    if List.is_empty(bytes) do "-" else String.join(List.map(bytes, fn b -> hex_digit(b / 16) ++ hex_digit(b % 16)), "") end
+  end
+
+  fn prompt_text(prompts : List(List(String)), d : String) : String do
+    match List.find(prompts, fn r -> List.head_opt(r) == Some(d)) do
+    Some([_, text]) -> unhex(text)
+    Some(_) -> "?"
+    None -> "?"
+    end
+  end
+
+  fn msg_check(prompts : List(List(String)), h : Haggle, i : String, role : String, content : String) : Outcome do
+    match List.nth_opt(Skee.Host.messages(h), GoldenIo.int(i)) do
+    Some(m) -> do
+      let want = if role == "system" do prompt_text(prompts, content) else unhex(content) end
+      all([expect_string(role_name(m.chat_role), role, "role of message " ++ i), expect_string(m.content, want, "message " ++ i)])
+    end
+    None -> Mismatch("no message " ++ i)
+    end
+  end
+
+  fn greet_check(h : Haggle, d : String, ask : String) : Outcome do
+    let ms = Skee.Host.greeting_messages(h)
+    let asked =
+      match ms do
+      [_, m] -> m.content
+      _ -> ""
+      end
+    all([expect_string(messages_digest(ms), d, "greetingMessages"), expect_string(asked, unhex(ask), "greeting ask")])
+  end
+
+  fn noted(r : HaggleReplay, o : Outcome) : HaggleReplay do
+    { r with replay_out: Cons(o, r.replay_out) }
+  end
+
+  fn replay_row(prompts : List(List(String)), r : HaggleReplay, row : List(String)) : HaggleReplay do
+    match (row, r.replay_haggle) do
+    (["seq", _, room, visit, seed], _) -> { r with replay_haggle: Some(Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))) }
+    (Cons("do", Cons(_, Cons(_, step))), Some(h)) -> { r with replay_haggle: Some(apply_step(h, step)) }
+    (Cons("state", Cons(id, Cons(at, rest))), Some(h)) -> do
+      noted(r, label("haggle " ++ id ++ " step " ++ at, state_check(h, rest)))
+    end
+    (["msg", id, at, i, role, content], Some(h)) -> do
+      noted(r, label("haggle " ++ id ++ " step " ++ at, msg_check(prompts, h, i, role, content)))
+    end
+    (["greetmsgs", id, d, ask], Some(h)) -> noted(r, label("haggle " ++ id, greet_check(h, d, ask)))
+    (_, _) -> r
+    end
+  end
+
+  fn label(what : String, o : Outcome) : Outcome do
+    match o do
+    Mismatch(m) -> Mismatch(what ++ ": " ++ m)
+    Passed(n) -> Passed(n)
+    Drifted(a, b, c) -> Drifted(a, b, c)
+    end
+  end
+
+  fn is_replay_row(row : List(String)) : Bool do
+    match row do
+    Cons(kind, _) -> kind == "seq" || kind == "do" || kind == "state" || kind == "msg" || kind == "greetmsgs"
+    Nil -> false
+    end
+  end
+
+  fn replays(all_rows : List(List(String))) : Outcome do
+    let prompts = GoldenIo.of_kind(all_rows, "prompt")
+    let start = { replay_haggle: None, replay_out: [] }
+    let done =
+      List.fold_left(List.filter(all_rows, is_replay_row), start, fn (r, row) -> replay_row(prompts, r, row))
+    all(List.reverse(done.replay_out))
+  end
+
+  fn standin_row(row : List(String)) : Outcome do
+    match row do
+    [line, last, want] -> expect_string(Skee.Host.stand_in(unhex(line), last == "1"), unhex(want), "standIn " ++ line ++ " " ++ last)
+    _ -> Mismatch("bad standin row")
+    end
+  end
+
+  fn accepts_row(row : List(String)) : Outcome do
+    match row do
+    [line, say, want] -> do
+      let seated = Skee.Host.new_haggle(k(), Boardwalk, Skee.U64.make(0, 3), VisitArrival)
+      let h = if line == "-" do seated else Skee.Host.say(seated, unhex(line)) end
+      let r = Skee.Host.reply(unhex(say), { terms_nights: 2, terms_tickets: 0, terms_credit: 0 })
+      expect_string(bit(Skee.Host.accepts(h, r)), want, "accepts " ++ say ++ " after " ++ line)
+    end
+    _ -> Mismatch("bad accepts row")
+    end
+  end
+
+  fn json_row(row : List(String)) : Outcome do
+    match row do
+    [say, n, t, c, mood, walk, want] -> do
+      expect_string(Skee.Host.reply_json(host_reply(say, n, t, c, mood, walk, "-")), unhex(want), "json " ++ say)
+    end
+    _ -> Mismatch("bad json row")
+    end
+  end
+
+  fn reply_tokens(r : HostReply) : String do
+    let t = r.reply_terms
+    String.join([hex_text(r.say), int_to_string(t.terms_nights), int_to_string(t.terms_tickets), int_to_string(t.terms_credit), int_to_string(r.mood), bit(r.walk), off_token(r.off_topic)], " ")
+  end
+
+  fn deflection_row(row : List(String)) : Outcome do
+    match row do
+    Cons(room, Cons(visit, Cons(concern, Cons(turn, want)))) -> do
+      let seated = Skee.Host.new_haggle(k(), room_of(room), Skee.U64.make(0, 5), visit_of(visit))
+      let h = List.fold_left(List.range(0, GoldenIo.int(turn)), seated, fn (acc, _) -> Skee.Host.say(acc, "hi"))
+      expect_string(reply_tokens(Skee.Host.deflection(h, concern_of(concern))), String.join(want, " "), "deflection " ++ String.join([room, visit, concern, turn], " "))
+    end
+    _ -> Mismatch("bad deflection row")
+    end
+  end
+
+  fn haggle_cases(all_rows : List(List(String))) : List(Case) do
+    [
+      case("Host.of for every room", fn -> all(List.map(GoldenIo.of_kind(all_rows, "hostof"), hostof_row))),
+      case("Haggle.init: budget, patience, hello and flavor", fn -> all(List.map(GoldenIo.of_kind(all_rows, "haggle"), haggle_row))),
+      case("scripted haggles: say, hear, greet, deflect, accept and the messages", fn -> replays(all_rows)),
+      case("Haggle.standIn", fn -> all(List.map(GoldenIo.of_kind(all_rows, "standin"), standin_row))),
+      case("Haggle.accepts", fn -> all(List.map(GoldenIo.of_kind(all_rows, "accepts"), accepts_row))),
+      case("Haggle.json", fn -> all(List.map(GoldenIo.of_kind(all_rows, "json"), json_row))),
+      case("Haggle.deflection", fn -> all(List.map(GoldenIo.of_kind(all_rows, "deflection"), deflection_row)))
+    ]
+  end
+
   fn cases() : List(Case) do
-    text_cases()
+    let all_rows = GoldenIo.rows(Golden.Host.chunks())
+    List.concat([text_cases(), guard_cases(), haggle_cases(all_rows)])
   end
 
 end

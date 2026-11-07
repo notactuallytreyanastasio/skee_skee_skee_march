@@ -1,0 +1,245 @@
+mod Skee.HostGuard do
+
+  -- HostGuard.swift: what keeps the host from getting weird. The audience is
+  -- someone's mother-in-law, and a model will follow a conversation anywhere.
+  --
+  -- `screen` reads what the player typed; `allows` reads every reply the
+  -- model writes, because the prompt is a request and this is the check. Word
+  -- lists catch the obvious, not the clever: "s3x" gets past them, and the
+  -- prompt is what's behind that.
+  --
+  -- Swift compares Characters, so every test here goes through
+  -- Skee.SwiftText: "kill\u{A0}myself" is caught (the no-break space splits
+  -- words), "kill myself\u{301}" is not (its last Character is not "f").
+  --
+  -- The Phrasebook's off-topic lines live here too: deflection (Skee.Host)
+  -- uses them for the guard's fixed wave-offs. The rest of ScriptedHost is
+  -- not ported (docs/PORT.md, "Skee.Host").
+  cap pure
+
+  import Skee.SwiftText
+
+  -- HostGuard.Concern.
+  type Concern =
+    ConcernCrisis
+    | ConcernPersonalInfo
+    | ConcernAdult
+    | ConcernRealMoney
+    | ConcernOffTopic
+    | ConcernTrickery
+
+  derive Eq, Show for Concern
+
+  doc """The most Characters a player line keeps (Haggle.say)."""
+  fn max_line() : Int needs () do
+    200
+  end
+
+  doc """The most Characters a reply may have."""
+  fn max_reply() : Int needs () do
+    240
+  end
+
+  doc """Lines per haggle the model answers: under the relay's limit of 60 messages."""
+  fn max_model_turns() : Int needs () do
+    25
+  end
+
+  -- ---- The lists, in Swift's order ----
+  fn crisis_phrases() : List(String) needs () do
+    ["kill myself", "killing myself", "suicide", "suicidal", "end my life", "want to die", "wanna die", "hurt myself", "hurting myself", "self harm", "self-harm", "not worth living"]
+  end
+
+  fn personal_phrases() : List(String) needs () do
+    ["my address is", "i live at", "my password", "social security", "my ssn", "my card number", "my phone number is", "my email is", "my birthday is", "date of birth"]
+  end
+
+  fn trick_phrases() : List(String) needs () do
+    ["ignore your", "ignore all", "ignore previous", "ignore the above", "disregard", "system prompt", "your instructions", "your rules", "your prompt", "you are now", "pretend to be", "pretend you", "act as", "roleplay", "role play", "jailbreak", "developer mode", "dan mode", "new persona", "repeat the text above"]
+  end
+
+  fn money_phrases() : List(String) needs () do
+    ["real money", "real cash", "cash out", "bank account", "credit card", "debit card", "loan", "mortgage", "paypal", "venmo", "cash app", "bitcoin", "crypto", "stock market", "online casino", "sportsbook", "lottery", "gambling problem", "gambling addiction", "investment"]
+  end
+
+  fn leak_phrases() : List(String) needs () do
+    ["system prompt", "my instructions", "my prompt", "language model", "large language", "openai", "chatgpt", "deepseek", "private limit", "as an assistant", "json"]
+  end
+
+  fn link_phrases() : List(String) needs () do
+    ["http", "www.", ".com", ".net", ".org", "@"]
+  end
+
+  -- Sets in Swift; listed here sorted.
+  fn adult_words() : List(String) needs () do
+    ["bomb", "boobs", "cocaine", "erotic", "fentanyl", "fetish", "gun", "guns", "heroin", "hitler", "hooker", "horny", "kinky", "kkk", "marijuana", "meth", "naked", "nazi", "nazis", "nude", "nudes", "orgasm", "pedophile", "penis", "porn", "porno", "rape", "rapist", "sex", "sexting", "sexual", "sexy", "stripper", "terrorist", "tits", "vagina", "weed"]
+  end
+
+  fn off_topic_words() : List(String) needs () do
+    ["abortion", "allah", "biden", "congress", "democrat", "democrats", "election", "gaza", "harris", "immigrants", "israel", "jesus", "obama", "palestine", "republican", "republicans", "taiwan", "tiananmen", "trump", "vaccine", "vaccines"]
+  end
+
+  fn swear_words() : List(String) needs () do
+    ["asshole", "bastard", "bitch", "bullshit", "cunt", "dick", "fuck", "fucking", "piss", "shit"]
+  end
+
+  -- ---- Reading text as Swift does ----
+  doc """Haggle.words: the lowercased text split at every Character that is not a letter. Only words that can equal an ASCII word are kept, spelled in ASCII (Skee.SwiftText.ascii_words), which is all any test here asks of them."""
+  fn words(text : String) : List(String) needs () do
+    let chars =
+      Skee.SwiftText.characters(Skee.SwiftText.lowercased(Skee.SwiftText.scalars(text)))
+    Skee.SwiftText.ascii_words(Skee.SwiftText.split(chars, fn c -> !Skee.SwiftText.is_letter(c)))
+  end
+
+  doc """Whether two word lists share a word (`!isDisjoint(with:)`)."""
+  fn meets(ws : List(String), set : List(String)) : Bool needs () do
+    List.any(ws, fn w -> List.member(set, w))
+  end
+
+  pfn spaced(xs : List(Int)) : String needs () do
+    Skee.SwiftText.ascii_keys(Skee.SwiftText.characters(List.flat_map([[32], xs, [32]], fn p -> p)))
+  end
+
+  doc """screen's `lower`: " " + the lowercased words joined by single spaces + " ", as ASCII keys (Skee.SwiftText.ascii_keys)."""
+  fn screen_lower(text : String) : String needs () do
+    let chars =
+      Skee.SwiftText.characters(Skee.SwiftText.lowercased(Skee.SwiftText.scalars(text)))
+    spaced(Skee.SwiftText.join_spaced(Skee.SwiftText.split(chars, Skee.SwiftText.is_whitespace)))
+  end
+
+  pfn reply_lower(say : String) : String needs () do
+    spaced(Skee.SwiftText.lowercased(Skee.SwiftText.scalars(say)))
+  end
+
+  doc """HostGuard.contains: one of the phrases is in the keys."""
+  fn contains_any(keys : String, phrases : List(String)) : Bool needs () do
+    List.any(phrases, fn p -> String.contains(keys, p))
+  end
+
+  pfn is_separator(k : Int) : Bool needs () do
+    k == 32 || k == 45 || k == 46 || k == 40 || k == 41
+  end
+
+  pfn digit_run(cs : List(SwiftChar), digits : Int) : Bool needs () do
+    match cs do
+    Nil -> false
+    Cons(c, rest) -> do
+      if Skee.SwiftText.is_number(c) do
+        if digits + 1 >= 7 do true else digit_run(rest, digits + 1) end
+      else
+        if is_separator(Skee.SwiftText.ascii(c)) do
+          digit_run(rest, digits)
+        else
+          digit_run(rest, 0)
+        end
+      end
+    end
+    end
+  end
+
+  pfn has_key(cs : List(SwiftChar), k : Int) : Bool needs () do
+    List.any(cs, fn c -> Skee.SwiftText.ascii(c) == k)
+  end
+
+  pfn looks_like_email(part : List(SwiftChar)) : Bool needs () do
+    has_key(part, 64) && has_key(part, 46)
+  end
+
+  doc """An email, or a run of 7 or more digits: a phone, card, account or social security number. Offers are never that long."""
+  fn has_personal_info(text : String) : Bool needs () do
+    let chars = Skee.SwiftText.characters_of(text)
+    if digit_run(chars, 0) do
+      true
+    else
+      List.any(Skee.SwiftText.split(chars, Skee.SwiftText.is_whitespace), looks_like_email)
+    end
+  end
+
+  pfn screen_rest(lower : String, ws : List(String)) : Option(Concern) needs () do
+    if meets(ws, adult_words()) do
+      Some(ConcernAdult)
+    else
+      if contains_any(lower, trick_phrases()) do
+        Some(ConcernTrickery)
+      else
+        if contains_any(lower, money_phrases()) do
+          Some(ConcernRealMoney)
+        else
+          if meets(ws, off_topic_words()) do Some(ConcernOffTopic) else None end
+        end
+      end
+    end
+  end
+
+  doc """HostGuard.screen: what the player typed, read for the concerns in Swift's order."""
+  fn screen(text : String) : Option(Concern) needs () do
+    let lower = screen_lower(text)
+    if contains_any(lower, crisis_phrases()) do
+      Some(ConcernCrisis)
+    else
+      if has_personal_info(text) || contains_any(lower, personal_phrases()) do
+        Some(ConcernPersonalInfo)
+      else
+        screen_rest(lower, words(text))
+      end
+    end
+  end
+
+  -- DeepSeek slips into Chinese now and then, mid-sentence.
+  pfn plain_scalar(cp : Int) : Bool needs () do
+    cp < 11904 || Skee.UnicodeData.emoji_presentation(cp)
+  end
+
+  pfn allows_words(say : String) : Bool needs () do
+    let ws = words(say)
+    !meets(ws, adult_words()) && !meets(ws, off_topic_words()) && !meets(ws, swear_words())
+  end
+
+  pfn allows_text(say : String, budget : Int) : Bool needs () do
+    let lower = reply_lower(say)
+    let keys = Skee.SwiftText.ascii_keys(Skee.SwiftText.characters_of(say))
+    if contains_any(lower, link_phrases()) do
+      false
+    else
+      if has_personal_info(say) || String.contains(keys, int_to_string(budget)) do
+        false
+      else
+        if contains_any(lower, leak_phrases()) || contains_any(lower, money_phrases()) || contains_any(lower, crisis_phrases()) do
+          false
+        else
+          allows_words(say)
+        end
+      end
+    end
+  end
+
+  doc """HostGuard.allows: whether a model's reply may be shown. Swift's takes the whole HostReply and reads only its `say`."""
+  fn allows(say : String, budget : Int) : Bool needs () do
+    let n = Skee.SwiftText.count(say)
+    if n == 0 || n > max_reply() do
+      false
+    else
+      if !List.all(Skee.SwiftText.scalars(say), plain_scalar) do
+        false
+      else
+        allows_text(say, budget)
+      end
+    end
+  end
+
+  doc """Whether the text holds the ASCII text, Character by Character (Swift's `contains`)."""
+  fn contains_text(text : String, ascii_text : String) : Bool needs () do
+    String.contains(Skee.SwiftText.ascii_keys(Skee.SwiftText.characters_of(text)), ascii_text)
+  end
+
+  doc """Phrasebook.offTopic: each host's wave-offs, which the guard's deflection says."""
+  fn off_topic_lines(r : Room) : List(String) needs () do
+    match r do
+    Boardwalk -> ["Not my department, friend. Let's talk nights, tickets and credit.", "I just run the arcade. So, what'll it take to make this deal?"]
+    NeonLounge -> ["Not a subject for my lounge, darling. Back to the deal.", "Let's keep to business. Nights, tickets or credit?"]
+    HighRoller -> ["That's not a matter for this room. Shall we return to your stay?", "I couldn't say. May we discuss your comp?"]
+    Penthouse -> ["Such a curious thing to say, my dear. Now, your stay!", "Let us speak only of your comp, my treasure."]
+    end
+  end
+
+end

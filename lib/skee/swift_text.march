@@ -365,12 +365,13 @@ mod Skee.SwiftText do
 
   pfn key_piece(c : SwiftChar) : String needs () do
     let k = ascii(c)
-    if k < 0 do Option.unwrap_or(String.from_codepoint(1), "") else piece(k) end
+    if k <= 0 do Option.unwrap_or(String.from_codepoint(1), "") else piece(k) end
   end
 
   doc """
   The Characters as ASCII text: each one that equals an ASCII Character as
-  that byte, every other one as U+0001, which no phrase holds. An ASCII
+  that byte, every other one (and NUL, which a C string search would stop
+  at) as U+0001, which no phrase holds. An ASCII
   phrase is in Swift's String (Character by Character) exactly when it is a
   substring of this.
   """

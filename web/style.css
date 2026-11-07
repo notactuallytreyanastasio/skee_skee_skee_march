@@ -262,10 +262,28 @@ html, body {
   pointer-events: auto;
 }
 #hud .counter-head { display: flex; justify-content: space-between; align-items: center; }
-#hud .offers { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+/* On a phone browser the toolbars leave less than the iPhone's 844 pt, and
+   half the height can't hold four offers and the buttons. The counter keeps
+   the bottom half as its minimum and grows upward to fit its content, so
+   REROLL and NEXT ROUND are always on screen. */
+#hud .offers { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 104px; gap: 10px; }
+#hud .offers > * { height: 100%; min-height: 0; }
 #hud .offer {
-  height: 104px; box-sizing: border-box; display: flex; gap: 8px; padding: 7px;
-  border-radius: 16px; box-shadow: 0 4px 0 var(--ink);
+  height: 100%; min-height: 0; box-sizing: border-box; display: flex; gap: 8px; padding: 7px;
+  border-radius: 16px; box-shadow: 0 4px 0 var(--ink); overflow: hidden;
+}
+#hud .counter {
+  top: auto !important; bottom: 0; height: auto !important; min-height: 50%; max-height: 100%;
+  display: flex; flex-direction: column;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+}
+#hud .counter-panel { flex: 1 1 auto; height: auto; overflow-y: auto; }
+#hud .counter-panel > * { flex: none; }
+#hud .counter-panel > .grow { flex: 1 1 0; }
+@media (max-height: 760px) {
+  #hud .counter { padding-top: 8px; }
+  #hud .counter-panel { gap: 6px; padding: 10px; }
+  #hud .offers { gap: 8px; }
 }
 #hud .offer-icon { flex: none; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; }
 #hud .offer-words { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
@@ -300,7 +318,7 @@ html, body {
   background-image: repeating-linear-gradient(135deg, rgba(155, 131, 242, 0.35) 0 18px, transparent 18px 33.94px);
 }
 #hud .shop, #hud .guide, #hud .arrival, #hud .host {
-  position: absolute; inset: 0; box-sizing: border-box;
+  position: absolute; inset: 0; box-sizing: border-box; overflow-y: auto; -webkit-overflow-scrolling: touch;
   display: flex; flex-direction: column; align-items: center;
 }
 #hud .shop { gap: 10px; padding-top: 28px; }
@@ -310,7 +328,7 @@ html, body {
   border: 3px solid; border-radius: 14px; box-shadow: 0 3px 0 var(--ink);
 }
 #hud .prize-name { max-width: 100%; overflow: hidden; }
-#hud .bottom-button { padding-bottom: 24px; display: flex; justify-content: center; }
+#hud .bottom-button { padding-bottom: max(24px, env(safe-area-inset-bottom)); display: flex; justify-content: center; }
 #hud .guide { gap: 10px; padding: 30px 14px 20px; }
 #hud .topics { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
 #hud .topic {
