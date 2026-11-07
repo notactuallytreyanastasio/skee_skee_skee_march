@@ -69,7 +69,12 @@ mod Skee.App do
 
   -- ---- What the shell does ----
   -- Where a save goes. The shell owns the storage keys.
-  type SaveKey = KeyWallet | KeyRun | KeyTips | KeyWalkthroughDone | KeyArrivalDone
+  type SaveKey =
+    KeyWallet
+    | KeyRun
+    | KeyTips
+    | KeyWalkthroughDone
+    | KeyArrivalDone
 
   derive Eq, Show for SaveKey
 
@@ -318,7 +323,13 @@ mod Skee.App do
   doc """Haptics.play: a beat that has just finished."""
   fn beat_haptic(b : Beat) : Option(Haptic) needs () do
     match b do
-    BeatRoll(_, ball) -> if ball.record_hole == Gutter do Some(HapticNotify(NoticeError)) else None end
+    BeatRoll(_, ball) -> do
+      if ball.record_hole == Gutter do
+        Some(HapticNotify(NoticeError))
+      else
+        None
+      end
+    end
     BeatTally(f) -> do
       if Skee.Scoring.is_jackpot(f) do
         Some(HapticNotify(NoticeSuccess))
@@ -522,13 +533,7 @@ mod Skee.App do
 
   pfn coach_card(m : Model) : Option(CoachCard) needs () do
     match m.walk do
-    Some(w) -> do
-      if w.walk_finished do
-        tip_card(m)
-      else
-        Some(Skee.Walkthrough.card(w))
-      end
-    end
+    Some(w) -> if w.walk_finished do tip_card(m) else Some(Skee.Walkthrough.card(w)) end
     None -> tip_card(m)
     end
   end
@@ -636,7 +641,11 @@ mod Skee.App do
 
   pfn resumed(k : Skee.Consts.Consts, saved_run : Option(String), wallet : Wallet, seed : Skee.U64.U64, fresh : Bool) : Opening needs () do
     let carried =
-      if fresh do None else Skee.Save.resume(k, saved_run, wallet.wallet_room) end
+      if fresh do
+        None
+      else
+        Skee.Save.resume(k, saved_run, wallet.wallet_room)
+      end
     match carried do
     Some(r) -> do
       {
@@ -656,7 +665,10 @@ mod Skee.App do
         open_extra: extra_of_file(started.started_file),
         open_actions: [],
         open_wallet: started.started_wallet,
-        open_saves: [FxSave(KeyWallet, Skee.Save.encode_wallet(started.started_wallet)), FxSave(KeyRun, Skee.Save.encode_run(started.started_file))]
+        open_saves: [
+          FxSave(KeyWallet, Skee.Save.encode_wallet(started.started_wallet)),
+          FxSave(KeyRun, Skee.Save.encode_run(started.started_file))
+        ]
       }
     end
     end
@@ -800,8 +812,11 @@ mod Skee.App do
     if shown do
       { m with last_render: None }
     else
-      let quiet = set_drum(set_rumble({ m with flick: [], aiming: false, last_render: None, last_ball: None }, 0.0), false)
-      buzz_to(quiet, 0.0)
+      do
+        let quiet =
+          set_drum(set_rumble({ m with flick: [], aiming: false, last_render: None, last_ball: None }, 0.0), false)
+        buzz_to(quiet, 0.0)
+      end
     end
   end
 
@@ -812,7 +827,8 @@ mod Skee.App do
       Some(t) -> t
       None -> now
       end
-    let dt = Skee.Maths.min_float(longest_frame(), Skee.Maths.max_float(0.0, now -. last))
+    let dt =
+      Skee.Maths.min_float(longest_frame(), Skee.Maths.max_float(0.0, now -. last))
     let p = Skee.Presentation.advance(m.k, m.pres, dt)
     let stepped = { m with pres: p, last_render: Some(now), now: now }
     let felt = List.fold_left(p.finished, stepped, beat_effects)
@@ -839,11 +855,19 @@ mod Skee.App do
   end
 
   pfn set_rumble(m : Model, level : Float) : Model needs () do
-    if level == m.rumble_sent do m else emit({ m with rumble_sent: level }, FxRumble(level)) end
+    if level == m.rumble_sent do
+      m
+    else
+      emit({ m with rumble_sent: level }, FxRumble(level))
+    end
   end
 
   pfn set_drum(m : Model, on_ : Bool) : Model needs () do
-    if on_ == m.drum_sent do m else emit({ m with drum_sent: on_ }, FxDrum(on_)) end
+    if on_ == m.drum_sent do
+      m
+    else
+      emit({ m with drum_sent: on_ }, FxDrum(on_))
+    end
   end
 
   -- Haptics.rumble: under 0.05 stops the buzz; otherwise start it and move
@@ -904,7 +928,8 @@ mod Skee.App do
   end
 
   pfn rumble_level(m : Model, b : PathSample, l : BallMark, now : Float) : Model needs () do
-    let speed = Math.abs(b.along -. l.mark_along) /. (now -. l.mark_t) *. Skee.Presentation.roll_speed()
+    let speed =
+      Math.abs(b.along -. l.mark_along) /. (now -. l.mark_t) *. Skee.Presentation.roll_speed()
     let on_ = if busy(m) do 1.0 else 0.0 end
     let level = Skee.Maths.min_float(1.0, speed /. 4.0) *. on_
     buzz_to(set_rumble(m, level), level *. phase_share(b))
@@ -912,8 +937,7 @@ mod Skee.App do
 
   pfn scene_step(m : Model, dt : Float) : Model needs () do
     let cue = Skee.SceneCue.frame_cue(m.k, m.pres, m.held)
-    let (scenery, keep) =
-      Skee.Scene.present(m.world, m.palette, m.rig, m.viewport, m.keep, cue, dt)
+    let (scenery, keep) = Skee.Scene.present(m.world, m.palette, m.rig, m.viewport, m.keep, cue, dt)
     { m with scenery: scenery, keep: keep }
   end
 
@@ -945,14 +969,20 @@ mod Skee.App do
   end
 
   pfn throw_haptic(m : Model, a : Action) : Model needs () do
-    if is_throw(a) do emit(m, FxHaptic(HapticImpact(ImpactRigid, 0.7))) else tap(m) end
+    if is_throw(a) do
+      emit(m, FxHaptic(HapticImpact(ImpactRigid, 0.7)))
+    else
+      tap(m)
+    end
   end
 
   pfn accepted(m0 : Model, a : Action, step : Step) : Model needs () do
     let m =
       { m0 with run: step.run, actions_rev: Cons(a, m0.actions_rev), pres: Skee.Presentation.enqueue(m0.pres, step, 0.0) }
     match m.walk do
-    Some(w) -> throw_haptic({ m with walk: Some(Skee.Walkthrough.observe(w, step.step_events)) }, a)
+    Some(w) -> do
+      throw_haptic({ m with walk: Some(Skee.Walkthrough.observe(w, step.step_events)) }, a)
+    end
     None -> throw_haptic(tipped(banked(save_run(m), step), a, step), a)
     end
   end
@@ -1020,7 +1050,8 @@ mod Skee.App do
         let g = geometry(m)
         if can_throw(m) && s.sample_y > g.crease_y do
           do
-            let line = Skee.Stroke.lane_start(m.k, s.sample_x, g, Skee.Types.standard_tuning())
+            let line =
+              Skee.Stroke.lane_start(m.k, s.sample_x, g, Skee.Types.standard_tuning())
             { m with line: line, aiming: true, held: Some(Skee.Camera.waiting_ball(m.world, line)), flick: [s], trail: [trail_point(s)] }
           end
         else
@@ -1109,7 +1140,11 @@ mod Skee.App do
     if !m.arrival_done do
       { m with arrival: Some(0) }
     else
-      if m.walk_done do { m with screen: GameScreen } else start_walkthrough(m, true) end
+      if m.walk_done do
+        { m with screen: GameScreen }
+      else
+        start_walkthrough(m, true)
+      end
     end
   end
 
@@ -1163,7 +1198,11 @@ mod Skee.App do
     None -> m
     Some(room) -> do
       let visit =
-        if Skee.Rooms.room_at(m.wallet.rooms, room) do VisitReturning else VisitNewRoom end
+        if Skee.Rooms.room_at(m.wallet.rooms, room) do
+          VisitReturning
+        else
+          VisitNewRoom
+        end
       seat(m, { host_visit: visit, host_room: room, host_after: after })
     end
     end
@@ -1178,7 +1217,9 @@ mod Skee.App do
     Some(h) -> do
       let left = { m with host: None }
       match h.host_after do
-      ThenWalkthrough -> start_walkthrough(emit({ left with arrival_done: true }, FxSave(KeyArrivalDone, Skee.Save.encode_flag(true))), true)
+      ThenWalkthrough -> do
+        start_walkthrough(emit({ left with arrival_done: true }, FxSave(KeyArrivalDone, Skee.Save.encode_flag(true))), true)
+      end
       ThenNewGame -> new_game(left)
       ThenNothing -> left
       end
@@ -1232,7 +1273,8 @@ mod Skee.App do
 
   doc """GameModel.endWalkthrough: done or skipped, never again unless asked for; the parked run comes back, or a new game if it had ended."""
   fn end_walkthrough(m0 : Model) : Model needs () do
-    let m = emit({ m0 with walk: None, walk_done: true }, FxSave(KeyWalkthroughDone, Skee.Save.encode_flag(true)))
+    let m =
+      emit({ m0 with walk: None, walk_done: true }, FxSave(KeyWalkthroughDone, Skee.Save.encode_flag(true)))
     match m.parked do
     None -> new_game(m)
     Some(p) -> do
@@ -1362,7 +1404,8 @@ mod Skee.App do
         bet: affordable_bet(m)
       }
     let made = with_machine(Skee.HudState.make(m.pres, inputs), m)
-    let hosted = { made with host: if is_some(m.host) do HostPlaceholder else HostClosed end }
+    let hosted =
+      { made with host: if is_some(m.host) do HostPlaceholder else HostClosed end }
     let shown = if walk_running(m) do { hosted with over: None } else hosted end
     {
       app_hud: shown,

@@ -47,6 +47,7 @@ foundation: ask before changing it.
 | synth | `lib/skee/synth.march` | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
+| app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -123,7 +124,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make build` | The browser build, `.march/build/debug/skee.mjs` |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -401,6 +402,60 @@ verifier measured 44 ms and 0.85 ms: still far inside the budget.
 `make golden-scene`. `tools/scene_preview/preview.sh <stage> <w> <h>
 <dir>` paints a frame in headless Chrome; `tools/golden_scene`'s
 `scene-snapshot <png> <w> <h>` renders the real SceneKit cabinet beside it.
+
+### Skee.App: GameModel as a pure model
+
+The shell holds one `Skee.App.Model` and does three things with it:
+
+```
+Skee.App.boot(k, saved, width, height, seed) -> (Model, List(Effect))   once
+Skee.App.update(model, msg) -> (Model, List(Effect))                   every event
+Skee.App.scene_ops(model), Skee.App.hud(model)                         every frame
+```
+
+`Msg` is `MsgTick(now)`, `MsgPointerDown/Move/Up` (FlickSamples: seconds,
+CSS pixels), `MsgPointerCancel`, `MsgTap(Intent)`, `MsgResize`, `MsgVisible`
+and `MsgAutoplay` (LaunchArguments' `-autoplay`). Every HUD button is an
+`Intent` constructor; `Skee.App.accepts` says whether it is on screen and on
+top, so a tap under an overlay does nothing, as in SwiftUI. `Effect` is
+`FxSound(Skee.Synth.Sound)`, `FxRumble`, `FxDrum`, `FxSave(SaveKey, text)` and
+`FxHaptic`. The shell owns the storage key for each `SaveKey` and hands the
+stored strings back at boot as `SavedStrings`. Rumble and drum effects are
+sent only when the level changes; Swift sets them every frame to the same value.
+
+Times: one clock for everything, `performance.now() / 1000`, which is what
+requestAnimationFrame passes and what every pointer event's `timeStamp` is
+measured on. The tick clamps its step to 1/20 s as `Stage.advance` does.
+
+Deviations from GameModel:
+
+- One tick does what SceneKit's render thread and the display link did
+  separately: advance the presentation, then haptics, sounds, rumble, drum,
+  the scene's `present`, and autoplay.
+- New games are seeded from a SplitMix64 stream started from the boot seed,
+  not from `Date()` seconds. The shell passes the launch's seed.
+- The host is a placeholder (`HostTable`, `HudState.HostPlaceholder`) with one
+  button, close. Swift's open haggle only closes, which would leave a player
+  whose host is due unable to start a game, so closing behaves as a table left
+  without a deal: after Sal's lines it marks the arrival done (Swift's `settle`
+  does that) and starts the walkthrough; after NEW GAME it starts the game;
+  opened from a button it just closes. `games_since_host` is not reset, so the
+  placeholder sits down again before every new game until the host is ported.
+  Sal's five arrival lines are ported (`arrival_beats`).
+- `MsgVisible` has no Swift counterpart (iOS pauses the display link): hidden
+  stops the stroke, the rumble, the buzz and the drum, and restarts the clock.
+- No hinge: `fold` is 0. No safe-area insets.
+- Haptics are effects; the browser may vibrate or ignore them.
+
+`make test-app` (about 22 s native, 7 s on node) drives `update` with Msg
+sequences: the first launch through Sal, the placeholder and the walkthrough
+(skipped, and played to its end), strokes and fouls, the lever, the counter,
+the shop, rooms, the host's seat, tips, and a run from the title to ante 2
+throwing the bot's aim book's best launches, whose saved strings boot back
+into the same run. Ten hand mutations of `app.march` (saving the practice
+run, the trail's life, the overlay gate, the board tap, counting abandoned
+games, the host's close, a cue's sound, the rumble, the tip save, the bet
+gate) each turn the suite red.
 
 ## Rules every core module follows
 

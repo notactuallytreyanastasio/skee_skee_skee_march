@@ -11,33 +11,37 @@ mod AppSuite do
   end
 
   -- ---- Driving the model ----
-  type Run = { model : Skee.App.Model, effects : List(Skee.App.Effect) }
+  type Run = { model : Skee.App.Model, fx_rev : List(Skee.App.Effect) }
+
+  fn fx_of(r : Run) : List(Skee.App.Effect) do
+    List.reverse(r.fx_rev)
+  end
 
   fn boot_with(saved : Skee.App.SavedStrings, seed : Int) : Run do
     let (m, fx) = Skee.App.boot(k(), saved, 390.0, 844.0, Skee.U64.of_int(seed))
-    { model: m, effects: fx }
+    { model: m, fx_rev: List.reverse(fx) }
   end
 
   fn boot_fresh() : Run do
     boot_with(Skee.App.nothing_saved(), 42)
   end
 
-  fn send(r : Run, msg : Skee.App.Msg) : Run do
+  fn deliver(r : Run, msg : Skee.App.Msg) : Run do
     let (m, fx) = Skee.App.update(r.model, msg)
-    { model: m, effects: List.append(r.effects, fx) }
+    { model: m, fx_rev: List.append(List.reverse(fx), r.fx_rev) }
   end
 
   fn sends(r : Run, msgs : List(Skee.App.Msg)) : Run do
-    List.fold_left(msgs, r, send)
+    List.fold_left(msgs, r, deliver)
   end
 
   fn tap(r : Run, i : Skee.App.Intent) : Run do
-    send(r, MsgTap(i))
+    deliver(r, MsgTap(i))
   end
 
   -- Only the effects from here on.
   fn fresh_effects(r : Run) : Run do
-    { r with effects: [] }
+    { r with fx_rev: [] }
   end
 
   fn now(r : Run) : Float do
@@ -45,7 +49,7 @@ mod AppSuite do
   end
 
   fn tick(r : Run) : Run do
-    send(r, MsgTick(now(r) +. 1.0 /. 60.0))
+    deliver(r, MsgTick(now(r) +. 1.0 /. 60.0))
   end
 
   fn ticks(r : Run, n : Int) : Run do
@@ -58,14 +62,15 @@ mod AppSuite do
 
   -- A tap high on the screen: above the crease, so while busy it only skips.
   fn skip(r : Run) : Run do
-    send(r, MsgPointerDown({ sample_t: now(r), sample_x: 20.0, sample_y: 20.0 }))
+    deliver(r, MsgPointerDown({ sample_t: now(r), sample_x: 20.0, sample_y: 20.0 }))
   end
 
   -- Title, Sal's five lines, the placeholder host, then the walkthrough skipped:
   -- a first launch into a real game.
   fn into_game(r : Run) : Run do
     let at_door = tap(r, TapStart)
-    let talked = List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
+    let talked =
+      List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
     tap(tap(talked, TapCloseHost), TapSkipWalkthrough)
   end
 
@@ -106,10 +111,38 @@ mod AppSuite do
     }
   end
 
+  fn sound_name(s : Skee.Synth.Sound) : String do
+    match s do
+    SndLaunch -> "SndLaunch"
+    SndRail -> "SndRail"
+    SndHump -> "SndHump"
+    SndLip -> "SndLip"
+    SndBackwall -> "SndBackwall"
+    SndLanded -> "SndLanded"
+    SndDrop(h) -> "SndDrop(" ++ show(h) ++ ")"
+    SndGutter -> "SndGutter"
+    SndHop -> "SndHop"
+    SndWhoosh -> "SndWhoosh"
+    SndHotSpot -> "SndHotSpot"
+    SndLever -> "SndLever"
+    SndPullWin(n) -> "SndPullWin(" ++ int_to_string(n) ++ ")"
+    SndReelTick -> "SndReelTick"
+    SndReelStop -> "SndReelStop"
+    SndCombo(n) -> "SndCombo(" ++ int_to_string(n) ++ ")"
+    SndTallyChips(n) -> "SndTallyChips(" ++ int_to_string(n) ++ ")"
+    SndTallyMult(n) -> "SndTallyMult(" ++ int_to_string(n) ++ ")"
+    SndFrameDone -> "SndFrameDone"
+    SndLineWon -> "SndLineWon"
+    SndJackpot -> "SndJackpot"
+    SndBanner(t) -> "SndBanner(" ++ t ++ ")"
+    SndFoul -> "SndFoul"
+    end
+  end
+
   fn sounds(fx : List(Skee.App.Effect)) : List(String) do
     List.filter_map(fx, fn e ->
       match e do
-      FxSound(s) -> Some(show(s))
+      FxSound(s) -> Some(sound_name(s))
       FxSave(_, _) -> None
       FxRumble(_) -> None
       FxDrum(_) -> None
@@ -204,20 +237,111 @@ mod AppSuite do
   end
 
   fn same_run(a : RunState, b : RunState) : Bool do
-    Skee.U64.equal(Skee.Rng.word(a.rng), Skee.Rng.word(b.rng)) && show(a) == show(b)
+    Skee.U64.equal(Skee.Rng.word(a.rng), Skee.Rng.word(b.rng)) && RunDigest.run(a) == RunDigest.run(b)
   end
 
   fn has_pull(m : Skee.App.Model) : Bool do
-    match Skee.App.run_of(m).round.round_pull do
+    match run_round_round_pull(m) do
     Some(_) -> true
     None -> false
     end
   end
 
+  -- ---- Reading the model (a call cannot be followed by a field) ----
+  fn model_of(r : Run) : Skee.App.Model do
+    r.model
+  end
+
+  fn hud_aiming_now(m : Skee.App.Model) : Bool do
+    let h = Skee.App.hud(m)
+    h.aiming_now
+  end
+
+  fn hud_app_hud_host(m : Skee.App.Model) : HostSeam do
+    let h = Skee.App.hud(m)
+    h.app_hud.host
+  end
+
+  fn hud_coach(m : Skee.App.Model) : Option(CoachCard) do
+    let h = Skee.App.hud(m)
+    h.coach
+  end
+
+  fn hud_guide_line(m : Skee.App.Model) : List(ScreenPoint) do
+    let h = Skee.App.hud(m)
+    h.guide_line
+  end
+
+  fn hud_guide_topics(m : Skee.App.Model) : List(GuideTopic) do
+    let h = Skee.App.hud(m)
+    h.guide_topics
+  end
+
+  fn hud_top(m : Skee.App.Model) : Skee.App.Layer do
+    let h = Skee.App.hud(m)
+    h.top
+  end
+
+  fn hud_trail_dots(m : Skee.App.Model) : List(Skee.App.TrailDot) do
+    let h = Skee.App.hud(m)
+    h.trail_dots
+  end
+
+  fn run_phase(m : Skee.App.Model) : Phase do
+    let s = Skee.App.run_of(m)
+    s.phase
+  end
+
+  fn run_room(m : Skee.App.Model) : Room do
+    let s = Skee.App.run_of(m)
+    s.room
+  end
+
+  fn run_round_round_pull(m : Skee.App.Model) : Option(Pull) do
+    let s = Skee.App.run_of(m)
+    s.round.round_pull
+  end
+
+  fn run_round_target(m : Skee.App.Model) : Points do
+    let s = Skee.App.run_of(m)
+    s.round.target
+  end
+
+  fn run_tickets(m : Skee.App.Model) : Tickets do
+    let s = Skee.App.run_of(m)
+    s.tickets
+  end
+
+  fn tips_tip_showing(m : Skee.App.Model) : Option(Tip) do
+    let t = Skee.App.tips_of(m)
+    t.tip_showing
+  end
+
+  fn wallet_games_since_host(m : Skee.App.Model) : Int do
+    let w = Skee.App.wallet_of(m)
+    w.games_since_host
+  end
+
+  fn wallet_owned(m : Skee.App.Model) : List(Prize) do
+    let w = Skee.App.wallet_of(m)
+    w.owned
+  end
+
+  fn wallet_progressive_meters_grand(m : Skee.App.Model) : Winnings do
+    let w = Skee.App.wallet_of(m)
+    w.progressive.meters.grand
+  end
+
+  fn wallet_wallet_room(m : Skee.App.Model) : Room do
+    let w = Skee.App.wallet_of(m)
+    w.wallet_room
+  end
+
   -- ---- A flick, as StrokeTests.flick: minimum-jerk, lifted at 80%, 120 Hz ----
   fn stroke_at(x0 : Float, y0 : Float, t0 : Float, t : Float) : FlickSample do
     let v = t /. 0.16
-    let d = 220.0 *. (10.0 *. Math.pow(v, 3.0) -. 15.0 *. Math.pow(v, 4.0) +. 6.0 *. Math.pow(v, 5.0))
+    let d =
+      220.0 *. (10.0 *. Math.pow(v, 3.0) -. 15.0 *. Math.pow(v, 4.0) +. 6.0 *. Math.pow(v, 5.0))
     { sample_t: t0 +. t, sample_x: x0, sample_y: y0 -. d }
   end
 
@@ -235,9 +359,9 @@ mod AppSuite do
     let pts = stroke_go(g.lane_center_x, g.crease_y +. 100.0, now(r), 0.0, [])
     match pts do
     Cons(first, rest) -> do
-      let down = send(r, MsgPointerDown(first))
-      let moved = send(down, MsgPointerMove(List.take(rest, List.length(rest) - 1)))
-      send(moved, MsgPointerUp(List.drop(rest, List.length(rest) - 1)))
+      let down = deliver(r, MsgPointerDown(first))
+      let moved = deliver(down, MsgPointerMove(List.take(rest, List.length(rest) - 1)))
+      deliver(moved, MsgPointerUp(List.drop(rest, List.length(rest) - 1)))
     end
     Nil -> r
     end
@@ -247,12 +371,12 @@ mod AppSuite do
   fn boots_fresh_onto_the_title() : Outcome do
     let r = boot_fresh()
     let m = r.model
-    all([expect(Skee.App.screen_of(m) == TitleScreen, "a first launch shows the title"), expect(List.is_empty(Skee.App.actions_of(m)), "no actions"), expect(List.length(saves(r.effects, KeyRun)) == 1, "the new run is saved at once"), expect(List.length(saves(r.effects, KeyWallet)) == 1, "the checked-in wallet is saved"), expect(phase_name(Skee.App.run_of(m).phase) == "throwing", "the run is on the lane")])
+    all([expect(Skee.App.screen_of(m) == TitleScreen, "a first launch shows the title"), expect(List.is_empty(Skee.App.actions_of(m)), "no actions"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "the new run is saved at once"), expect(List.length(saves(fx_of(r), KeyWallet)) == 1, "the checked-in wallet is saved"), expect(phase_name(run_phase(m)) == "throwing", "the run is on the lane")])
   end
 
   fn boot_saves_a_run_that_replays() : Outcome do
     let r = boot_fresh()
-    let s = stored(Skee.App.nothing_saved(), r.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(r))
     match Skee.Save.resume(k(), s.saved_run, Boardwalk) do
     Some(back) -> do
       all([expect(same_run(back.replayed_run, Skee.App.run_of(r.model)), "the saved run is the run"), expect(Skee.U64.equal(back.replayed_seed, Skee.App.seed_of(r.model)), "seed")])
@@ -266,14 +390,15 @@ mod AppSuite do
     let r = boot_fresh()
     let at_door = tap(r, TapStart)
     let h0 = Skee.App.hud(at_door.model)
-    let four = List.fold_left(List.range(0, 4), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
+    let four =
+      List.fold_left(List.range(0, 4), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
     let h4 = Skee.App.hud(four.model)
     let seated = tap(four, TapArrivalNext)
     let hs = Skee.App.hud(seated.model)
     let pulled_under = tap(seated, TapPull)
     let closed = tap(fresh_effects(seated), TapCloseHost)
     let w = Skee.App.walkthrough_of(closed.model)
-    all([expect(h0.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 0), "Sal's first line"), expect(h0.top == LayerArrival, "the door is on top"), expect(h4.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 4), "Sal's last line"), expect(hs.app_hud.host == HostPlaceholder && hs.top == LayerHost, "the host's placeholder after the last line"), expect(hs.arrival_line == None, "Sal's lines are gone"), expect(List.is_empty(Skee.App.actions_of(pulled_under.model)), "buttons under the host do nothing"), expect(is_some_walk(w), "closing the arrival starts the walkthrough"), expect(Skee.App.screen_of(closed.model) == GameScreen, "on the game screen"), expect(saves(closed.effects, KeyArrivalDone) == ["true"], "the arrival is settled"), expect(Skee.Units.points_int(Skee.App.run_of(closed.model).round.target) == Skee.Units.points_int(Skee.Walkthrough.practice_target()), "the practice target")])
+    all([expect(h0.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 0), "Sal's first line"), expect(h0.top == LayerArrival, "the door is on top"), expect(h4.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 4), "Sal's last line"), expect(hs.app_hud.host == HostPlaceholder && hs.top == LayerHost, "the host's placeholder after the last line"), expect(hs.arrival_line == None, "Sal's lines are gone"), expect(List.is_empty(Skee.App.actions_of(pulled_under.model)), "buttons under the host do nothing"), expect(is_some_walk(w), "closing the arrival starts the walkthrough"), expect(Skee.App.screen_of(closed.model) == GameScreen, "on the game screen"), expect(saves(fx_of(closed), KeyArrivalDone) == ["true"], "the arrival is settled"), expect(Skee.Units.points_int(run_round_target(closed.model)) == Skee.Units.points_int(Skee.Walkthrough.practice_target()), "the practice target")])
   end
 
   fn is_some_walk(w : Option(Walkthrough)) : Bool do
@@ -285,12 +410,13 @@ mod AppSuite do
 
   fn practice_is_not_saved() : Outcome do
     let r = tap(fresh_effects(tap(into_walkthrough(boot_fresh()), TapGotIt)), TapPull)
-    all([expect(action_names(r.model) == ["pull BetOne"], "the practice pull is applied"), expect(List.is_empty(saves(r.effects, KeyRun)), "and never saved"), expect(List.is_empty(saves(r.effects, KeyWallet)), "nor banked")])
+    all([expect(action_names(r.model) == ["pull BetOne"], "the practice pull is applied"), expect(List.is_empty(saves(fx_of(r), KeyRun)), "and never saved"), expect(List.is_empty(saves(fx_of(r), KeyWallet)), "nor banked")])
   end
 
   fn into_walkthrough(r : Run) : Run do
     let at_door = tap(r, TapStart)
-    let talked = List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
+    let talked =
+      List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
     tap(talked, TapCloseHost)
   end
 
@@ -300,7 +426,7 @@ mod AppSuite do
     let pulled = tap(r, TapPull)
     let read = tap(r, TapGotIt)
     let then_pulled = tap(read, TapPull)
-    all([expect(h.top == LayerCoachBlock, "the welcome waits for GOT IT"), expect(coach_title(h) == "YOUR FIRST LOADOUT", "the welcome card"), expect(List.is_empty(Skee.App.actions_of(pulled.model)), "the lever is under the card"), expect(action_names(then_pulled.model) == ["pull BetOne"], "after GOT IT the lever works"), expect(coach_title(Skee.App.hud(then_pulled.model)) == "ROLL THE BALL" || coach_title(Skee.App.hud(tick_idle(then_pulled, 2000).model)) == "ROLL THE BALL", "the pull moves the lesson on")])
+    all([expect(h.top == LayerCoachBlock, "the welcome waits for GOT IT"), expect(coach_title(h) == "YOUR FIRST LOADOUT", "the welcome card"), expect(List.is_empty(Skee.App.actions_of(pulled.model)), "the lever is under the card"), expect(action_names(then_pulled.model) == ["pull BetOne"], "after GOT IT the lever works"), expect(coach_title(Skee.App.hud(then_pulled.model)) == "ROLL THE BALL" || coach_title(Skee.App.hud(model_of(tick_idle(then_pulled, 2000)))) == "ROLL THE BALL", "the pull moves the lesson on")])
   end
 
   fn coach_title(h : Skee.App.AppHud) : String do
@@ -314,12 +440,12 @@ mod AppSuite do
     let before = into_walkthrough(boot_fresh())
     let r = tap(fresh_effects(before), TapSkipWalkthrough)
     let m = r.model
-    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(r.effects, KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(r.effects, KeyRun)) == 1, "a new game is saved"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(Skee.App.run_of(m).round.target) == 400, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
+    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(fx_of(r), KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "a new game is saved"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
   end
 
   fn a_second_launch_skips_the_door() : Outcome do
     let first = into_game(boot_fresh())
-    let s = stored(Skee.App.nothing_saved(), first.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(first))
     let again = boot_with(s, 7)
     let started = tap(again, TapStart)
     all([expect(Skee.App.screen_of(again.model) == TitleScreen, "an untouched run opens on the title"), expect(Skee.App.screen_of(started.model) == GameScreen, "TAP TO PLAY goes straight in"), expect(!is_some_walk(Skee.App.walkthrough_of(started.model)), "no lesson")])
@@ -327,31 +453,34 @@ mod AppSuite do
 
   fn a_played_run_resumes_in_the_game() : Outcome do
     let played = tap(into_game(boot_fresh()), TapPull)
-    let s = stored(Skee.App.nothing_saved(), played.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(played))
     let again = boot_with(s, 7)
-    all([expect(Skee.App.screen_of(again.model) == GameScreen, "a run with actions opens on the game"), expect(action_names(again.model) == ["pull BetOne"], "with its actions"), expect(same_run(Skee.App.run_of(again.model), Skee.App.run_of(played.model)), "the same run"), expect(List.is_empty(saves(again.effects, KeyRun)), "nothing is saved over it")])
+    all([expect(Skee.App.screen_of(again.model) == GameScreen, "a run with actions opens on the game"), expect(action_names(again.model) == ["pull BetOne"], "with its actions"), expect(same_run(Skee.App.run_of(again.model), Skee.App.run_of(played.model)), "the same run"), expect(List.is_empty(saves(fx_of(again), KeyRun)), "nothing is saved over it")])
   end
 
   fn a_run_from_another_room_is_not_resumed() : Outcome do
     let played = tap(into_game(boot_fresh()), TapPull)
-    let s = stored(Skee.App.nothing_saved(), played.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(played))
     let w = Skee.Save.load_wallet(s.saved_wallet)
-    let moved = { w with rooms: Skee.Rooms.room_put(w.rooms, NeonLounge, true), wallet_room: NeonLounge }
-    let again = boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet(moved)) }, 7)
-    all([expect(List.is_empty(Skee.App.actions_of(again.model)), "a fresh run"), expect(Skee.App.run_of(again.model).room == NeonLounge, "in the wallet's room"), expect(List.length(saves(again.effects, KeyRun)) == 1, "saved at once")])
+    let moved =
+      { w with rooms: Skee.Rooms.room_put(w.rooms, NeonLounge, true), wallet_room: NeonLounge }
+    let again =
+      boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet(moved)) }, 7)
+    all([expect(List.is_empty(Skee.App.actions_of(again.model)), "a fresh run"), expect(run_room(again.model) == NeonLounge, "in the wallet's room"), expect(List.length(saves(fx_of(again), KeyRun)) == 1, "saved at once")])
   end
 
   -- ---- Cases: the lever and the throw ----
   fn the_lever_pulls_once() : Outcome do
     let r = tap(fresh_effects(into_game(boot_fresh())), TapPull)
     let again = tap(r, TapPull)
-    all([expect(action_names(again.model) == ["pull BetOne"], "one pull"), expect(Skee.App.busy(r.model), "the reels spin"), expect(List.length(saves(r.effects, KeyRun)) == 1, "the pull is saved"), expect(has_haptic(r.effects, fn h -> is_impact(h, ImpactLight, 1.0)), "a tap"), expect(!Skee.App.can_throw(r.model), "no throw while the reels spin")])
+    all([expect(action_names(again.model) == ["pull BetOne"], "one pull"), expect(Skee.App.busy(r.model), "the reels spin"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "the pull is saved"), expect(has_haptic(fx_of(r), fn h -> is_impact(h, ImpactLight, 1.0)), "a tap"), expect(!Skee.App.can_throw(r.model), "no throw while the reels spin")])
   end
 
   fn ticks_play_the_pull() : Outcome do
-    let r = tick_idle(tick(tap(fresh_effects(into_game(boot_fresh())), TapPull)), 3000)
-    let heard = sounds(r.effects)
-    all([expect(!Skee.App.busy(r.model), "the pull finishes"), expect(List.any(heard, fn s -> s == "SndLever"), "the lever sounds"), expect(List.any(heard, fn s -> s == "SndReelStop"), "the reels stop"), expect(has_haptic(r.effects, fn h -> is_impact(h, ImpactHeavy, 0.8)), "the lever's knock"), expect(Skee.App.can_throw(r.model), "now the ball can go")])
+    let r =
+      tick_idle(tick(tap(fresh_effects(into_game(boot_fresh())), TapPull)), 3000)
+    let heard = sounds(fx_of(r))
+    all([expect(!Skee.App.busy(r.model), "the pull finishes"), expect(List.any(heard, fn s -> s == "SndLever"), "the lever sounds"), expect(List.any(heard, fn s -> s == "SndReelStop"), "the reels stop"), expect(has_haptic(fx_of(r), fn h -> is_impact(h, ImpactHeavy, 0.8)), "the lever's knock"), expect(Skee.App.can_throw(r.model), "now the ball can go")])
   end
 
   fn a_tap_while_busy_skips() : Outcome do
@@ -363,13 +492,14 @@ mod AppSuite do
     let ready = fresh_effects(skip(tap(into_game(boot_fresh()), TapPull)))
     let r = flick(ready)
     let names = action_names(r.model)
-    all([expect(names == ["pull BetOne", "throw"], "a throw: " ++ String.join(names, ", ")), expect(has_haptic(r.effects, fn h -> is_impact(h, ImpactRigid, 0.7)), "the launch knock"), expect(Skee.App.busy(r.model), "the ball rolls")])
+    all([expect(names == ["pull BetOne", "throw"], "a throw: " ++ String.join(names, ", ")), expect(has_haptic(fx_of(r), fn h -> is_impact(h, ImpactRigid, 0.7)), "the launch knock"), expect(Skee.App.busy(r.model), "the ball rolls")])
   end
 
   fn the_ball_rumbles_while_it_rolls() : Outcome do
-    let rolling = ticks(fresh_effects(flick(skip(tap(into_game(boot_fresh()), TapPull)))), 400)
-    let levels = rumbles(rolling.effects)
-    all([expect(List.any(levels, fn x -> x > 0.0), "the rumble follows the ball"), expect(last_of(levels) == Some(0.0), "and stops"), expect(List.any(sounds(rolling.effects), fn s -> s == "SndLaunch"), "the launch sounds")])
+    let rolling =
+      ticks(fresh_effects(flick(skip(tap(into_game(boot_fresh()), TapPull)))), 400)
+    let levels = rumbles(fx_of(rolling))
+    all([expect(List.any(levels, fn x -> x > 0.0), "the rumble follows the ball"), expect(last_of(levels) == Some(0.0), "and stops"), expect(List.any(sounds(fx_of(rolling)), fn s -> s == "SndLaunch"), "the launch sounds")])
   end
 
   fn no_flick_before_the_pull() : Outcome do
@@ -383,25 +513,33 @@ mod AppSuite do
     let x = g.lane_center_x
     let y = g.crease_y +. 50.0
     let t = now(ready)
-    let down = send(ready, MsgPointerDown({ sample_t: t, sample_x: x, sample_y: y }))
-    let past = send(down, MsgPointerMove([{ sample_t: t +. 0.05, sample_x: x, sample_y: g.crease_y -. 200.0 }]))
-    let lifted = send(past, MsgPointerUp([{ sample_t: t +. 0.06, sample_x: x, sample_y: g.crease_y -. 210.0 }]))
-    all([expect(action_names(lifted.model) == ["pull BetOne", "foul"], "one foul, nothing on lift"), expect(has_haptic(past.effects, fn h -> is_notice(h, NoticeError)), "the foul buzz")])
+    let down = deliver(ready, MsgPointerDown({ sample_t: t, sample_x: x, sample_y: y }))
+    let past =
+      deliver(down, MsgPointerMove([{ sample_t: t +. 0.05, sample_x: x, sample_y: g.crease_y -. 200.0 }]))
+    let lifted =
+      deliver(past, MsgPointerUp([{ sample_t: t +. 0.06, sample_x: x, sample_y: g.crease_y -. 210.0 }]))
+    all([expect(action_names(lifted.model) == ["pull BetOne", "foul"], "one foul, nothing on lift"), expect(has_haptic(fx_of(past), fn h -> is_notice(h, NoticeError)), "the foul buzz")])
   end
 
   fn a_refused_action_warns() : Outcome do
     let r = tap(fresh_effects(into_game(boot_fresh())), TapArm(0))
-    all([expect(List.is_empty(Skee.App.actions_of(r.model)), "nothing is recorded"), expect(has_haptic(r.effects, fn h -> is_notice(h, NoticeWarning)), "the warning"), expect(List.is_empty(saves(r.effects, KeyRun)), "nothing saved")])
+    all([expect(List.is_empty(Skee.App.actions_of(r.model)), "nothing is recorded"), expect(has_haptic(fx_of(r), fn h -> is_notice(h, NoticeWarning)), "the warning"), expect(List.is_empty(saves(fx_of(r), KeyRun)), "nothing saved")])
   end
 
   fn bets_wait_for_their_card() : Outcome do
     let r = tap(into_game(boot_fresh()), TapSetBet(BetFive))
     let plain = Skee.App.affordable_bet(r.model)
-    let s = stored(Skee.App.nothing_saved(), r.effects)
-    let taught = boot_with({ s with saved_tips: Some(Skee.Save.encode_tips([TipBets])) }, 3)
+    let s = stored(Skee.App.nothing_saved(), fx_of(r))
+    let taught =
+      boot_with({ s with saved_tips: Some(Skee.Save.encode_tips([TipBets])) }, 3)
     let five = tap(tap(taught, TapStart), TapSetBet(BetFive))
-    let tickets = Skee.Units.tickets_int(Skee.App.run_of(five.model).tickets)
-    let want = if tickets >= 5 do BetFive else if tickets >= 3 do BetThree else BetOne end end
+    let tickets = Skee.Units.tickets_int(run_tickets(five.model))
+    let want =
+      if tickets >= 2 do
+        BetFive
+      else
+        if tickets >= 1 do BetThree else BetOne end
+      end
     all([expect(plain == BetOne, "one line until bets are taught"), expect(Skee.App.affordable_bet(five.model) == want, "the bet the tickets cover: " ++ show(Skee.App.affordable_bet(five.model)) ++ " on " ++ int_to_string(tickets))])
   end
 
@@ -411,7 +549,7 @@ mod AppSuite do
     let h = Skee.App.hud(r.model)
     match h.app_hud.machine do
     Some(mach) -> do
-      all([expect(!mach.show_bets, "bets hidden until taught"), expect(Skee.Units.winnings_int(mach.machine_progressive.meters.grand) == Skee.Units.winnings_int(Skee.App.wallet_of(r.model).progressive.meters.grand), "the wallet's meters")])
+      all([expect(!mach.show_bets, "bets hidden until taught"), expect(Skee.Units.winnings_int(mach.machine_progressive.meters.grand) == Skee.Units.winnings_int(wallet_progressive_meters_grand(r.model)), "the wallet's meters")])
     end
     None -> Mismatch("no machine before the first pull")
     end
@@ -420,17 +558,18 @@ mod AppSuite do
   fn the_aim_guide_shows_only_when_a_throw_can_go() : Outcome do
     let before = into_game(boot_fresh())
     let ready = skip(tap(before, TapPull))
-    all([expect(List.is_empty(Skee.App.hud(before.model).guide_line), "no line before the pull"), expect(List.length(Skee.App.hud(ready.model).guide_line) == 4, "the line up the lane")])
+    all([expect(List.is_empty(hud_guide_line(before.model)), "no line before the pull"), expect(List.length(hud_guide_line(ready.model)) == 4, "the line up the lane")])
   end
 
   fn the_trail_fades() : Outcome do
     let ready = skip(tap(into_game(boot_fresh()), TapPull))
     let g = Skee.App.geometry(ready.model)
     let t = now(ready)
-    let down = send(ready, MsgPointerDown({ sample_t: t, sample_x: g.lane_center_x, sample_y: g.crease_y +. 80.0 }))
-    let soon = send(down, MsgTick(t +. 0.1))
-    let later = send(soon, MsgTick(t +. 0.5))
-    all([expect(List.length(Skee.App.hud(soon.model).trail_dots) == 1, "a trail under the thumb"), expect(Skee.App.hud(soon.model).aiming_now, "aiming"), expect(List.is_empty(Skee.App.hud(later.model).trail_dots), "gone after 0.35 s")])
+    let down =
+      deliver(ready, MsgPointerDown({ sample_t: t, sample_x: g.lane_center_x, sample_y: g.crease_y +. 80.0 }))
+    let soon = deliver(down, MsgTick(t +. 0.1))
+    let later = deliver(soon, MsgTick(t +. 0.5))
+    all([expect(List.length(hud_trail_dots(soon.model)) == 1, "a trail under the thumb"), expect(hud_aiming_now(soon.model), "aiming"), expect(List.is_empty(hud_trail_dots(later.model)), "gone after 0.35 s")])
   end
 
   fn the_lesson_hides_the_game_over_card() : Outcome do
@@ -444,55 +583,57 @@ mod AppSuite do
     let asked = tap(into_game(boot_fresh()), TapAskNewGame)
     let pulled = tap(asked, TapPull)
     let kept = tap(pulled, TapKeepPlaying)
-    all([expect(Skee.App.hud(asked.model).top == LayerConfirmNew, "the prompt is on top"), expect(List.is_empty(Skee.App.actions_of(pulled.model)), "the lever is under it"), expect(Skee.App.hud(kept.model).top == LayerBase, "KEEP PLAYING closes it")])
+    all([expect(hud_top(asked.model) == LayerConfirmNew, "the prompt is on top"), expect(List.is_empty(Skee.App.actions_of(pulled.model)), "the lever is under it"), expect(hud_top(kept.model) == LayerBase, "KEEP PLAYING closes it")])
   end
 
   fn a_new_game_counts_the_one_walked_away_from() : Outcome do
     let played = tap(into_game(boot_fresh()), TapPull)
-    let before = Skee.App.wallet_of(played.model).games_since_host
+    let before = wallet_games_since_host(played.model)
     let r = tap(tap(fresh_effects(played), TapAskNewGame), TapNewRun)
     let m = r.model
-    all([expect(Skee.App.wallet_of(m).games_since_host == before + 1, "an abandoned game counts"), expect(List.is_empty(Skee.App.actions_of(m)), "a fresh run"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(played.model)), "a new seed"), expect(List.length(saves(r.effects, KeyRun)) == 1, "the new run is saved")])
+    all([expect(wallet_games_since_host(m) == before + 1, "an abandoned game counts"), expect(List.is_empty(Skee.App.actions_of(m)), "a fresh run"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(played.model)), "a new seed"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "the new run is saved")])
   end
 
   fn an_untouched_game_does_not_count() : Outcome do
     let r = into_game(boot_fresh())
-    let before = Skee.App.wallet_of(r.model).games_since_host
+    let before = wallet_games_since_host(r.model)
     let again = tap(tap(r, TapAskNewGame), TapNewRun)
-    expect(Skee.App.wallet_of(again.model).games_since_host == before, "nothing played, nothing counted")
+    expect(wallet_games_since_host(again.model) == before, "nothing played, nothing counted")
   end
 
   fn a_due_host_sits_down_before_the_next_game() : Outcome do
     let r = into_game(boot_fresh())
     let w = Skee.App.wallet_of(r.model)
-    let s = stored(Skee.App.nothing_saved(), r.effects)
-    let due = boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with games_since_host: 3 })) }, 5)
+    let s = stored(Skee.App.nothing_saved(), fx_of(r))
+    let due =
+      boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with games_since_host: 3 })) }, 5)
     let inside = tap(due, TapStart)
     let asked = tap(tap(inside, TapAskNewGame), TapNewRun)
     let closed = tap(fresh_effects(asked), TapCloseHost)
-    all([expect(Skee.App.hud(asked.model).top == LayerHost, "the placeholder host"), expect(Skee.App.hud(asked.model).app_hud.host == HostPlaceholder, "labelled as the host"), expect(Skee.App.hud(closed.model).top == LayerBase, "closed"), expect(List.length(saves(closed.effects, KeyRun)) == 1, "closing it starts the next game")])
+    all([expect(hud_top(asked.model) == LayerHost, "the placeholder host"), expect(hud_app_hud_host(asked.model) == HostPlaceholder, "labelled as the host"), expect(hud_top(closed.model) == LayerBase, "closed"), expect(List.length(saves(fx_of(closed), KeyRun)) == 1, "closing it starts the next game")])
   end
 
   fn the_prize_shop_buys_with_winnings() : Outcome do
     let r = into_game(boot_fresh())
-    let s = stored(Skee.App.nothing_saved(), r.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(r))
     let rich = { Skee.App.wallet_of(r.model) with balance: Winnings(100000) }
     let flush = boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet(rich)) }, 5)
     let poor = tap(tap(r, TapOpenShop), TapBuyPrize(Sticker))
     let bought = tap(tap(fresh_effects(flush), TapOpenShop), TapBuyPrize(Sticker))
     let again = tap(bought, TapBuyPrize(Sticker))
-    all([expect(Skee.App.hud(poor.model).top == LayerShop, "the shop is open"), expect(has_haptic(poor.effects, fn h -> is_notice(h, NoticeWarning)), "can't afford"), expect(List.member(Skee.App.wallet_of(bought.model).owned, Sticker), "bought"), expect(List.length(saves(bought.effects, KeyWallet)) == 1, "and saved"), expect(has_haptic(bought.effects, fn h -> is_notice(h, NoticeSuccess)), "the prize buzz"), expect(has_haptic(again.effects, fn h -> is_notice(h, NoticeWarning)), "already owned"), expect(Skee.App.hud(tap(bought, TapCloseShop).model).top == LayerBase, "closed")])
+    all([expect(hud_top(poor.model) == LayerShop, "the shop is open"), expect(has_haptic(fx_of(poor), fn h -> is_notice(h, NoticeWarning)), "can't afford"), expect(List.member(wallet_owned(bought.model), Sticker), "bought"), expect(List.length(saves(fx_of(bought), KeyWallet)) == 1, "and saved"), expect(has_haptic(fx_of(bought), fn h -> is_notice(h, NoticeSuccess)), "the prize buzz"), expect(has_haptic(fx_of(again), fn h -> is_notice(h, NoticeWarning)), "already owned"), expect(hud_top(model_of(tap(bought, TapCloseShop))) == LayerBase, "closed")])
   end
 
   fn rooms_you_own_rebuild_on_the_title() : Outcome do
     let r = into_game(boot_fresh())
-    let s = stored(Skee.App.nothing_saved(), r.effects)
+    let s = stored(Skee.App.nothing_saved(), fx_of(r))
     let w = Skee.App.wallet_of(r.model)
-    let owner = boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with rooms: Skee.Rooms.room_put(w.rooms, HighRoller, true) })) }, 5)
+    let owner =
+      boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with rooms: Skee.Rooms.room_put(w.rooms, HighRoller, true) })) }, 5)
     let not_owned = tap(owner, TapPickRoom(Penthouse))
     let moved = tap(fresh_effects(owner), TapPickRoom(HighRoller))
     let m = moved.model
-    all([expect(Skee.App.run_of(not_owned.model).room == Boardwalk, "a room you don't own stays shut"), expect(Skee.App.run_of(m).room == HighRoller, "the new room's run"), expect(Skee.App.wallet_of(m).wallet_room == HighRoller, "the wallet moved"), expect(Skee.App.screen_of(m) == TitleScreen, "back on the title"), expect(List.length(saves(moved.effects, KeyRun)) == 1, "its run is saved"), expect(List.length(saves(moved.effects, KeyWallet)) >= 1, "and the wallet")])
+    all([expect(run_room(not_owned.model) == Boardwalk, "a room you don't own stays shut"), expect(run_room(m) == HighRoller, "the new room's run"), expect(wallet_wallet_room(m) == HighRoller, "the wallet moved"), expect(Skee.App.screen_of(m) == TitleScreen, "back on the title"), expect(List.length(saves(fx_of(moved), KeyRun)) == 1, "its run is saved"), expect(List.length(saves(fx_of(moved), KeyWallet)) >= 1, "and the wallet")])
   end
 
   fn the_guide_opens_and_replays_the_lesson() : Outcome do
@@ -501,14 +642,14 @@ mod AppSuite do
     let opened = tap(played, TapOpenGuide)
     let replay = tap(opened, TapReplayLesson)
     let skipped = tap(replay, TapSkipWalkthrough)
-    all([expect(Skee.App.hud(opened.model).top == LayerGuide, "the guide is on top"), expect(!List.is_empty(Skee.App.hud(opened.model).guide_topics), "with topics"), expect(is_some_walk(Skee.App.walkthrough_of(replay.model)), "the lesson again"), expect(List.is_empty(Skee.App.actions_of(replay.model)), "on the practice run"), expect(action_names(skipped.model) == ["pull BetOne"], "the parked run comes back"), expect(same_run(Skee.App.run_of(skipped.model), Skee.App.run_of(played.model)), "as it was")])
+    all([expect(hud_top(opened.model) == LayerGuide, "the guide is on top"), expect(!List.is_empty(hud_guide_topics(opened.model)), "with topics"), expect(is_some_walk(Skee.App.walkthrough_of(replay.model)), "the lesson again"), expect(List.is_empty(Skee.App.actions_of(replay.model)), "on the practice run"), expect(action_names(skipped.model) == ["pull BetOne"], "the parked run comes back"), expect(same_run(Skee.App.run_of(skipped.model), Skee.App.run_of(played.model)), "as it was")])
   end
 
   -- ---- Cases: tips ----
   -- Throws to the 50 until a tip card shows, at most `n` throws.
   fn until_tip(r : Run, n : Int, book : Skee.Bots.AimBook) : Run do
     let m = r.model
-    if n <= 0 || Skee.App.tips_of(m).tip_showing != None || !is_throwing(Skee.App.run_of(m).phase) do
+    if n <= 0 || tips_tip_showing(m) != None || !is_throwing(run_phase(m)) do
       r
     else
       until_tip(advance_once(r, book), n - 1, book)
@@ -524,9 +665,9 @@ mod AppSuite do
     let book = book_for(r.model)
     let tipped = until_tip(fresh_effects(r), 40, book)
     let read = tap(skip(tipped), TapGotIt)
-    match Skee.App.tips_of(tipped.model).tip_showing do
+    match tips_tip_showing(tipped.model) do
     Some(t) -> do
-      all([expect(saves(tipped.effects, KeyTips) == [Skee.Save.encode_tips([t])], "the tip is saved as seen"), expect(!is_nothing(Skee.App.hud(skip(tipped).model).coach), "its card shows"), expect(Skee.App.tips_of(read.model).tip_showing == None, "GOT IT puts it away")])
+      all([expect(saves(fx_of(tipped), KeyTips) == [Skee.Save.encode_tips([t])], "the tip is saved as seen"), expect(!is_nothing(hud_coach(model_of(skip(tipped)))), "its card shows"), expect(tips_tip_showing(read.model) == None, "GOT IT puts it away")])
     end
     None -> Mismatch("no tip in 40 balls")
     end
@@ -535,20 +676,71 @@ mod AppSuite do
   -- ---- Cases: the counter and the board tap ----
   fn a_board_tap_away_from_the_holes_drops_the_selection() : Outcome do
     let r = tap(into_game(boot_fresh()), TapSelectOffer(Some(0)))
-    let tapped = send(r, MsgPointerDown({ sample_t: 0.0, sample_x: 2.0, sample_y: 2.0 }))
+    let tapped =
+      deliver(r, MsgPointerDown({ sample_t: 0.0, sample_x: 2.0, sample_y: 2.0 }))
     all([expect(tapped.model.selected_offer == None, "the selection is dropped"), expect(List.is_empty(Skee.App.actions_of(tapped.model)), "nothing bought")])
   end
 
   fn visibility_quiets_the_room() : Outcome do
     let rolling = ticks(flick(skip(tap(into_game(boot_fresh()), TapPull))), 30)
-    let hidden = send(fresh_effects(rolling), MsgVisible(false))
-    all([expect(List.all(rumbles(hidden.effects), fn x -> x == 0.0), "the rumble stops"), expect(List.all(drums(hidden.effects), fn x -> !x), "the drum stops"), expect(hidden.model.last_render == None, "the clock restarts")])
+    let hidden = deliver(fresh_effects(rolling), MsgVisible(false))
+    all([expect(List.all(rumbles(fx_of(hidden)), fn x -> x == 0.0), "the rumble stops"), expect(List.all(drums(fx_of(hidden)), fn x -> !x), "the drum stops"), expect(hidden.model.last_render == None, "the clock restarts")])
   end
 
   fn every_cue_has_its_sound() : Outcome do
-    let cues = [CueLaunch, CueRail, CueHump, CueLip, CueBackwall, CueLanded, CueDrop(Ring40), CueGutter, CueHop, CueWhoosh, CueHotSpot, CueLever, CuePullWin(3), CueReelTick, CueReelStop, CueCombo(2), CueTallyChips(4), CueTallyMult(5), CueFrameDone, CueLineWon, CueJackpot, CueBanner("CLEARED"), CueFoul]
-    let want = ["SndLaunch", "SndRail", "SndHump", "SndLip", "SndBackwall", "SndLanded", "SndDrop(Ring40)", "SndGutter", "SndHop", "SndWhoosh", "SndHotSpot", "SndLever", "SndPullWin(3)", "SndReelTick", "SndReelStop", "SndCombo(2)", "SndTallyChips(4)", "SndTallyMult(5)", "SndFrameDone", "SndLineWon", "SndJackpot", "SndBanner(\"CLEARED\")", "SndFoul"]
-    let got = List.map(cues, fn c -> show(Skee.App.sound_of(c)))
+    let cues =
+      [
+        CueLaunch,
+        CueRail,
+        CueHump,
+        CueLip,
+        CueBackwall,
+        CueLanded,
+        CueDrop(Ring40),
+        CueGutter,
+        CueHop,
+        CueWhoosh,
+        CueHotSpot,
+        CueLever,
+        CuePullWin(3),
+        CueReelTick,
+        CueReelStop,
+        CueCombo(2),
+        CueTallyChips(4),
+        CueTallyMult(5),
+        CueFrameDone,
+        CueLineWon,
+        CueJackpot,
+        CueBanner("CLEARED"),
+        CueFoul
+      ]
+    let want =
+      [
+        "SndLaunch",
+        "SndRail",
+        "SndHump",
+        "SndLip",
+        "SndBackwall",
+        "SndLanded",
+        "SndDrop(Ring40)",
+        "SndGutter",
+        "SndHop",
+        "SndWhoosh",
+        "SndHotSpot",
+        "SndLever",
+        "SndPullWin(3)",
+        "SndReelTick",
+        "SndReelStop",
+        "SndCombo(2)",
+        "SndTallyChips(4)",
+        "SndTallyMult(5)",
+        "SndFrameDone",
+        "SndLineWon",
+        "SndJackpot",
+        "SndBanner(CLEARED)",
+        "SndFoul"
+      ]
+    let got = List.map(cues, fn c -> sound_name(Skee.App.sound_of(c)))
     expect(got == want, "cue sounds: " ++ String.join(got, " "))
   end
 
@@ -568,6 +760,55 @@ mod AppSuite do
     Some(x) -> is_impact(x, ImpactHeavy, at)
     None -> false
     end
+  end
+
+  -- A run put at the counter by hand, with these offers, charms and tickets:
+  -- a fixture for the counter's taps, not a reachable save.
+  fn at_counter(r : Run, offers : List(Option(Offer)), charms : List(Charm)) : Run do
+    let m = r.model
+    let s = Skee.App.run_of(m)
+    let counter = { offers: offers, reroll_cost: Tickets(1) }
+    { r with model: { m with run: { s with phase: AtCounter(counter), charms: charms, tickets: Tickets(30) }, pres: Skee.Presentation.make({ s with phase: AtCounter(counter), charms: charms, tickets: Tickets(30) }) } }
+  end
+
+  fn a_board_tap_puts_a_stamp_on_the_hole() : Outcome do
+    let r = at_counter(into_game(boot_fresh()), [Some(OfferStamp(Seven))], [])
+    let picked = tap(r, TapSelectOffer(Some(0)))
+    let spot = Skee.HoleMap.at(Skee.App.hole_points(picked.model), Ring30)
+    let tapped =
+      deliver(picked, MsgPointerDown({ sample_t: 0.0, sample_x: spot.sx +. 10.0, sample_y: spot.sy }))
+    all([expect(action_names(tapped.model) == ["buy 0 Some(Ring30)"], "bought onto the 30: " ++ String.join(action_names(tapped.model), ", ")), expect(tapped.model.selected_offer == None, "the selection is used up")])
+  end
+
+  fn a_charm_sells_on_the_second_tap() : Outcome do
+    let r = at_counter(into_game(boot_fresh()), [None], [LuckyPenny])
+    let once = tap(r, TapCharm(0))
+    let twice = tap(once, TapCharm(0))
+    let s = Skee.App.run_of(twice.model)
+    all([expect(once.model.selected_charm == Some(0) && List.is_empty(Skee.App.actions_of(once.model)), "the first tap selects"), expect(action_names(twice.model) == ["sell 0"], "the second sells"), expect(List.is_empty(s.charms), "the charm is gone"), expect(twice.model.selected_charm == None, "nothing selected")])
+  end
+
+  fn a_charm_tap_on_the_lane_does_nothing() : Outcome do
+    let r = tap(into_game(boot_fresh()), TapCharm(0))
+    expect(r.model.selected_charm == None, "charms are sold only at the counter")
+  end
+
+  -- The practice game played through, every card read: the lesson ends by
+  -- itself into a real game, and nothing of it was saved but the done flag.
+  fn play_lesson(r : Run, book : Skee.Bots.AimBook, n : Int) : Run do
+    if n <= 0 || !is_some_walk(Skee.App.walkthrough_of(r.model)) do
+      r
+    else
+      play_lesson(advance_once(r, book), book, n - 1)
+    end
+  end
+
+  fn the_practice_game_ends_the_lesson() : Outcome do
+    let r = fresh_effects(into_walkthrough(boot_fresh()))
+    let played = play_lesson(r, book_for(r.model), 400)
+    let fx = fx_of(played)
+    let m = played.model
+    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson ends"), expect(saves(fx, KeyWalkthroughDone) == ["true"], "marked done"), expect(List.length(saves(fx, KeyRun)) == 1, "only the real game's run is saved"), expect(List.is_empty(Skee.App.actions_of(m)), "the real game is fresh"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "with a real target")])
   end
 
   -- ---- The scripted run: title to ante 2, the bot's aims ----
@@ -598,11 +839,11 @@ mod AppSuite do
         if h.top == LayerCoachBlock do
           tap(r, TapGotIt)
         else
-          match Skee.App.run_of(m).phase do
+          match run_phase(m) do
           AtCounter(_) -> tap(r, TapLeaveCounter)
           Throwing -> do
             if has_pull(m) do
-              tick(send(r, MsgAutoplay([best_launch(book)])))
+              tick(deliver(r, MsgAutoplay([best_launch(book)])))
             else
               tap(r, TapPull)
             end
@@ -615,7 +856,12 @@ mod AppSuite do
     end
   end
 
-  type Scripted = { played : Run, book : Skee.Bots.AimBook, book_kind : RoundKind, steps : Int }
+  type Scripted = {
+    played : Run,
+    book : Skee.Bots.AimBook,
+    book_kind : RoundKind,
+    steps : Int
+  }
 
   fn play_to_ante_2(s : Scripted) : Scripted do
     let run = Skee.App.run_of(s.played.model)
@@ -623,7 +869,12 @@ mod AppSuite do
       s
     else
       do
-        let book = if run.round.kind == s.book_kind do s.book else book_for(s.played.model) end
+        let book =
+          if run.round.kind == s.book_kind do
+            s.book
+          else
+            book_for(s.played.model)
+          end
         play_to_ante_2({ played: advance_once(s.played, book), book: book, book_kind: run.round.kind, steps: s.steps + 1 })
       end
     end
@@ -634,17 +885,18 @@ mod AppSuite do
   end
 
   fn ante_started(fx : List(Skee.App.Effect)) : Bool do
-    List.any(sounds(fx), fn s -> String.starts_with(s, "SndBanner(\"ANTE"))
+    List.any(sounds(fx), fn s -> String.starts_with(s, "SndBanner(ANTE"))
   end
 
   fn a_scripted_run_reaches_ante_2() : Outcome do
     let start = boot_fresh()
     let inside = into_game(start)
-    let s = play_to_ante_2({ played: inside, book: book_for(inside.model), book_kind: Warmup, steps: 0 })
+    let s =
+      play_to_ante_2({ played: inside, book: book_for(inside.model), book_kind: Warmup, steps: 0 })
     let m = s.played.model
     let run = Skee.App.run_of(m)
     let names = action_names(m)
-    let saved = stored(Skee.App.nothing_saved(), s.played.effects)
+    let saved = stored(Skee.App.nothing_saved(), fx_of(s.played))
     let back = boot_with(saved, 99)
     let throws = List.length(List.filter(names, fn n -> n == "throw"))
     all([expect(run.ante == 2, "ante " ++ int_to_string(run.ante) ++ " after " ++ int_to_string(s.steps) ++ " steps, " ++ phase_name(run.phase)), expect(throws >= 27, "three rounds of throws: " ++ int_to_string(throws)), expect(List.length(List.filter(names, fn n -> n == "leave")) >= 3, "the counter, every round"), expect(same_run(Skee.App.run_of(back.model), run), "the save replays to the same run"), expect(action_names(back.model) == names, "with the same actions"), expect(Skee.App.screen_of(back.model) == GameScreen, "back in the game")])
@@ -655,13 +907,13 @@ mod AppSuite do
     let inside = into_game(boot_fresh())
     let book = book_for(inside.model)
     let part = advance_n(inside, book, 25)
-    let saved = stored(Skee.App.nothing_saved(), part.effects)
+    let saved = stored(Skee.App.nothing_saved(), fx_of(part))
     let back = boot_with(saved, 1234)
     let on_a = advance_n(skip(part), book, 15)
     let on_b = advance_n(back, book, 15)
     let a = Skee.App.run_of(on_a.model)
     let b = Skee.App.run_of(on_b.model)
-    all([expect(same_run(Skee.App.run_of(back.model), Skee.App.run_of(skip(part).model)), "reloaded as saved"), expect(List.length(Skee.App.actions_of(on_a.model)) > List.length(Skee.App.actions_of(part.model)), "play went on"), expect(action_names(on_a.model) == action_names(on_b.model), "the same actions"), expect(same_run(a, b), "the same run after more play")])
+    all([expect(same_run(Skee.App.run_of(back.model), Skee.App.run_of(model_of(skip(part)))), "reloaded as saved"), expect(List.length(Skee.App.actions_of(on_a.model)) > List.length(Skee.App.actions_of(part.model)), "play went on"), expect(action_names(on_a.model) == action_names(on_b.model), "the same actions"), expect(same_run(a, b), "the same run after more play")])
   end
 
   fn advance_n(r : Run, book : Skee.Bots.AimBook, n : Int) : Run do
@@ -670,42 +922,46 @@ mod AppSuite do
 
   fn cases() : List(Case) do
     [
-      case("boots fresh onto the title", fn -> boots_fresh_onto_the_title()),
-      case("boot saves a run that replays", fn -> boot_saves_a_run_that_replays()),
-      case("Sal, then the placeholder host, then the walkthrough", fn -> sal_then_the_placeholder_then_the_walkthrough()),
-      case("the practice game is not saved", fn -> practice_is_not_saved()),
-      case("the welcome card holds the game", fn -> the_welcome_card_holds_the_game()),
-      case("skipping ends the lesson with a new game", fn -> skipping_ends_the_lesson_with_a_new_game()),
-      case("a second launch skips the door", fn -> a_second_launch_skips_the_door()),
-      case("a played run resumes in the game", fn -> a_played_run_resumes_in_the_game()),
-      case("a run from another room is not resumed", fn -> a_run_from_another_room_is_not_resumed()),
-      case("the lever pulls once", fn -> the_lever_pulls_once()),
-      case("ticks play the pull", fn -> ticks_play_the_pull()),
-      case("a tap while busy skips", fn -> a_tap_while_busy_skips()),
-      case("a flick throws the ball", fn -> a_flick_throws_the_ball()),
-      case("the ball rumbles while it rolls", fn -> the_ball_rumbles_while_it_rolls()),
-      case("no flick before the pull", fn -> no_flick_before_the_pull()),
-      case("a drag past the line is a foul", fn -> a_drag_past_the_line_is_a_foul()),
-      case("a refused action warns", fn -> a_refused_action_warns()),
-      case("bets wait for their card", fn -> bets_wait_for_their_card()),
-      case("the HUD shows the wallet's meters", fn -> the_hud_shows_the_wallet_meters()),
-      case("the aim guide shows only when a throw can go", fn -> the_aim_guide_shows_only_when_a_throw_can_go()),
-      case("the trail fades", fn -> the_trail_fades()),
-      case("the lesson hides the game-over card", fn -> the_lesson_hides_the_game_over_card()),
-      case("the confirm prompt takes the taps", fn -> the_confirm_prompt_takes_the_taps()),
-      case("a new game counts the one walked away from", fn -> a_new_game_counts_the_one_walked_away_from()),
-      case("an untouched game does not count", fn -> an_untouched_game_does_not_count()),
-      case("a due host sits down before the next game", fn -> a_due_host_sits_down_before_the_next_game()),
-      case("the prize shop buys with winnings", fn -> the_prize_shop_buys_with_winnings()),
-      case("rooms you own rebuild on the title", fn -> rooms_you_own_rebuild_on_the_title()),
-      case("the guide opens and replays the lesson", fn -> the_guide_opens_and_replays_the_lesson()),
-      case("a tip card is shown, saved and read", fn -> a_tip_card_is_shown_saved_and_read()),
-      case("a board tap away from the holes drops the selection", fn -> a_board_tap_away_from_the_holes_drops_the_selection()),
-      case("visibility quiets the room", fn -> visibility_quiets_the_room()),
-      case("every cue has its sound", fn -> every_cue_has_its_sound()),
-      case("haptics follow the cues", fn -> haptics_follow_the_cues()),
-      case("a scripted run reaches ante 2", fn -> a_scripted_run_reaches_ante_2()),
-      case("a reloaded run carries on the same", fn -> a_reloaded_run_carries_on_the_same())
+      case("boots fresh onto the title", fn () -> boots_fresh_onto_the_title()),
+      case("boot saves a run that replays", fn () -> boot_saves_a_run_that_replays()),
+      case("Sal, then the placeholder host, then the walkthrough", fn () -> sal_then_the_placeholder_then_the_walkthrough()),
+      case("the practice game is not saved", fn () -> practice_is_not_saved()),
+      case("the welcome card holds the game", fn () -> the_welcome_card_holds_the_game()),
+      case("skipping ends the lesson with a new game", fn () -> skipping_ends_the_lesson_with_a_new_game()),
+      case("a second launch skips the door", fn () -> a_second_launch_skips_the_door()),
+      case("a played run resumes in the game", fn () -> a_played_run_resumes_in_the_game()),
+      case("a run from another room is not resumed", fn () -> a_run_from_another_room_is_not_resumed()),
+      case("the lever pulls once", fn () -> the_lever_pulls_once()),
+      case("ticks play the pull", fn () -> ticks_play_the_pull()),
+      case("a tap while busy skips", fn () -> a_tap_while_busy_skips()),
+      case("a flick throws the ball", fn () -> a_flick_throws_the_ball()),
+      case("the ball rumbles while it rolls", fn () -> the_ball_rumbles_while_it_rolls()),
+      case("no flick before the pull", fn () -> no_flick_before_the_pull()),
+      case("a drag past the line is a foul", fn () -> a_drag_past_the_line_is_a_foul()),
+      case("a refused action warns", fn () -> a_refused_action_warns()),
+      case("bets wait for their card", fn () -> bets_wait_for_their_card()),
+      case("the HUD shows the wallet's meters", fn () -> the_hud_shows_the_wallet_meters()),
+      case("the aim guide shows only when a throw can go", fn () -> the_aim_guide_shows_only_when_a_throw_can_go()),
+      case("the trail fades", fn () -> the_trail_fades()),
+      case("the lesson hides the game-over card", fn () -> the_lesson_hides_the_game_over_card()),
+      case("the confirm prompt takes the taps", fn () -> the_confirm_prompt_takes_the_taps()),
+      case("a new game counts the one walked away from", fn () -> a_new_game_counts_the_one_walked_away_from()),
+      case("an untouched game does not count", fn () -> an_untouched_game_does_not_count()),
+      case("a due host sits down before the next game", fn () -> a_due_host_sits_down_before_the_next_game()),
+      case("the prize shop buys with winnings", fn () -> the_prize_shop_buys_with_winnings()),
+      case("rooms you own rebuild on the title", fn () -> rooms_you_own_rebuild_on_the_title()),
+      case("the guide opens and replays the lesson", fn () -> the_guide_opens_and_replays_the_lesson()),
+      case("a tip card is shown, saved and read", fn () -> a_tip_card_is_shown_saved_and_read()),
+      case("a board tap away from the holes drops the selection", fn () -> a_board_tap_away_from_the_holes_drops_the_selection()),
+      case("a board tap puts a stamp on the hole", fn () -> a_board_tap_puts_a_stamp_on_the_hole()),
+      case("a charm sells on the second tap", fn () -> a_charm_sells_on_the_second_tap()),
+      case("a charm tap on the lane does nothing", fn () -> a_charm_tap_on_the_lane_does_nothing()),
+      case("the practice game ends the lesson", fn () -> the_practice_game_ends_the_lesson()),
+      case("visibility quiets the room", fn () -> visibility_quiets_the_room()),
+      case("every cue has its sound", fn () -> every_cue_has_its_sound()),
+      case("haptics follow the cues", fn () -> haptics_follow_the_cues()),
+      case("a scripted run reaches ante 2", fn () -> a_scripted_run_reaches_ante_2()),
+      case("a reloaded run carries on the same", fn () -> a_reloaded_run_carries_on_the_same())
     ]
   end
 
