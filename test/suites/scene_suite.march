@@ -999,17 +999,7 @@ mod SceneSuite do
 
   fn look_cue(row : List(String)) : Skee.Scene.FrameCue do
     let base = frame_cue(row)
-    {
-      base with
-      kind: kind_of(token_at(row, 18)),
-      excited: token_at(row, 20) == "1",
-      reel_cue: {
-        setup: Skee.Types.standard_setup(),
-        positions: look_positions(row),
-        have: symbols_of(token_at(row, 21)),
-        slot: slot_of(token_at(row, 22))
-      }
-    }
+    { base with kind: kind_of(token_at(row, 18)), excited: token_at(row, 20) == "1", reel_cue: { setup: Skee.Types.standard_setup(), positions: look_positions(row), have: symbols_of(token_at(row, 21)), slot: slot_of(token_at(row, 22)) } }
   end
 
   -- Where the camera looks: SceneKit's worldFront after simdLook(at:), a
@@ -1127,7 +1117,16 @@ mod SceneSuite do
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
     let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
-    let none = { glow_one: 0, glow_two: 0, flashed: 0, slot_halo: 0, excited: 0, leaning: 0, rings: 0 }
+    let none =
+      {
+        glow_one: 0,
+        glow_two: 0,
+        flashed: 0,
+        slot_halo: 0,
+        excited: 0,
+        leaning: 0,
+        rings: 0
+      }
     let inputs = List.zip(rows("look"), List.zip(rows("lookbulbs"), rows("lookwaves")))
     List.fold_left(inputs, { world: w, rig: fitted(), kept: start, outcomes: [], seen: none }, look_step)
   end
@@ -1136,7 +1135,15 @@ mod SceneSuite do
     let r = look_replayed()
     let n = r.seen
     let covered =
-      [expect(n.glow_one > 0, "replay b never glows a reel once"), expect(n.glow_two > 0, "replay b never glows a reel twice"), expect(n.flashed > 0, "replay b never flashes a hole"), expect(n.slot_halo > 0, "replay b never shows a slot match"), expect(n.excited > 0, "replay b is never excited"), expect(n.leaning > 0, "replay b never leans"), expect(n.rings > 0, "replay b has no rings of light")]
+      [
+        expect(n.glow_one > 0, "replay b never glows a reel once"),
+        expect(n.glow_two > 0, "replay b never glows a reel twice"),
+        expect(n.flashed > 0, "replay b never flashes a hole"),
+        expect(n.slot_halo > 0, "replay b never shows a slot match"),
+        expect(n.excited > 0, "replay b is never excited"),
+        expect(n.leaning > 0, "replay b never leans"),
+        expect(n.rings > 0, "replay b has no rings of light")
+      ]
     all(List.concat([[expect_int(List.length(r.outcomes), List.length(rows("lookwaves")), "every look row replayed")], covered, List.reverse(r.outcomes)]))
   end
 

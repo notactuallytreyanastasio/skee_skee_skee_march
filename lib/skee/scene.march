@@ -2586,7 +2586,13 @@ mod Skee.Scene do
   pfn paint_ranked(b : Brush, clip : Option(Shape), r : Ranked) : List(DrawOp) needs () do
     let ops = paint_part(b, r.ranked)
     match clip do
-    Some(c) -> if clipped_to_pit(r.ranked.role) do List.concat([[PushClip(c)], ops, [PopClip]]) else ops end
+    Some(c) -> do
+      if clipped_to_pit(r.ranked.role) do
+        List.concat([[PushClip(c)], ops, [PopClip]])
+      else
+        ops
+      end
+    end
     None -> ops
     end
   end

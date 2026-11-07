@@ -45,9 +45,17 @@ mod Skee.Camera do
   doc """Viewport sizes are positive; anything else falls back to one pixel."""
   fn viewport(width : Float, height : Float) : Viewport needs () do
     if width > 0.0 do
-      if height > 0.0 do { width: width, height: height } else { width: width, height: 1.0 } end
+      if height > 0.0 do
+        { width: width, height: height }
+      else
+        { width: width, height: 1.0 }
+      end
     else
-      if height > 0.0 do { width: 1.0, height: height } else { width: 1.0, height: 1.0 } end
+      if height > 0.0 do
+        { width: 1.0, height: height }
+      else
+        { width: 1.0, height: 1.0 }
+      end
     end
   end
 
