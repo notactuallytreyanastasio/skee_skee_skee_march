@@ -560,7 +560,11 @@ mod Skee.Save do
       if has_control(s, i, e) do
         Some(unread_json())
       else
-        if String.starts_with(v, bell()) do Some(bell_escaped(s, i, e)) else None end
+        if String.starts_with(v, bell()) do
+          Some(bell_escaped(s, i, e))
+        else
+          None
+        end
       end
     end
     Json.Null -> None

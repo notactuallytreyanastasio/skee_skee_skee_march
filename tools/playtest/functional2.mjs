@@ -109,7 +109,7 @@ tests.lever = async (browser) => {
   await fresh(page, done);
   await press(page, "TapStart");
   await waitFor(page, (m) => m.live.includes("TapPull"), "machine");
-  const r = await page.evaluate(() => { const b = document.querySelector('#hud .lever [data-intent]'); const t = document.querySelector('#hud .lever-track'); const rb = b.getBoundingClientRect(); const rt = t.getBoundingClientRect(); return { b: [rb.x + rb.width / 2, rb.y + rb.height / 2], t: [rt.y, rt.bottom] }; });
+  const r = await page.evaluate(() => { const b = document.querySelector('#hud .lever [data-drag]'); const t = document.querySelector('#hud .lever-track'); const rb = b.getBoundingClientRect(); const rt = t.getBoundingClientRect(); return { b: [rb.x + rb.width / 2, rb.y + rb.height / 2], t: [rt.y, rt.bottom] }; });
   log("lever knob/track " + JSON.stringify(r));
   await drag(page, line(r.b[0], r.b[1], r.b[0], r.t[1] - 5, 10), 20);
   await sleep(300);

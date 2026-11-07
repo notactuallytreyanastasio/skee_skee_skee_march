@@ -36,7 +36,12 @@ mod Skee.HudView do
   -- Lever's @State drag (MachineView.swift): at rest, held by the pointer
   -- that went down on the knob, or springing home after it let go. A grip
   -- counts as a drag once it has moved 2pt (DragGesture(minimumDistance: 2)).
-  type LeverGrip = { grip_x : Float, grip_y : Float, grip_drag : Float, grip_moved : Bool }
+  type LeverGrip = {
+    grip_x : Float,
+    grip_y : Float,
+    grip_drag : Float,
+    grip_moved : Bool
+  }
 
   derive Eq, Show for LeverGrip
 
@@ -52,7 +57,11 @@ mod Skee.HudView do
 
   -- What the shell saw of the one pointer that went down on the knob, in CSS
   -- pixels: down, moved, lifted, or lost (pointercancel).
-  type LeverTouch = LeverDown(Float, Float) | LeverMove(Float, Float) | LeverUp(Float, Float) | LeverLost
+  type LeverTouch =
+    LeverDown(Float, Float)
+    | LeverMove(Float, Float)
+    | LeverUp(Float, Float)
+    | LeverLost
 
   derive Eq, Show for LeverTouch
 
@@ -302,7 +311,13 @@ mod Skee.HudView do
   pfn settle_lever(h : LeverHold, a : AppHud) : LeverHold needs () do
     if lever_shown(a) do
       match h do
-      LeverSpring(g) -> if spring_done(a.app_hud.hud_clock -. g.letgo_at) do LeverRest else h end
+      LeverSpring(g) -> do
+        if spring_done(a.app_hud.hud_clock -. g.letgo_at) do
+          LeverRest
+        else
+          h
+        end
+      end
       LeverHeld(_) -> h
       LeverRest -> h
       end
@@ -326,8 +341,13 @@ mod Skee.HudView do
   pfn save_lever(h : LeverHold) : String needs () do
     match h do
     LeverRest -> "rest"
-    LeverHeld(g) -> "held," ++ float_to_string(g.grip_x) ++ "," ++ float_to_string(g.grip_y) ++ "," ++ float_to_string(g.grip_drag) ++ "," ++ (if g.grip_moved do "1" else "0" end)
-    LeverSpring(g) -> "spring," ++ float_to_string(g.letgo_from) ++ "," ++ float_to_string(g.letgo_at)
+    LeverHeld(g) -> do
+      let moved = if g.grip_moved do "1" else "0" end
+      "held," ++ float_to_string(g.grip_x) ++ "," ++ float_to_string(g.grip_y) ++ "," ++ float_to_string(g.grip_drag) ++ "," ++ moved
+    end
+    LeverSpring(g) -> do
+      "spring," ++ float_to_string(g.letgo_from) ++ "," ++ float_to_string(g.letgo_at)
+    end
     end
   end
 
@@ -358,7 +378,9 @@ mod Skee.HudView do
     match String.split(text, ",") do
     Cons(tag, Cons(x, Cons(y, Cons(d, Cons(moved, Nil))))) -> do
       match (tag == "held", string_to_float(x), string_to_float(y), string_to_float(d)) do
-      (true, Some(gx), Some(gy), Some(gd)) -> LeverHeld({ grip_x: gx, grip_y: gy, grip_drag: gd, grip_moved: moved == "1" })
+      (true, Some(gx), Some(gy), Some(gd)) -> do
+        LeverHeld({ grip_x: gx, grip_y: gy, grip_drag: gd, grip_moved: moved == "1" })
+      end
       _ -> LeverRest
       end
     end
@@ -375,13 +397,7 @@ mod Skee.HudView do
 
   pfn reading_at(t : String, p : String) : GuideAt needs () do
     match (string_to_int(t), string_to_int(p)) do
-    (Some(ti), Some(pg)) -> do
-      if ti >= 0 && pg >= 0 do
-        GuideReading(ti, pg)
-      else
-        GuideContents
-      end
-    end
+    (Some(ti), Some(pg)) -> if ti >= 0 && pg >= 0 do GuideReading(ti, pg) else GuideContents end
     (Some(_), None) -> GuideContents
     (None, Some(_)) -> GuideContents
     (None, None) -> GuideContents
@@ -2058,7 +2074,8 @@ mod Skee.HudView do
   -- Lever: the knob is a drag handle (`data-drag`), not a button; the shell
   -- feeds its pointer to `lever_touch`. `drop` is how far down it is drawn.
   pfn lever(m : Machine, drop : Float) : Html needs () do
-    let fill = "background:" ++ css(if m.can_pull do mult_red() else alpha(cream(), 0.5) end)
+    let fill =
+      "background:" ++ css(if m.can_pull do mult_red() else alpha(cream(), 0.5) end)
     let knob =
       Tag("div", [Prop("class", "knob"), Prop("style", fill ++ ";transform:translateY(" ++ px(drop) ++ ")"), Prop("data-drag", "lever")], [div("knob-shine", "", [])])
     div("lever", "", [div("lever-track", "", []), knob])
@@ -2584,7 +2601,12 @@ mod Skee.HudView do
     let s = a.app_hud
     let on_title = s.hud_screen == TitleScreen
     let title = if on_title do title_card(a.app_wallet) else nothing() end
-    let game = if on_title do blank_game() else game_panes(k, a, settle(l, a), width, height) end
+    let game =
+      if on_title do
+        blank_game()
+      else
+        game_panes(k, a, settle(l, a), width, height)
+      end
     let overlays =
       [
         coach_pane(a, width, height),

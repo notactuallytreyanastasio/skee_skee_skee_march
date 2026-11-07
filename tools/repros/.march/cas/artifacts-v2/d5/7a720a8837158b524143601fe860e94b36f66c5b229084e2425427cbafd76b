@@ -1,0 +1,5 @@
+mod FormatDropsIfParens do
+  fn flag(b : Bool) : String do
+    "x" ++ (if b do "1" else "0" end)
+  end
+end
