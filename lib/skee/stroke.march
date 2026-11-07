@@ -191,21 +191,22 @@ mod Skee.Stroke do
             let a_up = mean_or_zero(sum_y(a_tail), a_tail)
             let a_side = mean_or_zero(sum_x(a_tail), a_tail)
             let unit_accel = peak /. flick_time
+            let snap = ieee_div(k, a_up, unit_accel)
             let base = tn.release_weight *. release +. (1.0 -. tn.release_weight) *. peak
-            let speed =
-              base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, a_up /. unit_accel)))
+            let speed = base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, snap)))
             let rms = rms_jerk(List.filter(j, fn e -> e.tt >= start_t))
             let jerk = rms *. flick_time *. flick_time /. peak
             let skid = (jerk -. tn.smooth_jerk) *. tn.skid_per_jerk
             let from = aim_from(first, samples, start_t)
             let to = aim_to(first, samples, top.tt)
-            let aim =
-              Math.atan2(to.sample_x -. from.sample_x, max_float(from.sample_y -. to.sample_y, 1.0)) /. tn.full_aim_angle
-            let power = (speed -. tn.slowest) /. (tn.fastest -. tn.slowest)
+            let chord =
+              Math.atan2(to.sample_x -. from.sample_x, max_float(from.sample_y -. to.sample_y, 1.0))
+            let aim = ieee_div(k, chord, tn.full_aim_angle)
+            let power = ieee_div(k, speed -. tn.slowest, tn.fastest -. tn.slowest)
             let l =
               Skee.Physics.launch_of_power(k, power, aim, lane_start(k, first.sample_x, g, tn), fold, 0.0, skid)
             let metrics =
-              some_metrics(peak, release, flick_time, jerk, a_up /. unit_accel, a_side /. unit_accel, speed)
+              some_metrics(peak, release, flick_time, jerk, snap, ieee_div(k, a_side, unit_accel), speed)
             (Release(l), metrics)
           end
         else

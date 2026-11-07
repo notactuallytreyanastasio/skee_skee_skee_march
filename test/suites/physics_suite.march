@@ -21,7 +21,7 @@ mod PhysicsSuite do
     all(List.map(GoldenIo.of_kind(rows, "curve"), fn row ->
       match row do
       Cons(p, Cons(want, Nil)) -> do
-        GoldenIo.expect_float(Skee.Physics.release_speed(lane, f(p)), want, "release_speed " ++ p)
+        GoldenIo.expect_float(Skee.Physics.release_speed(consts(), lane, f(p)), want, "release_speed " ++ p)
       end
       _ -> Mismatch("bad curve row")
       end
@@ -33,10 +33,28 @@ mod PhysicsSuite do
     all(List.map(GoldenIo.of_kind(rows, "inverse"), fn row ->
       match row do
       Cons(v, Cons(want, Nil)) -> do
-        GoldenIo.expect_float(Skee.Physics.power_for_speed(lane, f(v)), want, "power_for_speed " ++ v)
+        GoldenIo.expect_float(Skee.Physics.power_for_speed(consts(), lane, f(v)), want, "power_for_speed " ++ v)
       end
       _ -> Mismatch("bad inverse row")
       end
+    ))
+  end
+
+  -- A lane whose gaps can be zero: Swift's division gives an infinity or NaN.
+  fn dead_lane(row : List(String)) : LaneSpec do
+    let lane = Skee.Types.standard_lane(consts())
+    { lane with knee: at(row, 0), min_speed: at(row, 1), scoring_speed: at(row, 2), max_speed: at(row, 3) }
+  end
+
+  fn dead_curve_case(rows : List(List(String))) : Outcome do
+    all(List.map(GoldenIo.of_kind(rows, "deadcurve"), fn row ->
+      GoldenIo.expect_float(Skee.Physics.release_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "release_speed on a dead lane")
+    ))
+  end
+
+  fn dead_inverse_case(rows : List(List(String))) : Outcome do
+    all(List.map(GoldenIo.of_kind(rows, "deadinverse"), fn row ->
+      GoldenIo.expect_float(Skee.Physics.power_for_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "power_for_speed on a dead lane")
     ))
   end
 
@@ -959,13 +977,13 @@ mod PhysicsSuite do
     let lane = Skee.Types.standard_lane(consts())
     all(List.map(List.range(0, 21), fn i ->
       let p = int_to_float(i) *. 0.05
-      expect(Math.abs(Skee.Physics.power_for_speed(lane, Skee.Physics.release_speed(lane, p)) -. p) < 0.000000001, "invert")
+      expect(Math.abs(Skee.Physics.power_for_speed(consts(), lane, Skee.Physics.release_speed(consts(), lane, p)) -. p) < 0.000000001, "invert")
     ))
   end
 
   fn power_range_is_spent_scoring() : Outcome do
     let lane = Skee.Types.standard_lane(consts())
-    all([expect(Skee.Physics.release_speed(lane, 0.0) == lane.min_speed, "min"), expect(Skee.Physics.release_speed(lane, lane.knee) == lane.scoring_speed, "knee"), expect(lane.knee < 0.2, "knee size")])
+    all([expect(Skee.Physics.release_speed(consts(), lane, 0.0) == lane.min_speed, "min"), expect(Skee.Physics.release_speed(consts(), lane, lane.knee) == lane.scoring_speed, "knee"), expect(lane.knee < 0.2, "knee size")])
   end
 
   fn every_scoring_ball_drops() : Outcome do
@@ -1077,7 +1095,7 @@ mod PhysicsSuite do
   fn power_means_speed_from_the_line() : Outcome do
     let k = consts()
     let l = Skee.Physics.launch_of_power(k, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
-    expect(l.from == 0.0 && l.speed == Skee.Physics.release_speed(Skee.Types.standard_lane(k), 0.5), "release")
+    expect(l.from == 0.0 && l.speed == Skee.Physics.release_speed(k, Skee.Types.standard_lane(k), 0.5), "release")
   end
 
   -- StrokeTests.flick: minimum-jerk motion lifted partway through, at 120 Hz.
@@ -1296,6 +1314,8 @@ mod PhysicsSuite do
       case("NaN agrees with NaN", fn () -> agreement_is_not_difference()),
       case("speed curve", fn () -> curve_case(rows)),
       case("inverse speed curve", fn () -> inverse_case(rows)),
+      case("speed curve on a lane with no gaps", fn () -> dead_curve_case(rows)),
+      case("inverse speed curve on a lane with no gaps", fn () -> dead_inverse_case(rows)),
       case("hinge launch angle", fn () -> angle_case(rows)),
       case("launch construction and mirroring", fn () -> launch_case(rows)),
       case("hole facts", fn () -> all(List.map(GoldenIo.of_kind(rows, "holefacts"), hole_facts_row))),

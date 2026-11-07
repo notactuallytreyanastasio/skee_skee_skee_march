@@ -11,7 +11,12 @@ import GoldenSupport
 // compared alone, on exactly the numbers Swift ran.
 
 var g = GoldenFile(module: "Physics")
-var r = SplitMix64(seed: 0x5EED_0F_5EED)
+
+// Set SKEE_PHYSICS_RESEED to a decimal UInt64 to draw every random row afresh, to
+// see whether the suite holds on inputs it has never met. Unset, the rows are the
+// committed ones. Write the result somewhere else: see the comment at the end.
+let reseed = UInt64(ProcessInfo.processInfo.environment["SKEE_PHYSICS_RESEED"] ?? "0") ?? 0
+var r = SplitMix64(seed: 0x5EED_0F_5EED ^ reseed)
 
 @MainActor func u(_ lo: Double, _ hi: Double) -> Double { lo + r.nextUnit() * (hi - lo) }
 @MainActor func coin(_ p: Double) -> Bool { r.nextUnit() < p }
@@ -39,6 +44,75 @@ func phaseName(_ p: PathPhase) -> String { p.rawValue }
 /// sign bit, which JS cannot show, and March's float_bits reads every NaN as this one.
 func c64(_ x: Double) -> String { f64(x.isNaN ? Double.nan : x) }
 
+// ---- What libm gave Swift ----
+// In a release build LLVM turns sin(x) and cos(x) of one argument into a single
+// __sincos_stret, which is not always sin(): -0.10724695550399452 differs in the
+// last bit. simulateShot takes four such pairs, so a release golden holds shots no
+// plain sin can reproduce. `pair` is compiled the same way, so it returns what
+// simulateShot used, in either build. Each shot row records its four pairs. A replay
+// that runs on them and matches every bit is the proof that this is true.
+@inline(never) func pair(_ x: Double) -> (Double, Double) { (sin(x), cos(x)) }
+@inline(never) func soloSin(_ x: Double) -> Double { sin(x) }
+@inline(never) func soloCos(_ x: Double) -> Double { cos(x) }
+func pairDiffers(_ x: Double) -> Bool {
+    let (s, c) = pair(x)
+    return s.bitPattern != soloSin(x).bitPattern || c.bitPattern != soloCos(x).bitPattern
+}
+
+func trigTokens(_ l: Launch, _ t: Table) -> [String] {
+    [l.aim * t.lane.maxAimAngle, t.lane.incline, t.board.tilt, t.hinge.launchAngle(fold: l.fold)].flatMap { x -> [String] in
+        let (s, c) = pair(x)
+        return [c64(s), c64(c)]
+    }
+}
+
+// The sines a shot takes step by step: a wobbler's sway, and a bean's height on the
+// lane. Each is one sin of one argument, so these are plain sin. A bean's are few,
+// so every bean is here. A wobbler takes one per step, so only every 8th is.
+var sineBook: [UInt64: Double] = [:]
+var wobblers = 0
+
+@MainActor func noteSine(_ x: Double) -> Double {
+    let s = soloSin(x)
+    sineBook[x.bitPattern] = s
+    return s
+}
+
+@MainActor func noteSway(_ seed: UInt64, _ table: Table, _ res: ShotResult) {
+    var rng = SplitMix64(seed: seed)
+    let phase = rng.nextUnit() * 2 * .pi
+    var t = 0.0
+    while t <= res.duration {
+        _ = noteSine(2 * .pi * 1.6 * t + phase)
+        t += table.dt
+    }
+}
+
+@MainActor func noteHops(_ res: ShotResult) {
+    let hops = zip(res.events, res.eventTimes).filter { $0.0 == .hop }.map(\.1)
+    for s in res.path where s.phase == .lane && s.height != 0 {
+        let until = hops.last { $0 < s.t }! + 0.14
+        let height = 0.035 * noteSine(.pi * (until - s.t) / 0.14)
+        precondition(height == s.height, "a bean's height did not come from this sine")
+    }
+}
+
+/// Whether a replay has every libm value this shot took. Notes them if it can.
+@MainActor func noteSines(_ ball: BallKind, _ seed: UInt64, _ table: Table, _ res: ShotResult) -> Bool {
+    switch ball {
+    case .bean:
+        noteHops(res)
+        return true
+    case .wobbler:
+        wobblers += 1
+        guard wobblers % 8 == 1 else { return false }
+        noteSway(seed, table, res)
+        return true
+    case .classic, .marshmallow, .comet:
+        return true
+    }
+}
+
 // ---- The speed curve ----
 let lane = LaneSpec.standard
 for n in 0...400 {
@@ -55,7 +129,7 @@ for fold in [0.0, 0.25, 0.5, 0.75, 1.0] {
 
 // ---- Launch construction ----
 func launchTokens(_ l: Launch) -> [String] {
-    [f64(l.power), f64(l.speed), f64(l.from), f64(l.aim), f64(l.start), f64(l.fold), f64(l.spin), f64(l.skid)]
+    [l.power, l.speed, l.from, l.aim, l.start, l.fold, l.spin, l.skid].map(c64)
 }
 for n in 0..<300 {
     let raw = n % 3 == 0
@@ -190,6 +264,7 @@ var shots = 0
     row += [c64(res.peakHeight), c64(res.duration), i(res.rattles)]
     row += [res.events.map(eventName).joined(separator: ","), res.eventTimes.map(c64).joined(separator: ",")]
     row += [i(n)] + sums.map(c64) + [samples.joined(separator: ",")]
+    row += trigTokens(form.launch, table) + [b(noteSines(ball, seed, table, res))]
     g.line(row)
     shots += 1
 }
@@ -261,7 +336,7 @@ let duo = FlickGeometry(creaseY: 445, laneCenterX: 313, laneHalfWidth: 260)
     case .release(let l):
         let m = lastMetrics!
         row += ["release"] + launchTokens(l)
-        row += [m.peak, m.release, m.duration, m.jerk, m.snap, m.side, m.speed].map(f64)
+        row += [m.peak, m.release, m.duration, m.jerk, m.snap, m.side, m.speed].map(c64)
     }
     g.line(row)
 }
@@ -310,7 +385,7 @@ for x in [100.0, 313.0, 500.0] {
 // from a seeded SplitMix64 that March replays; each shot leaves only its hole, its
 // event count and its path length. Written after everything else, so the rows
 // above are unaffected by how many there are.
-var bulkRng = SplitMix64(seed: 0xB01C_5EED)
+var bulkRng = SplitMix64(seed: 0xB01C_5EED ^ reseed)
 var combos: [(Int, BallKind)] = []
 for base in bases {
     for ball in BallKind.allCases {
@@ -319,7 +394,7 @@ for base in bases {
         g.line("bulkcombo", i(id), ball.rawValue)
     }
 }
-g.line("bulkseed", u64(0xB01C_5EED))
+g.line("bulkseed", u64(0xB01C_5EED ^ reseed))
 @MainActor func unit(_ lo: Double, _ hi: Double) -> Double { lo + bulkRng.nextUnit() * (hi - lo) }
 var bulkRow: [String] = []
 for n in 0..<20000 {
@@ -345,7 +420,7 @@ for n in 0..<20000 {
 // after the bulk rows, on their own generator: nothing above moves. Each block
 // says which branch it pins. tools/golden never checks that a block does its job;
 // the proof is the mutation run reported with the physics repair.
-var hardRng = SplitMix64(seed: 0x4A2D_B2A9)
+var hardRng = SplitMix64(seed: 0x4A2D_B2A9 ^ reseed)
 @MainActor func hu(_ lo: Double, _ hi: Double) -> Double { lo + hardRng.nextUnit() * (hi - lo) }
 
 // NaN in a Launch: Launch's clamp keeps it, and every comparison on it is false, so
@@ -571,6 +646,176 @@ g.line(["tuningdefaults"] + [plainTuning.slowest, plainTuning.fastest, plainTuni
                              plainTuning.fullAimAngle, plainTuning.smoothJerk, plainTuning.skidPerJerk,
                              plainTuning.lineReach].map(f64))
 
+// ---- Branches the rows above reach by no input ----
+// Thumb exactly on the rail, going straight up it: at the rail is not past the rail.
+for start in [1.0, -1.0] {
+    for power in [0.4, 0.6, 0.8] { shot(.power(power, 0, start, 0, 0, 0), .standard, .classic, hardRng.next()) }
+}
+
+// The board exactly as wide as the lane, so the same throw is exactly at the side
+// wall, and pockets so wide the ball drops on its first step. At the wall is not
+// touching it, and only a flight that touched no wall can drop in a pocket.
+var flush = Table.standard
+flush.board.width = flush.lane.width
+flush.board.captureSpeed = 10
+flush.board.pockets[0].center = Vec2(-flush.board.width / 2, 0.2)
+flush.board.pockets[0].radius = 0.5
+flush.board.pockets[1].center = Vec2(flush.board.width / 2, 0.2)
+flush.board.pockets[1].radius = 0.5
+for start in [1.0, -1.0] { shot(.power(0.6, 0, start, 0, 0, 0), flush, .classic, hardRng.next()) }
+
+// A ball that dies at the hinge on a level board: no speed at all at first contact.
+// It rolls at exactly zero, on exactly the centre of the rings when they are moved
+// under it: no direction to take friction from, or to push it out of a wall along.
+var dead = Table.standard
+dead.hinge.carry = 0
+dead.board.tilt = 0
+dead.board.captureSpeed = -1
+shot(.power(0.6, 0, 0, 0, 0, 0), dead, .classic, hardRng.next())
+dead.board.ringCenter = Vec2(0, 0)
+shot(.power(0.6, 0, 0, 0, 0, 0), dead, .classic, hardRng.next())
+// The same ball coming down through a lip below the board, at the centre of a ring
+// wall's band: a radial with no direction, which Swift points up the board.
+var sunken = dead
+sunken.board.lipHeight = -0.00001
+sunken.board.lipMinFall = 0
+sunken.board.lipBand = 1000
+shot(.power(0.6, 0, 0, 0, 0, 0), sunken, .classic, hardRng.next())
+
+// Every acceleration drops out, so the jerk has nothing to read: only velocities
+// survive timestamps that go up, back, up, back.
+flickRow(track([0, 2, 0, 2, 0, 2, 0, 2].map { $0 / 128 }, [313, 314, 315, 316, 317, 318, 319, 320],
+               [820, 790, 760, 730, 700, 670, 640, 610]), duo, 0)
+
+// ---- Zero divisors ----
+// Swift gives an infinity or NaN. `/.` panics natively. Lanes and tunings here are
+// degenerate on purpose: each pins a division in the port.
+func deadLane(_ knee: Double, _ low: Double, _ scoring: Double, _ high: Double) -> LaneSpec {
+    var l = LaneSpec.standard
+    l.knee = knee
+    l.minSpeed = low
+    l.scoringSpeed = scoring
+    l.maxSpeed = high
+    return l
+}
+let deadLanes = [
+    deadLane(1, 2, 3, 5), deadLane(0, 2, 3, 5), deadLane(0.1, 2, 2, 5), deadLane(0.1, 2, 3, 3), deadLane(0.1, 2, 2, 2),
+    deadLane(1, 2, 2, 2), deadLane(0, 2, 2, 2), deadLane(1, 5, 3, 2),
+]
+for l in deadLanes {
+    let lt = [l.knee, l.minSpeed, l.scoringSpeed, l.maxSpeed].map(f64)
+    for p in [-0.5, -0.0, 0.0, 0.05, 0.1, 0.5, 1.0, 1.5] {
+        g.line(["deadcurve"] + lt + [f64(p), c64(l.releaseSpeed(power: p))])
+    }
+    for v in [0.0, 1.0, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0] {
+        g.line(["deadinverse"] + lt + [f64(v), c64(l.power(forSpeed: v))])
+    }
+}
+var noAim = FlickTuning.standard
+noAim.fullAimAngle = 0
+var noRange = FlickTuning.standard
+noRange.fastest = noRange.slowest
+for s in [flick(), flick(lateral: { v in 40 * v }), flick(lateral: { v in -40 * v }), flick(wobble: 4)] {
+    flickRow(s, duo, 0, noAim)
+    flickRow(s, duo, 0, noRange)
+    // A last sample at the end of time: a flick of infinite length has no acceleration.
+    var endless = s
+    endless[endless.count - 1].t = .infinity
+    flickRow(endless, duo, 0)
+    flickRow(endless, duo, 0, noAim)
+    flickRow(endless, duo, 0, noRange)
+    endless[endless.count - 1].t = .nan
+    flickRow(endless, duo, 0)
+}
+var flatTuned = FlickTuning.standard
+flatTuned.slowest = flatTuned.fastest + 1
+flickRow(flick(), duo, 0, flatTuned)
+
+// ---- Saves from before thumb throws ----
+// Each field is present or absent. The decoder under test is Swift's own.
+func decode(_ fields: [(String, Double)]) -> Launch {
+    let body = fields.map { #""\#($0.0)":\#($0.1)"# }.joined(separator: ",")
+    return try! JSONDecoder().decode(Launch.self, from: Data(("{" + body + "}").utf8))
+}
+let savedNames = ["start", "fold", "spin", "skid", "speed", "from"]
+@MainActor func savedRow(_ power: Double, _ aim: Double, _ rest: [Double?]) {
+    let present = zip(savedNames, rest).compactMap { name, x in x.map { (name, $0) } }
+    let l = decode([("power", power), ("aim", aim)] + present)
+    g.line(["saved", f64(power), f64(aim)] + rest.map { $0.map(f64) ?? "none" } + launchTokens(l))
+}
+savedRow(0.6, 0, [0, 0, nil, nil, nil, nil])
+savedRow(0.6, 0.25, [nil, nil, nil, nil, nil, nil])
+savedRow(0.6, 0.25, [nil, nil, nil, nil, 3.5, nil])
+savedRow(0.1, 0.25, [nil, nil, nil, nil, 3.5, 0.8])
+savedRow(0.6, 0.25, [nil, nil, nil, nil, nil, 0.8])
+savedRow(9, 9, [9, 9, 9, 9, nil, nil])
+savedRow(-9, -9, [-9, -9, -9, -9, 99, 99])
+for n in 0..<120 {
+    let maybe = { (lo: Double, hi: Double) -> Double? in coin(0.5) ? u(lo, hi) : nil }
+    savedRow(u(-1, 2), u(-3, 3), [maybe(-3, 3), maybe(-1, 2), maybe(-3, 3), maybe(-1, 2), n % 2 == 0 ? u(-1, 8) : nil, maybe(-1, 4)])
+}
+
+// ---- Tables the game really throws on ----
+// difficultyTable, then the boss, then the power-up, then the ball, as table(for:)
+// composes them. These reach restitution above 1, where a last-bit difference grows.
+var gameRng = SplitMix64(seed: 0x6A3E_7AB1 ^ reseed)
+@MainActor func gu(_ lo: Double, _ hi: Double) -> Double { lo + gameRng.nextUnit() * (hi - lo) }
+@MainActor func gameForm() -> Form {
+    let aim = gu(0, 1) < 0.2 ? gu(-1, 1) : gu(-0.4, 0.4)
+    let start = gu(0, 1) < 0.5 ? 0 : gu(-1, 1)
+    let fold = gu(0, 1) < 0.5 ? 0 : gu(0, 1)
+    let spin = gu(0, 1) < 0.5 ? 0 : gu(-1, 1)
+    let skid = gu(0, 1) < 0.5 ? 0 : gu(0, 1)
+    return gu(0, 1) < 0.2
+        ? .speed(gu(0, 5.85), gu(0, 2.35), aim, start, fold, spin, skid)
+        : .power(gu(0, 1) < 0.15 ? gu(0, 1) : gu(0.3, 1), aim, start, fold, spin, skid)
+}
+@MainActor func pick<T>(_ xs: [T]) -> T { xs[min(xs.count - 1, Int(gu(0, Double(xs.count))))] }
+@MainActor func gameTable(_ ball: BallKind) -> Table {
+    var t = difficultyTable(ante: pick(Array(1...8)), base: pick(Room.allCases).table)
+    if let boss = pick([nil] + Boss.allCases.map(Optional.some)) { t = boss.modify(t) }
+    if let up = pick([nil] + PowerUp.allCases.map(Optional.some)) { t = up.modify(t) }
+    return ball.modify(t)
+}
+for _ in 0..<900 {
+    let ball = pick(BallKind.allCases)
+    shot(gameForm(), gameTable(ball), ball, gameRng.next())
+}
+// Hard and high: many backwall hits, each one multiplying any difference there is.
+for _ in 0..<150 {
+    shot(.power(gu(0.85, 1), gu(-0.2, 0.2), gu(-0.3, 0.3), gu(0, 1), 0, 0), gameTable(.comet), .comet, gameRng.next())
+}
+// Tables nobody built: every number a little off, so no angle is a familiar one.
+for _ in 0..<150 {
+    let ball = pick(BallKind.allCases)
+    var t = gameTable(ball)
+    t.lane.incline *= gu(0.9, 1.1)
+    t.lane.maxAimAngle *= gu(0.9, 1.1)
+    t.board.tilt *= gu(0.9, 1.1)
+    t.hinge.baseAngle *= gu(0.9, 1.1)
+    t.hinge.foldGain *= gu(0.9, 1.1)
+    shot(gameForm(), t, ball, gameRng.next())
+}
+
+// A throw whose own sin and cos are the ones a release build gets differently from
+// plain sin and cos. Random rows find these about once in two thousand, so go and
+// look. A debug build has none, which the suite reports. Hinge angles are out of the
+// range where the two differ: two million folds found none.
+var differing = 0
+for _ in 0..<2_000_000 where differing < 24 {
+    let aim = gu(-0.5, 0.5)
+    guard pairDiffers(aim * Table.standard.lane.maxAimAngle) else { continue }
+    differing += 1
+    let ball = BallKind.allCases[differing % BallKind.allCases.count]
+    shot(.power(gu(0.3, 0.95), aim, 0, 0, 0, 0), ball.modify(.standard), ball, gameRng.next())
+}
+print("pairs differing", differing)
+
+// Sorted by argument, which is how the suite builds its search tree.
+for (key, value) in sineBook.sorted(by: { Double(bitPattern: $0.key) < Double(bitPattern: $1.key) }) {
+    g.line("sine", f64(Double(bitPattern: key)), f64(value))
+}
+
 for key in seen.keys.sorted() { print(key, seen[key]!) }
-print("shots", shots, "tables", tables.count)
+print("shots", shots, "tables", tables.count, "sines", sineBook.count)
 try g.write()

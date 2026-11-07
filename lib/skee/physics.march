@@ -8,21 +8,21 @@ mod Skee.Physics do
   import Skee.Types
 
   doc """Ball speed for a power, up the curve with its knee at `lane.knee`."""
-  fn release_speed(lane : LaneSpec, power : Float) : Float needs () do
+  fn release_speed(k : Skee.Consts.Consts, lane : LaneSpec, power : Float) : Float needs () do
     if power < lane.knee do
-      lane.min_speed +. power /. lane.knee *. (lane.scoring_speed -. lane.min_speed)
+      lane.min_speed +. ieee_div(k, power, lane.knee) *. (lane.scoring_speed -. lane.min_speed)
     else
-      lane.scoring_speed +. (power -. lane.knee) /. (1.0 -. lane.knee) *. (lane.max_speed -. lane.scoring_speed)
+      lane.scoring_speed +. ieee_div(k, power -. lane.knee, 1.0 -. lane.knee) *. (lane.max_speed -. lane.scoring_speed)
     end
   end
 
   doc """The inverse of `release_speed`, clamped to 0...1."""
-  fn power_for_speed(lane : LaneSpec, v : Float) : Float needs () do
+  fn power_for_speed(k : Skee.Consts.Consts, lane : LaneSpec, v : Float) : Float needs () do
     let p =
       if v < lane.scoring_speed do
-        (v -. lane.min_speed) /. (lane.scoring_speed -. lane.min_speed) *. lane.knee
+        ieee_div(k, v -. lane.min_speed, lane.scoring_speed -. lane.min_speed) *. lane.knee
       else
-        lane.knee +. (v -. lane.scoring_speed) /. (lane.max_speed -. lane.scoring_speed) *. (1.0 -. lane.knee)
+        lane.knee +. ieee_div(k, v -. lane.scoring_speed, lane.max_speed -. lane.scoring_speed) *. (1.0 -. lane.knee)
       end
     clamp(p, 0.0, 1.0)
   end
@@ -37,7 +37,7 @@ mod Skee.Physics do
     let clamped = clamp(power, 0.0, 1.0)
     {
       power: clamped,
-      speed: release_speed(standard_lane(k), clamped),
+      speed: release_speed(k, standard_lane(k), clamped),
       from: 0.0,
       aim: clamp(aim, -1.0, 1.0),
       start: clamp(start, -1.0, 1.0),
@@ -52,7 +52,7 @@ mod Skee.Physics do
     let lane = standard_lane(k)
     let clamped = clamp(speed, 0.0, lane.max_speed *. 1.3)
     {
-      power: power_for_speed(lane, clamped),
+      power: power_for_speed(k, lane, clamped),
       speed: clamped,
       from: clamp(from, 0.0, lane.length -. 0.05),
       aim: clamp(aim, -1.0, 1.0),
