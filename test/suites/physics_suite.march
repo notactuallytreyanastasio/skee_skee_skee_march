@@ -480,9 +480,16 @@ mod PhysicsSuite do
     { c with gap: c.gap /. int_to_float(Math.max_int(n, 1)) }
   end
 
+  -- The same for a sum of times: the mean gap per sample, in seconds. A raw sum
+  -- over hundreds of samples reads as a gap of minutes on a shot capped at 8 s.
+  fn sum_time(x : Float, want : String, n : Int) : ShotCheck do
+    let c = time(x, want)
+    { c with time_gap: c.time_gap /. int_to_float(Math.max_int(n, 1)) }
+  end
+
   -- Whether the sums over every sample are the same.
   fn sums_check(t : Float, x : Float, along : Float, height : Float, n : Int, row : List(String)) : ShotCheck do
-    every([time(t, token(row, 22)), sum_position(x, token(row, 23), n), sum_position(along, token(row, 24), n), sum_position(height, token(row, 25), n)])
+    every([sum_time(t, token(row, 22), n), sum_position(x, token(row, 23), n), sum_position(along, token(row, 24), n), sum_position(height, token(row, 25), n)])
   end
 
   fn judge(row : List(String), r : ShotResult, pair_differs : Bool) : ShotVerdict do

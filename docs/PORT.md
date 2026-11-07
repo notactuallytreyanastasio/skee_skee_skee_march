@@ -212,9 +212,26 @@ Native differs from Swift in none of them.
 | `next_gaussian` (log, sqrt, cos) | 107 of 1700 (6.29%) | 2 ulp |
 
 The generator's state never diverges: only the returned Float does, and it is
-consumed by bots alone. Physics calls sin and cos, so shots through them can
-drift and then diverge chaotically. Measure the hole mismatch rate on JS and
-report it.
+consumed by bots alone.
+
+Physics calls sin and cos, so shots drift on JS. Measured over the physics
+goldens and 22 re-seeded generators:
+
+- Position differs on 10.8% of golden shots, usually by far less than a
+  millimetre (worst 6.4e-6 m on a shot that stayed on Swift's path).
+- 7 of 440,000 bulk shots (1.6e-5) "parted": took a visibly different path. The
+  3 examined kept their hole; the other 4 were not examined, so this does not
+  show that holes never flip.
+- 3 hard comet shots are pinned in the goldens. On V8 they end up to 0.84 m from
+  Swift's path, with duration up to 0.146 s different and extra events.
+- Replaying with Swift's recorded sines is bit-exact on both targets, so libm is
+  the only cause. `Skee.Physics.ShotTrig` and `simulate_with` are that seam.
+- Swift `-c release` merges some sin/cos pairs into `__sincos_stret`, which can
+  differ from plain `sin`. That is why native as shipped is not exact either
+  (worst 4.7e-8 m, 0 parted).
+
+Accepted: a web shot can rarely play differently from the same shot on iPhone.
+Runs replay exactly on one target, not across targets.
 
 ## Rules every core module follows
 
@@ -256,6 +273,10 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   compile error. Use `Skee.Units`' ranks. (`derive_ord.march`)
 - **Prefix minus is a call to `negate` (guard).** A function of yours called
   `negate` captures it, and `-1.0` inside it recurses forever. (`negate_shadow.march`)
+- **`None` in an `Option(Float)` field, native (guard).** An unannotated `let`
+  holding a record with such a `None` segfaults at drop time. Annotate the `let`
+  with the record type, as `start_sim` does. (`none_float_field.march`,
+  march#1173)
 - **Int on JS.** Doubles: exact to 2^53-1. The JS runners use `--js-int-check`, which
   throws past that. Anything wider goes through `Skee.U64`.
 

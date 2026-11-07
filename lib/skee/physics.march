@@ -810,6 +810,7 @@ mod Skee.Physics do
   end
 
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
+  -- The annotation on `blank` is load-bearing natively: tools/repros/none_float_field.march.
   pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : ShotSim needs () do
     let rng0 = Skee.Rng.seed(seed)
     let blank : ShotSim =
@@ -845,7 +846,6 @@ mod Skee.Physics do
     end
   end
 
-  -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
   pfn sin_cos(x : Float) : SinCos needs () do
     { sine: Math.sin(x), cosine: Math.cos(x) }
   end
