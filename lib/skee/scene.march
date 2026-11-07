@@ -251,6 +251,8 @@ mod Skee.Scene do
     | SparkRail
     | SparkDrop(Hole)
 
+  derive Eq for Spark
+
   -- A ring of light racing outward (ScenePresenter.shock).
   type Wave = { spot : Vec3, facing : Vec3, age : Float, size : Float }
 

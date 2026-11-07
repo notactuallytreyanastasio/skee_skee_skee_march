@@ -772,13 +772,22 @@ mod SceneSuite do
     {
       ball_cue: bc,
       sparks: sparks_of(token_at(row, 19)),
-      kind: ClassicBall,
+      kind: kind_of(token_at(row, 18)),
       anticipation: fl(token_at(row, 16)),
       shake: fl(token_at(row, 17)),
       balls_left: GoldenIo.int(token_at(row, 15)),
       excited: false,
       reel_cue: reel_cue
     }
+  end
+
+  -- The scale the port draws the ball at: the BallPart's frame in the model,
+  -- as SceneKit's ball.simdScale.x (place scale, drawn size, bounce swell).
+  fn drawn_ball_scale(s : Skee.Scene.Scenery) : Float do
+    match List.find(Skee.Scene.model(k(), s), fn p -> p.role == BallPart) do
+    Some(p) -> length3(p.frame.ax)
+    None -> -1.0
+    end
   end
 
   -- Tolerance for the roll: 32-bit quaternion products over hundreds of frames.
@@ -791,7 +800,7 @@ mod SceneSuite do
     let what = "frame " ++ String.join(List.take(row, 2), " ")
     let b = s.ball
     let q = b.motion.orientation
-    let size = b.place.scale *. (1.0 +. 0.35 *. b.motion.pop)
+    let size = drawn_ball_scale(s)
     let sh = b.shadow
     let sq = Skee.Scene.quat_between(v3(0.0, 0.0, 1.0), sh.facing)
     let cam = s.camera.eye
@@ -904,37 +913,50 @@ mod SceneSuite do
 
   doc """Frames whose roll is Swift's rounding noise, not compared."""
   fn noise_frames() : Int do
-    let r = replayed()
-    r.skipped
+    let a = replayed("a")
+    let e = replayed("e")
+    a.skipped + e.skipped
+  end
+
+  -- One replay's rows: the tag is a row's first token after its kind.
+  fn tagged(kind : String, tag : String) : List(List(String)) do
+    List.filter(rows(kind), fn row -> List.take(row, 1) == [tag])
   end
 
   -- Before the first recorded frame the pull finished and one idle frame put
   -- the waiting ball at the release spot: that is the last centre the roll
   -- starts from.
-  fn replayed() : SceneReplay do
+  fn replayed(tag : String) : SceneReplay do
     let w = boardwalk()
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
     let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
-    List.fold_left(rows("frame"), { rig: fitted(), kept: start, outcomes: [], worst_spin: 0.0, skipped: 0 }, replay_step)
+    List.fold_left(tagged("frame", tag), { rig: fitted(), kept: start, outcomes: [], worst_spin: 0.0, skipped: 0 }, replay_step)
   end
 
   doc """Worst quaternion component error over the replay."""
   fn worst_spin() : Float do
-    let r = replayed()
-    r.worst_spin
+    let a = replayed("a")
+    let e = replayed("e")
+    max_float(a.worst_spin, e.worst_spin)
   end
 
   fn presenter_cases() : List(Case) do
     [
-      case("ScenePresenter.update over three real throws", fn () -> replay_outcome()),
-      case("ScenePresenter.update over a frame: reels, bulbs, rings, aim", fn () -> look_outcome())
+      case("ScenePresenter.update over three real throws", fn () -> replay_outcome("a", ClassicBall)),
+      case("ScenePresenter.update over a marshmallow throw: its drawn size", fn () -> replay_outcome("e", Marshmallow)),
+      case("ScenePresenter.update over a frame: reels, bulbs, rings, aim", fn () -> look_outcome("b")),
+      case("ScenePresenter.update over comet throws: rings at the hump, back wall, rails", fn () -> look_outcome("c")),
+      case("ScenePresenter.update over a jumping bean: rings on its hops", fn () -> look_outcome("d"))
     ]
   end
 
-  fn replay_outcome() : Outcome do
-    let r = replayed()
-    all(List.reverse(r.outcomes))
+  -- Every row of the replay is the ball it is named for, and there are rows.
+  fn replay_outcome(tag : String, ball : BallKind) : Outcome do
+    let r = replayed(tag)
+    let frames = tagged("frame", tag)
+    let named = List.all(frames, fn row -> kind_of(token_at(row, 18)) == ball)
+    all(Cons(expect(List.length(frames) > 0 && named, "replay " ++ tag ++ " is a " ++ kind_token(ball) ++ " throw"), List.reverse(r.outcomes)))
   end
 
   -- ---- ScenePresenter.update over a whole frame: reels, bulbs, rings, aim ----
@@ -1060,7 +1082,12 @@ mod SceneSuite do
     slot_halo : Int,
     excited : Int,
     leaning : Int,
-    rings : Int
+    rings : Int,
+    hops : Int,
+    comet_humps : Int,
+    comet_walls : Int,
+    comet_rails : Int,
+    plain_walls : Int
   }
 
   type LookReplay = {
@@ -1099,7 +1126,12 @@ mod SceneSuite do
       slot_halo: seen.slot_halo + some_reel(s, is_slot_halo),
       excited: seen.excited + count_if(c.excited),
       leaning: seen.leaning + count_if(lean > 0.0),
-      rings: seen.rings + count_if(List.length(s.waves) > 0)
+      rings: seen.rings + count_if(List.length(s.waves) > 0),
+      hops: seen.hops + count_if(List.any(c.sparks, fn x -> x == SparkHop)),
+      comet_humps: seen.comet_humps + count_if(c.kind == Comet && List.any(c.sparks, fn x -> x == SparkHump)),
+      comet_walls: seen.comet_walls + count_if(c.kind == Comet && List.any(c.sparks, fn x -> x == SparkBackwall)),
+      comet_rails: seen.comet_rails + count_if(c.kind == Comet && List.any(c.sparks, fn x -> x == SparkRail)),
+      plain_walls: seen.plain_walls + count_if(c.kind != Comet && List.any(c.sparks, fn x -> x == SparkBackwall || x == SparkRail))
     }
   end
 
@@ -1120,7 +1152,7 @@ mod SceneSuite do
     end
   end
 
-  fn look_replayed() : LookReplay do
+  fn look_replayed(tag : String) : LookReplay do
     let w = boardwalk()
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
@@ -1133,16 +1165,22 @@ mod SceneSuite do
         slot_halo: 0,
         excited: 0,
         leaning: 0,
-        rings: 0
+        rings: 0,
+        hops: 0,
+        comet_humps: 0,
+        comet_walls: 0,
+        comet_rails: 0,
+        plain_walls: 0
       }
-    let inputs = List.zip(rows("look"), List.zip(rows("lookbulbs"), rows("lookwaves")))
+    let inputs = List.zip(tagged("look", tag), List.zip(tagged("lookbulbs", tag), tagged("lookwaves", tag)))
     List.fold_left(inputs, { world: w, rig: fitted(), kept: start, outcomes: [], seen: none }, look_step)
   end
 
-  fn look_outcome() : Outcome do
-    let r = look_replayed()
-    let n = r.seen
-    let covered =
+  -- Each look replay must reach the paths it was recorded for, so a path
+  -- the goldens never exercise shows up as a failure, not a quiet pass.
+  fn look_coverage(tag : String, n : LookSeen) : List(Outcome) do
+    let ringed = expect(n.rings > 0, "replay " ++ tag ++ " has no rings of light")
+    if tag == "b" do
       [
         expect(n.glow_one > 0, "replay b never glows a reel once"),
         expect(n.glow_two > 0, "replay b never glows a reel twice"),
@@ -1150,16 +1188,33 @@ mod SceneSuite do
         expect(n.slot_halo > 0, "replay b never shows a slot match"),
         expect(n.excited > 0, "replay b is never excited"),
         expect(n.leaning > 0, "replay b never leans"),
-        expect(n.rings > 0, "replay b has no rings of light")
+        ringed
       ]
-    all(List.concat([[expect_int(List.length(r.outcomes), List.length(rows("lookwaves")), "every look row replayed")], covered, List.reverse(r.outcomes)]))
+    else
+      if tag == "c" do
+        [
+          expect(n.comet_humps > 0, "replay c never sends a comet over the hump"),
+          expect(n.comet_walls > 0, "replay c never hits the back wall with a comet"),
+          expect(n.comet_rails > 0, "replay c never hits a rail with a comet"),
+          ringed
+        ]
+      else
+        [expect(n.hops > 0, "replay " ++ tag ++ " never hops"), expect(n.plain_walls > 0, "replay " ++ tag ++ " never hits a wall or rail without a comet"), ringed]
+      end
+    end
   end
 
-  doc """How many frames of replay b reached each path, printed by the runner."""
-  fn look_seen() : String do
-    let r = look_replayed()
+  fn look_outcome(tag : String) : Outcome do
+    let r = look_replayed(tag)
+    let want = List.length(tagged("lookwaves", tag))
+    all(List.concat([[expect(want > 0, "replay " ++ tag ++ " has rows"), expect_int(List.length(r.outcomes), want, "every look row of replay " ++ tag ++ " replayed")], look_coverage(tag, r.seen), List.reverse(r.outcomes)]))
+  end
+
+  doc """How many frames of a look replay reached each path, printed by the runner."""
+  fn look_seen(tag : String) : String do
+    let r = look_replayed(tag)
     let n = r.seen
-    "glow1 " ++ int_to_string(n.glow_one) ++ ", glow2 " ++ int_to_string(n.glow_two) ++ ", flash " ++ int_to_string(n.flashed) ++ ", slot " ++ int_to_string(n.slot_halo) ++ ", excited " ++ int_to_string(n.excited) ++ ", leaning " ++ int_to_string(n.leaning) ++ ", rings " ++ int_to_string(n.rings)
+    "glow1 " ++ int_to_string(n.glow_one) ++ ", glow2 " ++ int_to_string(n.glow_two) ++ ", flash " ++ int_to_string(n.flashed) ++ ", slot " ++ int_to_string(n.slot_halo) ++ ", excited " ++ int_to_string(n.excited) ++ ", leaning " ++ int_to_string(n.leaning) ++ ", rings " ++ int_to_string(n.rings) ++ ", hops " ++ int_to_string(n.hops) ++ ", comet hump/wall/rail " ++ int_to_string(n.comet_humps) ++ "/" ++ int_to_string(n.comet_walls) ++ "/" ++ int_to_string(n.comet_rails) ++ ", plain wall/rail " ++ int_to_string(n.plain_walls)
   end
 
   -- ---- Drawing ----

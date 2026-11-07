@@ -4,7 +4,9 @@ mod SceneMain do
 
   fn main(_c : Cap(IO.Console)) : () do
     println("scene: worst position error " ++ float_to_string(SceneSuite.worst_metres()) ++ " m, worst projected error " ++ float_to_string(SceneSuite.worst_pixels()) ++ " px, worst roll quaternion error " ++ float_to_string(SceneSuite.worst_spin()) ++ " (Swift computes in 32-bit Float); " ++ int_to_string(SceneSuite.noise_frames()) ++ " sinking frames' roll not compared")
-    println("scene: replay b reached " ++ SceneSuite.look_seen())
+    println("scene: replay b reached " ++ SceneSuite.look_seen("b"))
+    println("scene: replay c reached " ++ SceneSuite.look_seen("c"))
+    println("scene: replay d reached " ++ SceneSuite.look_seen("d"))
     Harness.report("scene", SceneSuite.cases())
   end
 

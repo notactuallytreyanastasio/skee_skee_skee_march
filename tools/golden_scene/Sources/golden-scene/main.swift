@@ -217,10 +217,11 @@ do {
 // ---- ScenePresenter.update, frame by frame over real throws ----
 // Inputs the presenter read and what it did to the ball, shadow, trough and
 // camera, so the March port can replay the same inputs.
-@MainActor func replay(seed: UInt64, throws launches: [Launch], tag: String, looks: Bool = false) {
+@MainActor func replay(seed: UInt64, throws launches: [Launch], tag: String, looks: Bool = false, ball: BallKind = .classic) {
     let cab = Cabinet(table: Room.boardwalk.table, palette: .boardwalk)
     let presenter = ScenePresenter(cabinet: cab, aspect: 390.0 / 844.0)
     var state = newRun(seed: seed)
+    state.ball = ball
     var p = Presentation(state: state)
     let dt = 1.0 / 60
     var frame = 0
@@ -317,5 +318,12 @@ replay(seed: 7, throws: [
     Launch(power: 0.8, aim: 0.0), Launch(power: 0.8, aim: 0.0), Launch(power: 0.05, aim: -0.03),
     Launch(power: 0.9, aim: 0.05, spin: 0.4), Launch(power: 0.6, aim: -0.05), Launch(power: 0.75, aim: 0.02),
 ], tag: "b", looks: true)
+
+// The other balls, for the paths replays a and b never reach: a comet's
+// rings at the hump, the back wall and the rails; a jumping bean's hops; a
+// marshmallow's drawn size.
+replay(seed: 7, throws: [Launch(power: 1.0, aim: 0.0), Launch(power: 0.8, aim: 0.8), Launch(power: 0.7, aim: -1.0)], tag: "c", looks: true, ball: .comet)
+replay(seed: 7, throws: [Launch(power: 0.6, aim: 0.0), Launch(power: 1.0, aim: 0.0), Launch(power: 0.8, aim: 0.8)], tag: "d", looks: true, ball: .bean)
+replay(seed: 7, throws: [Launch(power: 0.62, aim: 0.01)], tag: "e", ball: .marshmallow)
 
 try g.write()
