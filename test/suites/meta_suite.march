@@ -717,8 +717,23 @@ mod MetaSuite do
     end
   end
 
+  fn tipsraw_row(row : List(String)) : Outcome do
+    match row do
+    Cons(label, Cons(json, Cons(want, Nil))) -> do
+      let got =
+        match Skee.Save.decode_tips(unhex(json)) do
+        Ok(seen) -> tips_token(seen)
+        Err(_) -> "error"
+        end
+      expect_string(got, want, label)
+    end
+    _ -> Mismatch("bad tipsraw row")
+    end
+  end
+
   fn save_golden_cases() : List(Case) do
     [
+      case("TipStore text Swift's decoder reads or refuses", fn () -> all(List.map(rows("tipsraw"), tipsraw_row))),
       case("Wallet decoded as Swift decodes it, defaults and refusals", fn () -> all(List.map(rows("wallet"), wallet_row))),
       case("Wallet encoded as Swift's JSONEncoder writes it", fn () -> wallet_bytes()),
       case("WalletStore.load falls back to Wallet()", fn () -> load_wallet_defaults()),

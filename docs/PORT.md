@@ -245,10 +245,11 @@ Runs replay exactly on one target, not across targets.
 
 The synth is Swift `Float` arithmetic. Every Float operation is done in double
 and rounded with `Skee.Synth.f32` (Veltkamp's split for normal values, a
-`1.5 * 2^-97` shift for subnormals, ties to even). A double holds any sum or
-product of two Floats closely enough that one rounding gives Swift's bits:
-6015 golden rows of `Float(x)`, ties and subnormals included, are exact on
-both targets. Where Swift chains operations, round after each one.
+`1.5 * 2^-97` shift for subnormals, infinity from `2^128 - 2^103` up, ties to
+even). A double holds any sum or product of two Floats closely enough that one
+rounding gives Swift's bits: 6031 golden rows of `Float(x)`, ties, subnormals
+and overflow to infinity included, are exact on both targets. Where Swift
+chains operations, round after each one.
 
 - Swift's `Float.pi` is pi rounded toward zero (`0x40490FDA`), one ulp below
   the nearest Float. Everything that says `.pi` on a Float needs this.
@@ -257,10 +258,19 @@ both targets. Where Swift chains operations, round after each one.
   ulp. `powf` was exact on the 74 golden rows. Native and V8 give the same
   rounded result on every golden row.
 - Over the synth goldens (every cue, combinations, voice stealing, rumble into
-  subnormals, drum roll) 1457 of 96450 kept samples differ from Swift, worst
-  |error| 5.96e-8 (2^-24, one ulp at full scale). A Swift replica with double
-  libm rounded to Float is bit-identical to March for `frameDone` over 20000
-  samples, so libm is the only cause. The suite's tolerance is 2^-22.
+  subnormals, drum roll; 57 scripted scenarios) 1457 of 96450 kept samples
+  differ from Swift, worst |error| 5.96e-8 (2^-24: one Float ulp for a sample
+  in [0.5, 1), more ulps for a quieter one, up to 128). A Swift replica with
+  double libm rounded to Float is bit-identical to March for `frameDone` over
+  20000 samples, so libm is the only cause. A single sample may be off by up
+  to 2^-22, but the case "drift from Swift is pinned" holds the total to what
+  was measured: all 96450 compared, at most 1457 off (a +0/-0 difference
+  counts), none past 2^-24. Without that pin, going back to double arithmetic
+  in the mix, unrounded `sinf`, or dropping `plus_zero` all passed; with it
+  each is red. Lower the ceiling when parity improves; never raise it without
+  finding the cause.
+- `test/golden/synth.march` is 3.3 MB (110891 rows: 96450 samples, 6031
+  `fround`, 3000 `sinf`, 3000 `expf`, 74 `powf`).
 - The LCG is exact Int arithmetic: `seed * 1664525 + 1013904223` stays below 2^53.
 - `make test-synth` takes about a minute: the native runner (`--opt 0`) runs for
   46 s, node for 4 s.
@@ -335,6 +345,11 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - **`forge format` deletes an `if` branch holding several statements** inside a
   match arm's `do` block: it becomes `if c do ... else x end`. `make format`
   refuses it. Move the branch into a named function. (`format_deletes_if_lets.march.txt`)
+- **`forge format` moves a `--` comment out of a function body** (before a
+  `let`, or inside a match arm's `do`) to just after the function, where it
+  reads as the next function's comment. `make format` does not catch it. Put
+  comments above a function, or give the commented piece a function of its own.
+  (`format_moves_comments.march.txt`)
 - `forge format` also moves a file's leading comment inside the module, turns
   `use X.*` into `import X`, and rewrites `doc "x"` to `doc """x"""`.
 - A parse error in `lib/` shows up in dependants as `Unknown module`. Run
