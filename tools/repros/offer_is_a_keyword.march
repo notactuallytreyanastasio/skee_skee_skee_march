@@ -1,0 +1,14 @@
+mod OfferIsAKeyword do
+
+  -- `offer` is a session keyword (lib/lexer/lexer.mll), so it cannot name a
+  -- parameter or binding. Add it to the keyword list in docs/PORT.md.
+  fn pick(offer : Int) : Int do
+    offer
+  end
+
+  fn main() : () do
+    let _ = pick(1)
+    ()
+  end
+
+end

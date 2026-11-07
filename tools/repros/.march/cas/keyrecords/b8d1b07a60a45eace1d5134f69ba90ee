@@ -1,0 +1,20 @@
+march-keyrecord v1
+target	native
+compiler	4974042838601f64da9bf17e9527be06c43b7fed931e7c6b69195d315ed0b6d0
+runtime_dir	/Users/bobdawg/.march/versions/main-b7c963d74/runtime
+runtime	221a139aba7c042e68ebb450e931f383776e77b219a97b3f83f0083da59eb17e
+stdlib	b916f7d2be10cac077e098629c859bab
+entry	/Users/bobdawg/code/skee_skee_skee_march/tools/repros/js_show_generic_record.march
+mode	depend
+source_key	c123c18b6707b40d56b33ce90f5dce5494e8ee17df6f84052a164b562ebe4a8e
+tir_hash	ab7df5ffabad17131d219d0b38abcd61311cfd9ca02f9178a877d931dec4bd32
+post_key	f2350b5f3052b5949186324a31f194d32e3b0007ff83a58f2068fabe557f0a85
+flag	O2
+flag	pmt1024
+flag	rtcflags2
+flag	mimalloc
+flag	capstrip
+flag	capstrict
+flag	z3:4.16.0/rl-3000000-50000/darwin-arm64
+flag	libprobe:9e7db9bffeead495
+file	/Users/bobdawg/code/skee_skee_skee_march/tools/repros/js_show_generic_record.march	449ffa7e41b3d590c87b3688b5022f0f

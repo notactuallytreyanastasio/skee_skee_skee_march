@@ -1,0 +1,20 @@
+-- `forge format --stdin` turns the `let` below into
+--     let s = if ready do match ... else 0 end
+-- deleting the match. A third shape of the bug in format_deletes.march.txt; `make
+-- format` refuses it. Move the match into a named function.
+mod FormatDeletesIfMatch do
+
+  fn f(ready : Bool, x : Option(Int)) : Int do
+    let s =
+      if ready do
+        match x do
+        Some(n) -> n
+        None -> 1
+        end
+      else
+        0
+      end
+    s
+  end
+
+end

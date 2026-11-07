@@ -1,0 +1,17 @@
+mod JsShowGeneric do
+
+  -- Compiles and runs natively. On --target js it is a build error:
+  --   builtin `to_string` has no JavaScript-target implementation
+  -- A derived Show of a generic record has no JS path. Show of a non-generic
+  -- record or ADT is fine. The test suites format such records by hand.
+  needs IO.Console
+
+  type Pair(a) = { left : a, right : a }
+
+  derive Show for Pair
+
+  fn main(_c : Cap(IO.Console)) : () do
+    println(show({ left: 1, right: 2 }))
+  end
+
+end

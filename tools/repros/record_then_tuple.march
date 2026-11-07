@@ -1,0 +1,20 @@
+mod RecordThenTuple do
+
+  -- A record literal followed on the next line by a tuple parses as a call:
+  --   This is not a function - it has type `Box`. [not_a_function]
+  -- A `let` of any other value before a tuple is fine. Put the record inside the
+  -- tuple instead of binding it first.
+  type Box = { v : Int }
+
+  fn pair() : (Box, Int) do
+    let b =
+      { v: 1 }
+    (b, 2)
+  end
+
+  fn main() : () do
+    let _ = pair()
+    ()
+  end
+
+end

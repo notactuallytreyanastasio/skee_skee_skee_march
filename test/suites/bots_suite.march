@@ -338,7 +338,7 @@ mod BotsSuite do
       case("aim book and landing goldens", fn () -> all(List.map(book_groups(rows, []), fn g -> book_rows(Tuple.first(g), Tuple.second(g))))),
       case("bot run is deterministic", fn () -> bot_run_is_deterministic()),
       case("skill matters", fn () -> skill_matters()),
-      case("bot runs match Swift's, action by action", fn () -> bot_runs_match(List.take(bots, 2)))
+      case("bot runs match Swift's, action by action", fn () -> bot_runs_match(List.take(bots, if on_js() do 24 else 2 end)))
     ]
   end
 
