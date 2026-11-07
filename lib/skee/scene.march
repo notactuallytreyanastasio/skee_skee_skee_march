@@ -1854,12 +1854,18 @@ mod Skee.Scene do
   -- MarkRing: a circle (centre, radius) stroked at that width. Undrawn: a
   -- butt-capped stroke Swift paints and the port leaves out (docs/PORT.md,
   -- deviations), so `texel` reads its pixels as unknown.
-
   -- A pixel read back from marks: premultiplied 0...255 channels, alpha
   -- 0...1, whether every mark edge near it is at least `texel_margin` away
   -- (or buried under an opaque mark), so antialiasing cannot touch it, and
   -- the index of the last mark that covered it (-1: the base).
-  type Texel = { tr : Float, tg : Float, tb : Float, ta : Float, clean : Bool, top : Int }
+  type Texel = {
+    tr : Float,
+    tg : Float,
+    tb : Float,
+    ta : Float,
+    clean : Bool,
+    top : Int
+  }
 
   doc """
   How far from a stroke's edge a pixel centre must be to be compared: half
@@ -1883,8 +1889,10 @@ mod Skee.Scene do
     (i, m) -> do
       let (pts, reach) = mark_extent(m)
       let r = reach +. texel_margin()
-      let lo = List.fold_left(pts, vec2(1000000000.0, 1000000000.0), fn (a, q) -> vec2(min_float(a.x, q.x -. r), min_float(a.y, q.y -. r)))
-      let hi = List.fold_left(pts, vec2(-1000000000.0, -1000000000.0), fn (a, q) -> vec2(max_float(a.x, q.x +. r), max_float(a.y, q.y +. r)))
+      let lo =
+        List.fold_left(pts, vec2(1000000000.0, 1000000000.0), fn (a, q) -> vec2(min_float(a.x, q.x -. r), min_float(a.y, q.y -. r)))
+      let hi =
+        List.fold_left(pts, vec2(-1000000000.0, -1000000000.0), fn (a, q) -> vec2(max_float(a.x, q.x +. r), max_float(a.y, q.y +. r)))
       { mark: m, index: i, lo: lo, hi: hi }
     end
     end
@@ -1894,7 +1902,9 @@ mod Skee.Scene do
   pfn mark_extent(m : Mark) : (List(Vec2), Float) needs () do
     match m do
     MarkFill(pts, _) -> (pts, 0.0)
-    MarkLines(segs, width, _) -> (List.flat_map(segs, fn sg -> [Tuple.first(sg), Tuple.second(sg)]), width /. 2.0)
+    MarkLines(segs, width, _) -> do
+      (List.flat_map(segs, fn sg -> [Tuple.first(sg), Tuple.second(sg)]), width /. 2.0)
+    end
     MarkEdge(pts, width, _) -> (pts, width /. 2.0)
     MarkRing(centre, radius, width, _) -> ([centre], radius +. width /. 2.0)
     Undrawn(a, z, width) -> ([a, z], width /. 2.0)
@@ -1936,13 +1946,19 @@ mod Skee.Scene do
   derive Eq for Cover
 
   pfn cover_of(inside : Bool, edge : Float) : Cover needs () do
-    if edge < texel_margin() do NearEdge else if inside do DeepIn else DeepOut end end
+    if edge < texel_margin() do
+      NearEdge
+    else
+      if inside do DeepIn else DeepOut end
+    end
   end
 
   pfn mark_over(t : Texel, i : Int, m : Mark, q : Vec2) : Texel needs () do
     match m do
     MarkFill(pts, c) -> paint_texel(t, i, polygon_cover(pts, q), c)
-    MarkLines(segs, width, c) -> paint_texel(t, i, union_cover(List.map(segs, fn sg -> polygon_cover(segment_box(Tuple.first(sg), Tuple.second(sg), width), q))), c)
+    MarkLines(segs, width, c) -> do
+      paint_texel(t, i, union_cover(List.map(segs, fn sg -> polygon_cover(segment_box(Tuple.first(sg), Tuple.second(sg), width), q))), c)
+    end
     MarkEdge(pts, width, c) -> do
       let d = outline_distance(pts, q)
       paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
@@ -1994,18 +2010,32 @@ mod Skee.Scene do
   pfn segment_box(a : Vec2, z : Vec2, width : Float) : List(Vec2) needs () do
     let d = Skee.Maths.normalized(Skee.Maths.sub(z, a))
     let n = Skee.Maths.scale(vec2(0.0 -. d.y, d.x), width /. 2.0)
-    [Skee.Maths.add(a, n), Skee.Maths.add(z, n), Skee.Maths.sub(z, n), Skee.Maths.sub(a, n)]
+    [
+      Skee.Maths.add(a, n),
+      Skee.Maths.add(z, n),
+      Skee.Maths.sub(z, n),
+      Skee.Maths.sub(a, n)
+    ]
   end
 
   -- A convex area covers the pixel centred on `q` when all four of its
   -- corners are inside, and misses it when the centre is a margin outside.
   pfn polygon_cover(pts : List(Vec2), q : Vec2) : Cover needs () do
     let corners =
-      [vec2(q.x -. 0.5, q.y -. 0.5), vec2(q.x +. 0.5, q.y -. 0.5), vec2(q.x +. 0.5, q.y +. 0.5), vec2(q.x -. 0.5, q.y +. 0.5)]
+      [
+        vec2(q.x -. 0.5, q.y -. 0.5),
+        vec2(q.x +. 0.5, q.y -. 0.5),
+        vec2(q.x +. 0.5, q.y +. 0.5),
+        vec2(q.x -. 0.5, q.y +. 0.5)
+      ]
     if List.all(corners, fn c -> inside_convex(pts, c)) do
       DeepIn
     else
-      if !inside_convex(pts, q) && outline_distance(pts, q) >= texel_margin() do DeepOut else NearEdge end
+      if !inside_convex(pts, q) && outline_distance(pts, q) >= texel_margin() do
+        DeepOut
+      else
+        NearEdge
+      end
     end
   end
 
@@ -2038,7 +2068,11 @@ mod Skee.Scene do
       let d = Skee.Maths.sub(z, a)
       let len2 = Skee.Maths.dot(d, d)
       let t =
-        if len2 == 0.0 do 0.0 else Skee.Maths.clamp(Skee.Maths.dot(Skee.Maths.sub(q, a), d) /. len2, 0.0, 1.0) end
+        if len2 == 0.0 do
+          0.0
+        else
+          Skee.Maths.clamp(Skee.Maths.dot(Skee.Maths.sub(q, a), d) /. len2, 0.0, 1.0)
+        end
       Skee.Maths.length(Skee.Maths.sub(q, Skee.Maths.add(a, Skee.Maths.scale(d, t))))
     end
     end
@@ -2076,7 +2110,10 @@ mod Skee.Scene do
       let x0 = int_to_float(i) *. bw
       let board_fill =
         MarkFill([vec2(x0, 0.0), vec2(x0 +. bw, 0.0), vec2(x0 +. bw, height), vec2(x0, height)], plank_tone(pl))
-      [board_fill, MarkLines(List.map(pl.streaks, fn st -> grain_segment(x0, bw, height, st)), 2.0, with_alpha(hex(14723174), 0.55))]
+      [
+        board_fill,
+        MarkLines(List.map(pl.streaks, fn st -> grain_segment(x0, bw, height, st)), 2.0, with_alpha(hex(14723174), 0.55))
+      ]
     end
     end
   end
@@ -2118,9 +2155,17 @@ mod Skee.Scene do
   pfn paint_mark(k : Skee.Consts.Consts, at : Vec2 -> Vec2, metre : Float, tint : Rgba -> Rgba, m : Mark) : List(DrawOp) needs () do
     match m do
     MarkFill(pts, c) -> [fill(Poly(List.map(pts, at)), tint(c))]
-    MarkLines(segs, width, c) -> [StrokeShape(Outline(List.flat_map(segs, fn sg -> [MoveTo(at(Tuple.first(sg))), LineTo(at(Tuple.second(sg)))])), butt_pen(tint(c), width *. metre), Over)]
+    MarkLines(segs, width, c) -> do
+      [
+        StrokeShape(Outline(List.flat_map(segs, fn sg -> [MoveTo(at(Tuple.first(sg))), LineTo(at(Tuple.second(sg)))])), butt_pen(tint(c), width *. metre), Over)
+      ]
+    end
     MarkEdge(pts, width, c) -> [StrokeShape(Poly(List.map(pts, at)), pen(tint(c), width *. metre), Over)]
-    MarkRing(centre, radius, width, c) -> [StrokeShape(Poly(List.map(List.range(0, 40), fn i -> at(ring_point(k, centre, radius, i)))), pen(tint(c), width *. metre), Over)]
+    MarkRing(centre, radius, width, c) -> do
+      [
+        StrokeShape(Poly(List.map(List.range(0, 40), fn i -> at(ring_point(k, centre, radius, i)))), pen(tint(c), width *. metre), Over)
+      ]
+    end
     Undrawn(_, _, _) -> []
     end
   end
@@ -2629,8 +2674,7 @@ mod Skee.Scene do
   fn ball_marks(kind : BallKind) : List(Mark) needs () do
     let size = ball_texture_size()
     let gw = size.x /. 6.0
-    let gores =
-      List.map(List.enumerate(stripes(kind)), fn e -> gore_mark(gw, size.y, e))
+    let gores = List.map(List.enumerate(stripes(kind)), fn e -> gore_mark(gw, size.y, e))
     let seams =
       List.map(List.range(0, 6), fn i -> Undrawn(vec2(int_to_float(i) *. gw, 0.0), vec2(int_to_float(i) *. gw, size.y), 4.0))
     let cap = ball_cap_rows()
@@ -2745,7 +2789,10 @@ mod Skee.Scene do
     let n = wave_texture_size()
     let centre = vec2(n /. 2.0, n /. 2.0)
     let radius = (n -. 36.0) /. 2.0
-    [MarkRing(centre, radius, 22.0, hex(16777215)), MarkRing(centre, radius, 10.0, hex(16767053))]
+    [
+      MarkRing(centre, radius, 22.0, hex(16777215)),
+      MarkRing(centre, radius, 10.0, hex(16767053))
+    ]
   end
 
   doc """A Textures.wave pixel at `q`, read back from `wave_marks`."""

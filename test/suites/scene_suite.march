@@ -1172,7 +1172,8 @@ mod SceneSuite do
         comet_rails: 0,
         plain_walls: 0
       }
-    let inputs = List.zip(tagged("look", tag), List.zip(tagged("lookbulbs", tag), tagged("lookwaves", tag)))
+    let inputs =
+      List.zip(tagged("look", tag), List.zip(tagged("lookbulbs", tag), tagged("lookwaves", tag)))
     List.fold_left(inputs, { world: w, rig: fitted(), kept: start, outcomes: [], seen: none }, look_step)
   end
 
@@ -1199,7 +1200,11 @@ mod SceneSuite do
           ringed
         ]
       else
-        [expect(n.hops > 0, "replay " ++ tag ++ " never hops"), expect(n.plain_walls > 0, "replay " ++ tag ++ " never hits a wall or rail without a comet"), ringed]
+        [
+          expect(n.hops > 0, "replay " ++ tag ++ " never hops"),
+          expect(n.plain_walls > 0, "replay " ++ tag ++ " never hits a wall or rail without a comet"),
+          ringed
+        ]
       end
     end
   end
@@ -1477,12 +1482,26 @@ mod SceneSuite do
   -- of every visible mark edge are compared, so CoreGraphics' antialiasing
   -- is left out; every mark must be on top in some compared pixel, so a
   -- mark the goldens never see fails the case.
-  type TexelTally = { compared : Int, bad : Int, first_bad : String, worst : Float, tops : List(Int) }
+  type TexelTally = {
+    compared : Int,
+    bad : Int,
+    first_bad : String,
+    worst : Float,
+    tops : List(Int)
+  }
 
   fn decode_runs(tokens : List(String)) : List(Int) do
+    List.reverse(runs_onto([], tokens))
+  end
+
+  -- Each run's value, `count` times, onto `acc` in reverse.
+  fn runs_onto(acc : List(Int), tokens : List(String)) : List(Int) do
     match tokens do
-    Cons(n, Cons(v, rest)) -> List.append(List.map(List.range(0, GoldenIo.int(n)), fn _ -> GoldenIo.int(v)), decode_runs(rest))
-    _ -> []
+    Cons(n, Cons(v, rest)) -> do
+      let x = GoldenIo.int(v)
+      runs_onto(List.fold_left(List.range(0, GoldenIo.int(n)), acc, fn (a, _) -> Cons(x, a)), rest)
+    end
+    _ -> acc
     end
   end
 
@@ -1507,7 +1526,12 @@ mod SceneSuite do
         do
           let d = texel_off(t, v)
           let bad = d > texel_tol()
-          let tops = if List.any(acc.tops, fn i -> i == t.top) do acc.tops else Cons(t.top, acc.tops) end
+          let tops =
+            if List.any(acc.tops, fn i -> i == t.top) do
+              acc.tops
+            else
+              Cons(t.top, acc.tops)
+            end
           {
             compared: acc.compared + 1,
             bad: acc.bad + count_if(bad),
@@ -1529,7 +1553,9 @@ mod SceneSuite do
 
   fn texel_row(name : String, at : Vec2 -> Skee.Scene.Texel, acc : TexelTally, row : List(String)) : TexelTally do
     match row do
-    Cons(y, runs) -> List.fold_left(List.enumerate(decode_runs(runs)), acc, fn (a, e) -> texel_step(name, at, GoldenIo.int(y), a, e))
+    Cons(y, runs) -> do
+      List.fold_left(List.enumerate(decode_runs(runs)), acc, fn (a, e) -> texel_step(name, at, GoldenIo.int(y), a, e))
+    end
     Nil -> acc
     end
   end
@@ -1564,7 +1590,8 @@ mod SceneSuite do
   fn ball_texture_case(b : BallKind) : Outcome do
     let marks = Skee.Scene.ball_marks(b)
     let placed = Skee.Scene.place_marks(marks)
-    let want = List.filter(rows("ballpx"), fn row -> List.take(row, 1) == [kind_token(b)])
+    let want =
+      List.filter(rows("ballpx"), fn row -> List.take(row, 1) == [kind_token(b)])
     texture_outcome("Textures.ball(" ++ kind_token(b) ++ ")", marks, texel_tally(kind_token(b), fn q -> Skee.Scene.texel_placed(clear(), placed, q), List.map(want, fn row -> List.drop(row, 1))))
   end
 
@@ -1582,8 +1609,10 @@ mod SceneSuite do
   fn texture_worst() : String do
     let lane_placed = Skee.Scene.place_marks(Skee.Scene.lane_marks(k()))
     let wave_placed = Skee.Scene.place_marks(Skee.Scene.wave_marks())
-    let lane = texel_tally("lane", fn q -> Skee.Scene.texel_placed(Skee.Scene.lane_wood(), lane_placed, q), rows("lanepx"))
-    let wave = texel_tally("wave", fn q -> Skee.Scene.texel_placed(clear(), wave_placed, q), rows("wavepx"))
+    let lane =
+      texel_tally("lane", fn q -> Skee.Scene.texel_placed(Skee.Scene.lane_wood(), lane_placed, q), rows("lanepx"))
+    let wave =
+      texel_tally("wave", fn q -> Skee.Scene.texel_placed(clear(), wave_placed, q), rows("wavepx"))
     "lane " ++ float_to_string(lane.worst) ++ " over " ++ int_to_string(lane.compared) ++ " px, wave " ++ float_to_string(wave.worst) ++ " over " ++ int_to_string(wave.compared) ++ " px"
   end
 
