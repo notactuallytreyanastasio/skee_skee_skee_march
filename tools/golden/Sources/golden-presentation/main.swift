@@ -17,6 +17,8 @@ import GoldenSupport
 //   x             skip(); a k and h row follow
 //   k ...         the presentation after the last d, x or run (see `tick`)
 //   h ...         HUDState.make on it (see `hud`)
+//   num <x> <text>                       HUDState.num(x), written as is (no spaces)
+//   ps <reel> <position> <row> <room> <symbol>   Presentation.pullSymbol
 //
 // digest.swift is a symlink to golden-run's, mirrored by test/support/run_digest.march.
 // Strings are written as their Digest.text hash, so spaces never reach a token.
@@ -254,7 +256,56 @@ func choose(_ s: RunState, _ rng: inout SplitMix64, maxBet: Bool) -> Action? {
 
 let releases: [Double] = [0, 0, 0.3, 0.8, 0, 1.5, 0.05]
 
-@MainActor func run(_ label: String, seed: UInt64, room: Room, config: RunConfig, steps: Int, detailed: Int, maxBet: Bool = false) {
+/// Shot events at the very first sample of an untrimmed path: Presentation.during's
+/// `before == 0 && et == t0` branch, which only such an event reaches.
+var firstMomentEvents = 0
+
+@MainActor func noteFirstMoment(_ st: Step) {
+    for e in st.events {
+        if case .shot(let r, _) = e, let t0 = r.path.first?.t {
+            firstMomentEvents += r.eventTimes.filter { $0 == t0 }.count
+        }
+    }
+}
+
+/// A run played from a fixed list of actions, each watched frame by frame.
+@MainActor func scripted(_ label: String, seed: UInt64, room: Room, config: RunConfig, actions: [(Action, Double)]) {
+    var s = newRun(seed: seed, config: config, room: room)
+    var p = Presentation(state: s)
+    g.line("run", label, u64(seed), i(index(room)), i(config.antes), f64(config.targetScale), i(config.startTickets), i(config.framesPerRound))
+    emit(p, bet: s.round.lastBet)
+    for (a, along) in actions {
+        guard case .success(let st) = apply(a, to: s) else {
+            print("golden-presentation: \(label) refused \(a)")
+            exit(1)
+        }
+        s = st.state
+        g.line("a", actionToken(a), f64(along), String(digest(of: s)))
+        noteFirstMoment(st)
+        p.enqueue(st, releaseAlong: along)
+        while p.isBusy { step(&p, bet: s.round.lastBet) }
+        step(&p, bet: s.round.lastBet)
+    }
+}
+
+/// The first seed from `from` whose driven run scores a jackpot frame, and the step that does.
+@MainActor func findJackpot(from: UInt64, room: Room, config: RunConfig, steps: Int) -> (UInt64, Int) {
+    for seed in from..<(from + 5000) {
+        var s = newRun(seed: seed, config: config, room: room)
+        var rng = SplitMix64(seed: seed &+ 0x5EED)
+        for n in 0..<steps {
+            guard let a = choose(s, &rng, maxBet: true) else { break }
+            guard case .success(let st) = apply(a, to: s) else { continue }
+            s = st.state
+            if s.stats.jackpots > 0 { return (seed, n) }
+        }
+    }
+    print("golden-presentation: no jackpot found")
+    exit(1)
+}
+
+@MainActor func run(_ label: String, seed: UInt64, room: Room, config: RunConfig, steps: Int, detailed: Int, maxBet: Bool = false,
+                    detailedFrom: Int = .max) {
     var s = newRun(seed: seed, config: config, room: room)
     var p = Presentation(state: s)
     var rng = SplitMix64(seed: seed &+ 0x5EED)
@@ -268,7 +319,8 @@ let releases: [Double] = [0, 0, 0.3, 0.8, 0, 1.5, 0.05]
         g.line("a", actionToken(a), f64(along), String(digest(of: s)))
         p.enqueue(st, releaseAlong: along)
         let bet = s.round.lastBet
-        if n < detailed {
+        noteFirstMoment(st)
+        if n < detailed || n >= detailedFrom {
             if n % 4 == 3 {
                 // Queue the next step behind this one.
                 for _ in 0..<3 { step(&p, bet: bet) }
@@ -310,16 +362,54 @@ run("short9", seed: 9, room: .boardwalk, config: short, steps: 160, detailed: 4)
 run("hunt1", seed: 1, room: .boardwalk, config: hunt, steps: 260, detailed: 4, maxBet: true)
 run("hunt4", seed: 4, room: .penthouse, config: hunt, steps: 260, detailed: 0, maxBet: true)
 
+// A ball started against a rail and aimed into it meets the rail in its first
+// 240 Hz step, while t is still the path's first time.
+scripted("rails", seed: 6, room: .boardwalk, config: standard, actions: [
+    (.pull(.one), 0),
+    (.throwBall(Launch(power: 0.7, aim: 0.6, start: 1)), 0),
+    (.throwBall(Launch(power: 0.55, aim: -0.8, start: -1)), 0),
+    (.throwBall(Launch(power: 0.8, aim: 0.3, start: 1, fold: 0.5)), 0.3),
+])
+
+// A jackpot frame (three sevens or diamonds), watched frame by frame.
+let (jackpotSeed, jackpotStep) = findJackpot(from: 100, room: .boardwalk, config: hunt, steps: 400)
+print("jackpot: seed \(jackpotSeed) step \(jackpotStep)")
+run("jackpot", seed: jackpotSeed, room: .boardwalk, config: hunt, steps: jackpotStep + 1, detailed: 0, maxBet: true,
+    detailedFrom: jackpotStep)
+
+// HUDState.num: %.1f's sign of a negative that rounds to zero, exact decimal
+// halves (ties to even) and doubles just off one (0.35 is 0.34999...). Exact while
+// |x| * 10 < 2^53, which every game value is far inside.
+for x in [0.0, -0.0, 3.0, -1.0, 1.5, -2.5, 0.25, 0.75, 0.04, -0.04, -0.05, 0.05, 0.15, -0.15, 0.35, 0.45, 0.55, 0.65,
+          0.95, 1.05, 2.675, 9.95, 99.95, 12.25, 100.125, -0.25, -0.35, 1.0 / 3, 2.0 / 3, 1e-9, 450359962737049.5, 450359962737049.55] {
+    g.line("num", f64(x), HUDState.num(x))
+}
+
+// Presentation.pullSymbol, every room and reel, either side of zero.
+for room in Room.allCases {
+    for reel in 0..<3 {
+        for position in [0, 0.5, 3.99, 7.2, -0.5, -1, -13.7, 25.1, 40, 59.999] {
+            for row in [-1, 0, 1, 2] {
+                g.line("ps", i(reel), f64(position), i(row), i(index(room)),
+                       i(index(Presentation.pullSymbol(reel: reel, at: position, row: row, room: room))))
+            }
+        }
+    }
+}
+
 // ---- Coverage: a thin golden fails here, not by passing there. ----
 
 let wantCues = ["launch", "hump", "drop", "gutter", "lever", "pullWin", "reelTick", "reelStop", "combo",
-                "tallyChips", "tallyMult", "frameDone", "lineWon", "banner", "foul", "whoosh", "landed", "lip"]
+                "tallyChips", "tallyMult", "frameDone", "lineWon", "banner", "foul", "whoosh", "landed", "lip",
+                "jackpot", "rail"]
 let wantBeats = ["R", "S", "P", "T", "B", "C"]
 let wantBanners = ["FOUL", "CLEARED", "FEVER", "YOU BEAT THE ARCADE", "FREE GAMES"]
 var missing = wantCues.filter { !cuesSeen.contains($0) } + wantBeats.filter { !beatsSeen.contains($0) }
     + wantBanners.filter { !bannersSeen.contains($0) }
 if !bannersSeen.contains(where: { $0.hasPrefix("ANTE") }) { missing.append("ANTE banner") }
 if !bannersSeen.contains(where: { $0.hasSuffix("JACKPOT") }) { missing.append("JACKPOT banner") }
+if !popupsSeen.contains(where: { $0.hasPrefix("JACKPOT  ") }) { missing.append("JACKPOT tally popup") }
+if firstMomentEvents == 0 { missing.append("an event at a path's first time") }
 print("cues seen: \(cuesSeen.sorted())")
 print("banners seen: \(bannersSeen.sorted())")
 print("ticks: \(ticks)")

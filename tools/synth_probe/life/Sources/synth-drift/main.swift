@@ -5,7 +5,7 @@ import SkeeRender
 for cue in [Cue.tallyChips(200), Cue.tallyMult(80), Cue.combo(40)] {
     var s = Synth()
     s.play(cue)
-    var out = [Float](repeating: 0, count: 44100)
-    out.withUnsafeMutableBufferPointer { s.render($0.baseAddress!, 44100) }
+    var out = [Float](repeating: 0, count: 176400)
+    out.withUnsafeMutableBufferPointer { s.render($0.baseAddress!, 176400) }
     for x in out { print(Double(x)) }
 }

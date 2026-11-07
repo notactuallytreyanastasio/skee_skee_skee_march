@@ -18,8 +18,9 @@ mod SynthSuite do
   end
 
   -- The largest |Swift - March| a sample may differ by: 2^-22, four Float
-  -- ulps at full scale. Measured worst is 2^-24 (one ulp), all from sinf and
-  -- expf. See docs/PORT.md, "Skee.Synth". Never raise it silently.
+  -- ulps at full scale. Measured worst on the goldens is 2^-24, all from sinf
+  -- and expf; other inputs drift by other amounts inside this. See
+  -- docs/PORT.md, "Skee.Synth". Never raise it silently.
   fn tolerance() : Float do
     GoldenIo.pow2(-22, 1.0)
   end
@@ -440,7 +441,8 @@ mod SynthSuite do
   -- the Float.pi or -0.0 fixes, or skip a rounding: each of those still passes
   -- sample by sample. So the total is pinned to what was measured (docs/PORT.md,
   -- "Skee.Synth"): every kept sample compared, at most drift_ceiling() of them
-  -- off (a +0/-0 difference counts), none by more than 2^-24. Lower it when
+  -- off (a +0/-0 difference counts), none by more than 2^-24 (the worst on
+  -- these inputs, not a bound for the synth). Lower it when
   -- parity improves; never raise it without finding the cause.
   fn drift_ceiling() : Int do
     1457

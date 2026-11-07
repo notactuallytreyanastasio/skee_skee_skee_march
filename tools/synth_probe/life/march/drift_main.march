@@ -3,9 +3,21 @@ mod DriftMain do
 
   -- Samples of three cues outside the goldens, one per line; compared with
   -- tools/synth_probe/life synth-drift (Swift) by hand. Not a suite.
+  -- x exactly, as "sign mantissa exponent" with x = sign * mantissa * 2^-exponent
+  -- (float_to_string rounds to fewer digits than a Float needs).
+  fn scaled(m : Float, e : Int) : (Float, Int) do
+    if m == 0.0 do (0.0, 0) else if m < 8388608.0 do scaled(m *. 2.0, e + 1) else (m, e) end end
+  end
+
+  fn exact(x : Float) : String do
+    let neg = x < 0.0
+    let (m, e) = scaled(if neg do 0.0 -. x else x end, 0)
+    (if neg do "-1 " else "1 " end) ++ int_to_string(float_to_int(m)) ++ " " ++ int_to_string(e)
+  end
+
   fn dump(snd : Sound) : () do
-    let (out, _) = Skee.Synth.render(Skee.Synth.play(Skee.Synth.new(), snd), 44100)
-    List.each(out, fn x -> println(float_to_string(x)))
+    let (out, _) = Skee.Synth.render(Skee.Synth.play(Skee.Synth.new(), snd), 176400)
+    List.each(out, fn x -> println(exact(x)))
   end
 
   fn main(_c : Cap(IO.Console)) : () do

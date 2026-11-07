@@ -524,7 +524,13 @@ mod Skee.Save do
   -- or a mark for what Swift reads differently.
   pfn lexed_mark(s : String, i : Int, e : Int, v : JsonValue) : Option(String) needs () do
     match v do
-    Json.Number(f) -> if f == 0.0 && nonzero_mantissa(s, i, e) do Some(underflow_json()) else None end
+    Json.Number(f) -> do
+      if f == 0.0 && nonzero_mantissa(s, i, e) do
+        Some(underflow_json())
+      else
+        None
+      end
+    end
     Json.Str(_) -> if has_control(s, i, e) do Some(unread_json()) else None end
     Json.Null -> None
     Json.Bool(_) -> None
@@ -826,19 +832,20 @@ mod Skee.Save do
     Json.Str(s) -> do
       if s == underflow_mark() do
         Err(SaveOutOfRange(path))
-      else if string_byte_length(s) != 16 do
-        Err(SaveWrongType(path))
       else
-        match Skee.U64.of_hex(s) do
-        Some(bits) -> do
-          match float_of_bits(bits) do
-          Some(f) -> Ok(f)
-          None -> Err(SaveOutOfRange(path))
+        if string_byte_length(s) != 16 do
+          Err(SaveWrongType(path))
+        else
+          match Skee.U64.of_hex(s) do
+          Some(bits) -> do
+            match float_of_bits(bits) do
+            Some(f) -> Ok(f)
+            None -> Err(SaveOutOfRange(path))
+            end
+          end
+          None -> Err(SaveWrongType(path))
           end
         end
-        None -> Err(SaveWrongType(path))
-        end
-      end
       end
     end
     Json.Null -> Err(SaveWrongType(path))
@@ -1122,7 +1129,13 @@ mod Skee.Save do
 
   pfn seed_of(v : JsonValue, path : String) : Result(Skee.U64.U64, SaveError) needs () do
     match v do
-    Json.Str(s) -> if s == underflow_mark() do Ok(Skee.U64.of_int(0)) else seed_of_hex(s, path) end
+    Json.Str(s) -> do
+      if s == underflow_mark() do
+        Ok(Skee.U64.of_int(0))
+      else
+        seed_of_hex(s, path)
+      end
+    end
     Json.Number(_) -> do
       bind(int_of(v, path), fn n -> if n < 0 do Err(SaveOutOfRange(path)) else Ok(Skee.U64.of_int(n)) end)
     end
@@ -1135,7 +1148,13 @@ mod Skee.Save do
 
   pfn seed_of_hex(s : String, path : String) : Result(Skee.U64.U64, SaveError) needs () do
     match Skee.U64.of_hex(s) do
-    Some(seed) -> if string_byte_length(s) == 16 do Ok(seed) else Err(SaveWrongType(path)) end
+    Some(seed) -> do
+      if string_byte_length(s) == 16 do
+        Ok(seed)
+      else
+        Err(SaveWrongType(path))
+      end
+    end
     None -> Err(SaveWrongType(path))
     end
   end

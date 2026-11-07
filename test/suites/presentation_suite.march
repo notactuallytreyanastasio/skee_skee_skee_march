@@ -346,6 +346,45 @@ mod PresentationSuite do
     all([expect(c.red == 1.0, "red"), expect(c.green == 128.0 /. 255.0, "green"), expect(c.blue == 0.0, "blue"), expect(half.red == 0.5, "mix"), expect_string(Skee.Palette.style_title(Skee.Palette.style_for_ante(7)), "CARTOON ALLEY", "style")])
   end
 
+  -- ---- The golden's shot bound ----
+  -- Seed 44 in a verifier's held-out run: a resting ball's x of -0.02926 m came
+  -- out 45156 ulp (1.6e-13 m) from Swift's on JS, physics libm drift that a
+  -- relative bound cannot absorb near zero.
+  fn is_mismatch(o : Outcome) : Bool do
+    match o do
+    Passed(_) -> false
+    Drifted(_, _, _) -> false
+    Mismatch(_) -> true
+    end
+  end
+
+  fn shot_bound_near_zero() : Outcome do
+    let want = GoldenIo.float_of_bits("bf9df72302e6752c")
+    let near = PresentationGolden.shot_float(want +. 0.00000000000016, "bf9df72302e6752c", "near zero")
+    let far = PresentationGolden.shot_float(want +. 0.000001, "bf9df72302e6752c", "a micrometre")
+    let big = PresentationGolden.shot_float(1.0 +. 0.000000001, "3ff0000000000000", "a nanometre at 1 m")
+    all([expect(!is_mismatch(near), "1.6e-13 m from Swift near zero is drift"), expect(is_mismatch(far), "1e-6 m from Swift is a mismatch"), expect(is_mismatch(big), "1e-9 m at 1 m is past the ulp bound and the metre floor")])
+  end
+
+  -- ---- Restyle ----
+  -- Hand-built: Swift queues a restyle only between two different art styles,
+  -- and only Cel exists (ArtStyle.forAnte is always .cel), so no golden run can
+  -- reach one. This pins the port's shape: 1.6 s, progress, the style it sets.
+  fn progress_of(p : Presentation) : Float do
+    match Skee.Presentation.restyle_progress(p) do
+    Some(r) -> r.restyle_progress
+    None -> -1.0
+    end
+  end
+
+  fn a_restyle_plays_for_its_duration() : Outcome do
+    let p0 = Skee.Presentation.make(new_run(1))
+    let queued = { p0 with beats: [BeatRestyle(Cel, Cel)] }
+    let half = advance(queued, 0.8)
+    let done = advance(half, 0.9)
+    all([expect(progress_of(queued) == 0.0, "progress 0 before it starts"), expect(progress_of(half) == 0.5, "half way at 0.8 s"), expect(progress_of(done) == -1.0, "none once played"), expect(!busy(done), "nothing left"), expect(done.style == Cel, "lands on its style")])
+  end
+
   fn cases() : List(Case) do
     [
       case("shows old state until the ball lands", fn () -> shows_old_state_until_the_ball_lands()),
@@ -363,6 +402,8 @@ mod PresentationSuite do
       case("a matching ball calls out the combo", fn () -> a_matching_ball_calls_out_the_combo()),
       case("hud words", fn () -> hud_words()),
       case("palette", fn () -> palette_channels()),
+      case("a restyle plays for its duration", fn () -> a_restyle_plays_for_its_duration()),
+      case("shot drift near zero is bounded in metres", fn () -> shot_bound_near_zero()),
       case("goldens: presentation and HUD, tick by tick", fn () -> PresentationGolden.replay())
     ]
   end

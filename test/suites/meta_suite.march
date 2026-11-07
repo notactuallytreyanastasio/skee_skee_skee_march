@@ -41,7 +41,11 @@ mod MetaSuite do
 
   -- The continuation bytes of a UTF-8 sequence folded into its codepoint.
   fn utf8_tail(h : String, i : Int, left : Int, code : Int) : Int do
-    if left == 0 do code else utf8_tail(h, i + 2, left - 1, code * 64 + hex_byte(h, i) % 64) end
+    if left == 0 do
+      code
+    else
+      utf8_tail(h, i + 2, left - 1, code * 64 + hex_byte(h, i) % 64)
+    end
   end
 
   fn unhex_go(h : String, i : Int, acc : List(String)) : String do
@@ -54,7 +58,11 @@ mod MetaSuite do
           if lead < 128 do
             (0, lead)
           else
-            if lead < 224 do (1, lead % 32) else if lead < 240 do (2, lead % 16) else (3, lead % 8) end end
+            if lead < 224 do
+              (1, lead % 32)
+            else
+              if lead < 240 do (2, lead % 16) else (3, lead % 8) end
+            end
           end
         let ch =
           match String.from_codepoint(utf8_tail(h, i + 2, left, first)) do
@@ -767,22 +775,25 @@ mod MetaSuite do
   -- 2^53-1 that Swift reads is refused as out of range, and the hex strings
   -- this port writes, which Swift refuses, are read. Each row is red if March
   -- ever agrees with Swift, so the documentation has to change with the code.
+  -- (refused as out of range, read) for a save of either kind.
+  fn wide_read(target : String, text : String) : (Bool, Bool) do
+    if target == "wallet" do wide_wallet(text) else wide_run(text) end
+  end
+
+  fn wide_wallet(text : String) : (Bool, Bool) do
+    let r = Skee.Save.decode_wallet(text)
+    (out_of_range(r), decodes(r))
+  end
+
+  fn wide_run(text : String) : (Bool, Bool) do
+    let r = Skee.Save.decode_run(k(), text)
+    (out_of_range(r), decodes(r))
+  end
+
   fn wide_row(row : List(String)) : Outcome do
     match row do
-    [target, label, json, status] -> do
-      let text = unhex(json)
-      let (refused_wide, read) =
-        if target == "wallet" do
-          do
-            let r = Skee.Save.decode_wallet(text)
-            (out_of_range(r), decodes(r))
-          end
-        else
-          do
-            let r = Skee.Save.decode_run(k(), text)
-            (out_of_range(r), decodes(r))
-          end
-        end
+    Cons(target, Cons(label, Cons(json, Cons(status, Nil)))) -> do
+      let (refused_wide, read) = wide_read(target, unhex(json))
       if status == "ok" do
         expect(refused_wide, label ++ ": Swift reads it, March must refuse it as out of range")
       else

@@ -271,8 +271,22 @@ chains operations, round after each one.
   in the mix, unrounded `sinf`, or dropping `plus_zero` all passed; with it
   each is red. Lower the ceiling when parity improves; never raise it without
   finding the cause.
-- `test/golden/synth.march` is 3.3 MB (110891 rows: 96450 samples, 6031
-  `fround`, 3000 `sinf`, 3000 `expf`, 74 `powf`).
+- That 2^-24 is the worst on the golden inputs, not a bound for the synth.
+  Other cues drift by other amounts, always inside the 2^-22 tolerance: a
+  verifier measured 2^-23 (1280 ulps on a quiet sample) on its own
+  `tallyChips(200)`, `tallyMult(80)`, `combo(40)` scenarios. Playing each of
+  those alone on a fresh synth for 176400 samples gives worst 2^-26, 2^-26 and
+  2^-25, the same on native and JS (`tools/synth_probe/life`: `synth-drift` is
+  the Swift side, `march/drift_main.march` the March side, compared by script).
+- Swift drops a voice when `t > decay * 6`, strictly. No game decay ever puts t
+  exactly on decay * 6 (checked for every decay in Synth.swift), so the
+  goldens cannot tell `>` from `>=`. The case "a voice lives through t ==
+  decay * 6" uses a decay (`0x3c20fe0e`) that does, with voice counts and
+  samples from the real Swift Synth (`tools/synth_probe/life`, `synth-life`).
+  `Skee.Synth.voice` is public for it, as Swift's `v` is.
+- `test/golden/synth.march` is 3.3 MB (110891 rows: 96450 `s` samples, 6031
+  `fround`, 3000 `sinf`, 3000 `expf`, 2164 `op`, 74 `powf`, 57 each of `len`,
+  `sumsq` and `peak`, 1 `floatpi`).
 - The LCG is exact Int arithmetic: `seed * 1664525 + 1013904223` stays below 2^53.
 - `make test-synth` takes about a minute: the native runner (`--opt 0`) runs for
   46 s, node for 4 s.

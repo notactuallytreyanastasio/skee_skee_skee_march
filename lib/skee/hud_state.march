@@ -167,25 +167,47 @@ mod Skee.HudState do
   end
 
   doc """
-  `%.1f`. Ties round to even, as printf does on an exact binary half (0.25,
-  0.75). A double just off a decimal half (0.35 is 0.34999...) can round the
-  other way from printf; every multiplier in the game is a multiple of 0.5, so
-  none is near one.
+  `%.1f`, as printf rounds: to the nearest tenth of the double's exact value,
+  ties (0.25, 0.75) to even, and a negative that rounds to zero keeps its sign
+  (-0.04 is "-0.0"). The tenths are x * 10, whose rounding error is recovered
+  exactly (Dekker), so 0.35 (0.34999...) goes down and 0.05 (0.05000...3) up.
   """
   fn fixed1(x : Float) : String needs () do
     let negative = x < 0.0
     let a = if negative do 0.0 -. x else x end
     let scaled = a *. 10.0
     let down = float_floor(scaled)
-    let frac = scaled -. int_to_float(down)
+    let off = scaled -. int_to_float(down) -. 0.5
     let tenths =
-      if frac > 0.5 do
+      if off > 0.0 do
         down + 1
       else
-        if frac < 0.5 do down else down + down % 2 end
+        if off < 0.0 do
+          down
+        else
+          rounded_half(down, times_ten_error(a, scaled))
+        end
       end
-    let sign = if negative && tenths > 0 do "-" else "" end
+    let sign = if negative do "-" else "" end
     sign ++ int_to_string(tenths / 10) ++ "." ++ int_to_string(tenths % 10)
+  end
+
+  -- `scaled` sits exactly halfway after rounding: the error of the product
+  -- says which side the exact value is on, and none means a true tie.
+  pfn rounded_half(down : Int, error : Float) : Int needs () do
+    if error > 0.0 do
+      down + 1
+    else
+      if error < 0.0 do down else down + down % 2 end
+    end
+  end
+
+  -- a * 10 - scaled, exactly: Veltkamp's split of a, each half times 10 is exact.
+  pfn times_ten_error(a : Float, scaled : Float) : Float needs () do
+    let c = 134217729.0 *. a
+    let high = c -. (c -. a)
+    let low = a -. high
+    high *. 10.0 -. scaled +. low *. 10.0
   end
 
   doc """What the slot needs next, in words."""
