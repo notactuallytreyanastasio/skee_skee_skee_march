@@ -5,9 +5,6 @@ mod Glue do
   -- platform call; none decides anything about the game.
   needs IO.Foreign
 
-  -- A CanvasGradient.
-  resource Gradient
-
   extern "./skee_glue.mjs" : Cap(IO.Foreign) do
     fn glue_now() : Float
     fn glue_request_frame(cb : Float -> ()) : Unit
@@ -26,9 +23,9 @@ mod Glue do
     fn glue_line_join(ctx : Js.Canvas.Context, join : String) : Unit
     fn glue_text_centred(ctx : Js.Canvas.Context) : Unit
     fn glue_arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : Unit
-    fn glue_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Gradient
-    fn glue_gradient_stop(g : Gradient, at : Float, css : String) : Unit
-    fn glue_fill_gradient(ctx : Js.Canvas.Context, g : Gradient) : Unit
+    fn glue_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Unit
+    fn glue_gradient_stop(at : Float, css : String) : Unit
+    fn glue_fill_gradient(ctx : Js.Canvas.Context) : Unit
     fn glue_queue_tap(i : Int) : Unit
     fn glue_drain_taps() : List(Int)
     fn glue_mark(name : String, value : String) : Unit
@@ -103,16 +100,18 @@ mod Glue do
     glue_arc_full(ctx, x, y, r, sweep)
   end
 
-  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Gradient do
+  doc """Start a radial gradient (createRadialGradient). The glue keeps it: no resource
+  type, which forge format would delete (tools/repros/format_deletes_resource.march.txt)."""
+  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : () do
     glue_radial(ctx, x0, y0, r0, x1, y1, r1)
   end
 
-  fn gradient_stop(g : Gradient, at : Float, css : String) : () do
-    glue_gradient_stop(g, at, css)
+  fn gradient_stop(at : Float, css : String) : () do
+    glue_gradient_stop(at, css)
   end
 
-  fn fill_gradient(ctx : Js.Canvas.Context, g : Gradient) : () do
-    glue_fill_gradient(ctx, g)
+  fn fill_gradient(ctx : Js.Canvas.Context) : () do
+    glue_fill_gradient(ctx)
   end
 
   fn queue_tap(i : Int) : () do

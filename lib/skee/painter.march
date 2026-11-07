@@ -73,7 +73,14 @@ mod Skee.Painter do
   """
   fn calls(k : Skee.Consts.Consts, dpr : Float, width : Float, height : Float, ops : List(Skee.Scene.DrawOp)) : List(CanvasCall) needs () do
     let start =
-      { rev: [CvSetTransform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)], open_clips: 0, dpr: dpr, view_w: width, view_h: height, sweep: k.tau }
+      {
+        rev: [CvSetTransform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)],
+        open_clips: 0,
+        dpr: dpr,
+        view_w: width,
+        view_h: height,
+        sweep: k.tau
+      }
     let painted = List.fold_left(ops, start, paint_op)
     List.reverse(close_clips(painted.rev, painted.open_clips))
   end
@@ -92,7 +99,9 @@ mod Skee.Painter do
 
   pfn paint_op(p : Painting, op : Skee.Scene.DrawOp) : Painting needs () do
     match op do
-    ClearTo(c) -> push_all(p, [CvComposite("source-over"), CvFillStyle(Skee.Scene.css(c)), CvFillRect(0.0, 0.0, p.view_w, p.view_h)])
+    ClearTo(c) -> do
+      push_all(p, [CvComposite("source-over"), CvFillStyle(Skee.Scene.css(c)), CvFillRect(0.0, 0.0, p.view_w, p.view_h)])
+    end
     FillShape(sh, paint, b) -> fill(push(path(p, sh), CvComposite(blend(b))), sh, paint)
     StrokeShape(sh, pen, b) -> stroke(push(path(p, sh), CvComposite(blend(b))), pen)
     DrawText(t) -> letter(push(p, CvComposite("source-over")), t)
@@ -206,10 +215,13 @@ mod Skee.Painter do
 
   -- The edge is stroked first, round-joined, under the fill.
   pfn letter(p : Painting, t : Skee.Scene.Lettering) : Painting needs () do
-    let ready = push_all(p, [CvSave, framed_by(p.dpr, t.frame), CvFont(t.font), CvTextCentred])
+    let ready =
+      push_all(p, [CvSave, framed_by(p.dpr, t.frame), CvFont(t.font), CvTextCentred])
     let edged =
       match t.edge do
-      Some(pen) -> push_all(ready, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineJoin("round"), CvStrokeText(t.words, t.middle.x, t.middle.y)])
+      Some(pen) -> do
+        push_all(ready, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineJoin("round"), CvStrokeText(t.words, t.middle.x, t.middle.y)])
+      end
       None -> ready
       end
     push_all(edged, [CvFillStyle(Skee.Scene.css(t.fill)), CvFillText(t.words, t.middle.x, t.middle.y), CvRestore])

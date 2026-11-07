@@ -48,6 +48,7 @@ foundation: ask before changing it.
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
+| painter + platform | `lib/skee/painter.march` (`Skee.Painter`); the shell: `shell/game.march`, `paint.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -122,9 +123,12 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make format` | The safe formatter. Never run bare `forge format` |
 | `make golden`, `make golden-<target>` | Regenerate goldens from the real Swift |
 | `make build` | The browser build, `.march/build/debug/skee.mjs` |
+| `make web` | The game as a static site in `dist/`: skee.mjs, March's runtime modules, web/'s files |
+| `make serve` | `make web`, then serve `dist/` at http://127.0.0.1:8137/ (`PORT=` to change) |
+| `make playtest` | Headless Chrome against a running `make serve`: 390x844 touch and 1280x800 mouse, first launch to a thrown ball, console must be clean; shots in `tools/playtest/shots/` (`npm install` in `tools/playtest` once) |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -457,6 +461,48 @@ run, the trail's life, the overlay gate, the board tap, counting abandoned
 games, the host's close, a cue's sound, the rumble, the tip save, the bet
 gate) each turn the suite red.
 
+### Skee.Painter and the shell
+
+Per frame the shell does `update(m, MsgTick(t))`, then
+`Paint.frame(ctx, k, dpr, w, h, Skee.App.scene_ops(m))`, then
+`Hud.render(hud, m)`, whose queued taps it dispatches as `MsgTap`.
+`Skee.Painter.calls(k, dpr, w, h, ops)` turns DrawOps into a list of
+`CanvasCall`s in paint.html's order: the frame opens with `setTransform(dpr,
+0, 0, dpr, 0, 0)`, a radial paint or a lettering composes its `frame` onto
+that inside save/restore, Holed fills and clips even-odd, a disc's negative
+radius is 0, a stray PopClip restores nothing and open clips are closed at the
+end. `shell/paint.march` executes the list with one match and decides nothing.
+
+The shell (`shell/game.march`) keeps one `ShellState` (model, canvas,
+context, HUD and audio handles, size, dpr) in a cell in `web/skee_glue.mjs`,
+so pointer callbacks, visibility changes and the frame loop act on the same
+model, each through `dispatch(msg)`: update, store, perform. Effects:
+`FxSave` to localStorage (`skee.wallet`, `skee.run`, `skee.tipsSeen`,
+`skee.walkthroughDone`, `skee.arrivalDone`, after Swift's names), `FxHaptic`
+to `navigator.vibrate` (impacts and notifications; the rolling buzz has no
+browser equivalent), and every effect to `Audio.apply`. Pointer input follows
+one pointer at a time (ThrowPad's `isMultipleTouchEnabled = false`), with
+pointer capture and coalesced samples (`coalescedTouches`), timed by
+`event.timeStamp / 1000`, the rAF clock. The window size and
+devicePixelRatio are polled each frame; a change resizes the backing store
+and sends `MsgResize`. The launch seed is two `crypto.getRandomValues` limbs.
+
+Entry points other shell pieces fill in: `Hud.mount(root : Js.Dom.Node) :
+HudHandle`, `Hud.render(h : HudHandle, m : Skee.App.Model) :
+List(Skee.App.Msg)`; `Audio.start() : AudioHandle`, `Audio.apply(a :
+AudioHandle, effects : List(Skee.App.Effect)) : ()`. The stub HUD shows one
+button per argument-free Intent that `Skee.App.accepts`. `Glue.queue_tap(i)`
+and `Glue.drain_taps()` are a tap queue for HUD buttons. `<html>` carries
+`data-layer`, `data-can-throw`, `data-busy` and `data-crease-y` for the
+playtest.
+
+FFI added (`web/skee_glue.mjs`, declared in `shell/glue.march`): the clock
+and rAF in seconds, view size, devicePixelRatio, canvas sizing, seed limbs,
+visibility, vibrate, pointer capture and coalesced samples, the state cell,
+the tap queue, data-* marks, and the Canvas calls Js.Canvas lacks
+(setTransform, globalCompositeOperation, fill and clip with a winding rule,
+lineCap, lineJoin, text centring, a full arc, radial gradients).
+
 ## Rules every core module follows
 
 - `cap pure` at the top, `needs ()` on every `fn` and `pfn`, no `needs` lines.
@@ -537,6 +583,16 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   `(if c do a else b end) *. x` becomes `if c do a else b end *. x`, which does
   not parse, and `n + (if ...)` the same. Bind the `if` to a `let` first.
   (`format_drops_parens.march.txt`)
+- **`forge format` deletes a `resource` declaration**: `resource Gradient`
+  becomes `type Gradient = `, which does not parse. `make format` does not
+  catch it. The shell has no resource type; the glue keeps the gradient.
+  (`format_deletes_resource.march.txt`)
+- **`forge build` puts only `lib/` on the module path**, so it cannot build
+  `shell/game.march`, which uses `shell/`'s modules. `make build` and `make
+  web` call `march` with `MARCH_LIB_PATH=lib:shell`; `scripts/check.sh` checks
+  with `lib:test:shell`.
+- **`python3 -m http.server` is unreachable on this machine's loopback**: the
+  connection times out, sandbox or not. `make serve` uses `tools/serve/serve.mjs`.
 - `forge format` also moves a file's leading comment inside the module, turns
   `use X.*` into `import X`, and rewrites `doc "x"` to `doc """x"""`.
 - A parse error in `lib/` shows up in dependants as `Unknown module`. Run
@@ -615,6 +671,12 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - Swift's JSONEncoder writes a dictionary whose key is a String-backed enum
   (`[Room: Comp]`, `[JackpotTier: Int]`) as one array, key then value, not as an
   object. `Skee.Save.pairs_of` reads that shape.
+- An extern's callback type is written `-> ()` in `shell/glue.march`. With
+  `-> Unit` the shell's first draft failed with `expected Unit but got ()` at
+  its lambdas; a minimal program does not reproduce it, so there is no repro.
+- **Extern declarations are private to their module.** `Glue.now()` is
+  `Unknown module Glue` unless Glue defines a public `fn now()` wrapping the
+  extern, as the stdlib does.
 - `doc` goes before a function only. Comment a type with `--`.
 - `else if` nests: each one adds an `end`.
 - Float operators are `+. -. *. /.`. `/.` by zero panics natively, where Swift and

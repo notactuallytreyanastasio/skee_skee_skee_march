@@ -10,7 +10,6 @@ mod Hud do
   --   Hud.mount(root : Js.Dom.Node) : HudHandle
   --   Hud.render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg)
   -- render returns the taps queued since the last frame, as MsgTap messages.
-
   type HudHandle = { hud_root : Js.Dom.Node }
 
   fn mount(root : Js.Dom.Node) : HudHandle do
@@ -19,22 +18,38 @@ mod Hud do
   end
 
   fn buttons() : List(Skee.App.Intent) do
-    [TapStart, TapHowToPlay, TapArrivalNext, TapCloseHost, TapOpenHost, TapGotIt, TapSkipWalkthrough, TapPull, TapReroll, TapLeaveCounter, TapOpenShop, TapCloseShop, TapOpenGuide, TapCloseGuide, TapReplayLesson, TapAskNewGame, TapKeepPlaying, TapNewRun]
+    [
+      TapStart,
+      TapHowToPlay,
+      TapArrivalNext,
+      TapCloseHost,
+      TapOpenHost,
+      TapGotIt,
+      TapSkipWalkthrough,
+      TapPull,
+      TapReroll,
+      TapLeaveCounter,
+      TapOpenShop,
+      TapCloseShop,
+      TapOpenGuide,
+      TapCloseGuide,
+      TapReplayLesson,
+      TapAskNewGame,
+      TapKeepPlaying,
+      TapNewRun
+    ]
   end
 
   fn render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg) do
-    let live = List.filter(List.enumerate(buttons()), fn e -> Skee.App.accepts(m, Tuple.second(e)))
+    let live =
+      List.filter(List.enumerate(buttons()), fn e -> Skee.App.accepts(m, Tuple.second(e)))
     let key = String.join(List.map(live, fn e -> int_to_string(Tuple.first(e))), ",")
     let shown =
       match Js.Dom.get_attr(h.hud_root, "data-buttons") do
       Some(s) -> s
       None -> ""
       end
-    if shown != key do
-      rebuild(h, live, key)
-    else
-      ()
-    end
+    if shown != key do rebuild(h, live, key) else () end
     List.filter_map(Glue.drain_taps(), fn i -> tap_of(i))
   end
 

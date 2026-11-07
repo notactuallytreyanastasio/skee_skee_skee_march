@@ -121,15 +121,18 @@ mod PainterSuite do
   end
 
   fn disc() : Outcome do
-    all([
-      expect_calls(body([FillShape(Disc(v(7.0, 8.0), 3.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,3000," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a disc"),
-      expect_calls(body([FillShape(Disc(v(7.0, 8.0), -1.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,0," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a negative radius, which arc throws on, is 0")
-    ])
+    all([expect_calls(body([FillShape(Disc(v(7.0, 8.0), 3.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,3000," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a disc"), expect_calls(body([FillShape(Disc(v(7.0, 8.0), -1.0), Flat(red()), Over)]), ["begin", "arc 7000,8000,0," ++ tau(), "composite source-over", "fillStyle rgba(255,0,0,1)", "fill nonzero"], "a negative radius, which arc throws on, is 0")])
   end
 
   fn outline() : Outcome do
     let steps =
-      [MoveTo(v(1.0, 1.0)), LineTo(v(2.0, 1.0)), QuadTo(v(3.0, 2.0), v(4.0, 1.0)), CubicTo(v(5.0, 0.0), v(6.0, 2.0), v(7.0, 1.0)), ClosePath]
+      [
+        MoveTo(v(1.0, 1.0)),
+        LineTo(v(2.0, 1.0)),
+        QuadTo(v(3.0, 2.0), v(4.0, 1.0)),
+        CubicTo(v(5.0, 0.0), v(6.0, 2.0), v(7.0, 1.0)),
+        ClosePath
+      ]
     expect_calls(body([StrokeShape(Outline(steps), { ink: ink(), width: 1.5, ends: RoundEnd, corners: MitreCorner }, Over)]), ["begin", "M 1000,1000", "L 2000,1000", "Q 3000,2000,4000,1000", "C 5000,0,6000,2000,7000,1000", "Z", "composite source-over", "strokeStyle rgba(10,20,30,0.500)", "lineWidth 1500", "lineCap round", "lineJoin miter", "stroke"], "a stroked outline")
   end
 
@@ -157,19 +160,12 @@ mod PainterSuite do
         frame: { a: 1.0, b: 0.0, c: 0.25, d: 1.0, e: 6.0, f: 7.0 }
       }
     let plain = { t with edge: None, frame: identity() }
-    all([
-      expect_calls(body([DrawText(t)]), ["composite source-over", "save", "transform 2000,0,500,2000,12000,14000", "font 900 12px sans-serif", "centred", "strokeStyle rgba(10,20,30,0.500)", "lineWidth 3000", "lineJoin round", "strokeText x5 4000,5000", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "edged text: the edge first, round-joined"),
-      expect_calls(body([DrawText(plain)]), ["composite source-over", "save", "transform 2000,0,0,2000,0,0", "font 900 12px sans-serif", "centred", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "plain text")
-    ])
+    all([expect_calls(body([DrawText(t)]), ["composite source-over", "save", "transform 2000,0,500,2000,12000,14000", "font 900 12px sans-serif", "centred", "strokeStyle rgba(10,20,30,0.500)", "lineWidth 3000", "lineJoin round", "strokeText x5 4000,5000", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "edged text: the edge first, round-joined"), expect_calls(body([DrawText(plain)]), ["composite source-over", "save", "transform 2000,0,0,2000,0,0", "font 900 12px sans-serif", "centred", "fillStyle rgba(255,0,0,1)", "fillText x5 4000,5000", "restore"], "plain text")])
   end
 
   fn clips() : Outcome do
     let tri = Poly(triangle())
-    all([
-      expect_calls(body([PushClip(Holed(triangle(), [])), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip evenodd", "restore"], "a clip is save, clip, restore"),
-      expect_calls(body([PopClip, ClearTo(red())]), ["composite source-over", "fillStyle rgba(255,0,0,1)", "fillRect 0,0,100000,50000"], "an unmatched PopClip restores nothing"),
-      expect_calls(body([PushClip(tri), PushClip(tri), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "restore", "restore"], "the frame closes clips left open")
-    ])
+    all([expect_calls(body([PushClip(Holed(triangle(), [])), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip evenodd", "restore"], "a clip is save, clip, restore"), expect_calls(body([PopClip, ClearTo(red())]), ["composite source-over", "fillStyle rgba(255,0,0,1)", "fillRect 0,0,100000,50000"], "an unmatched PopClip restores nothing"), expect_calls(body([PushClip(tri), PushClip(tri), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "restore", "restore"], "the frame closes clips left open")])
   end
 
   fn count(cs : List(Skee.Painter.CanvasCall), want : String) : Int do
@@ -179,7 +175,8 @@ mod PainterSuite do
   -- A first launch's alley through the real pipeline: every save is restored
   -- and the frame opens with the device-pixel transform.
   fn real_frame() : Outcome do
-    let (m, _) = Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
+    let (m, _) =
+      Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(42))
     let (ticked, _) = Skee.App.update(m, MsgTick(1.0))
     let ops = Skee.App.scene_ops(ticked)
     let cs = Skee.Painter.calls(k(), 3.0, 390.0, 844.0, ops)
@@ -188,27 +185,22 @@ mod PainterSuite do
       Cons(c, _) -> describe(c)
       Nil -> "none"
       end
-    all([
-      Harness.expect(List.length(ops) > 50, "the alley has ops: " ++ int_to_string(List.length(ops))),
-      Harness.expect_string(first, "transform 3000,0,0,3000,0,0", "opening"),
-      Harness.expect_int(count(cs, "save"), count(cs, "restore"), "saves restored"),
-      Harness.expect(count(cs, "begin") >= List.length(ops) / 2, "paths begun")
-    ])
+    all([Harness.expect(List.length(ops) > 50, "the alley has ops: " ++ int_to_string(List.length(ops))), Harness.expect_string(first, "transform 3000,0,0,3000,0,0", "opening"), Harness.expect_int(count(cs, "save"), count(cs, "restore"), "saves restored"), Harness.expect(count(cs, "begin") >= List.length(ops) / 2, "paths begun")])
   end
 
   fn cases() : List(Case) do
     [
-      case("a frame opens with the device-pixel transform", fn -> opening()),
-      case("ClearTo fills the viewport", fn -> clear()),
-      case("a flat polygon", fn -> poly()),
-      case("a holed shape fills even-odd", fn -> holed()),
-      case("a union of rings", fn -> polys()),
-      case("a disc is a full arc", fn -> disc()),
-      case("a stroked outline", fn -> outline()),
-      case("a radial fill in its frame", fn -> radial()),
-      case("text centred in its frame", fn -> text()),
-      case("clips save and restore, balanced", fn -> clips()),
-      case("a real frame is balanced", fn -> real_frame())
+      case("a frame opens with the device-pixel transform", fn () -> opening()),
+      case("ClearTo fills the viewport", fn () -> clear()),
+      case("a flat polygon", fn () -> poly()),
+      case("a holed shape fills even-odd", fn () -> holed()),
+      case("a union of rings", fn () -> polys()),
+      case("a disc is a full arc", fn () -> disc()),
+      case("a stroked outline", fn () -> outline()),
+      case("a radial fill in its frame", fn () -> radial()),
+      case("text centred in its frame", fn () -> text()),
+      case("clips save and restore, balanced", fn () -> clips()),
+      case("a real frame is balanced", fn () -> real_frame())
     ]
   end
 

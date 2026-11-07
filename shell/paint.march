@@ -3,7 +3,6 @@ mod Paint do
   -- Executes Skee.Painter's Canvas 2D calls, one for one. Every decision about
   -- what to draw, in what order and in which coordinates is made by
   -- Skee.Painter (pure, tested); this only makes the calls.
-
   doc """Paint one frame of the alley: `ops` on a canvas of `w` by `h` CSS pixels at `dpr`."""
   fn frame(ctx : Js.Canvas.Context, k : Skee.Consts.Consts, dpr : Float, w : Float, h : Float, ops : List(Skee.Scene.DrawOp)) : () do
     List.each(Skee.Painter.calls(k, dpr, w, h, ops), fn c -> call(ctx, c))
@@ -17,9 +16,9 @@ mod Paint do
   end
 
   fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float, stops : List(Skee.Painter.ColourStop)) : () do
-    let g = Glue.radial(ctx, x0, y0, r0, x1, y1, r1)
-    List.each(stops, fn s -> Glue.gradient_stop(g, s.stop_at, s.stop_css))
-    Glue.fill_gradient(ctx, g)
+    Glue.radial(ctx, x0, y0, r0, x1, y1, r1)
+    List.each(stops, fn s -> Glue.gradient_stop(s.stop_at, s.stop_css))
+    Glue.fill_gradient(ctx)
   end
 
   fn call(ctx : Js.Canvas.Context, c : Skee.Painter.CanvasCall) : () do

@@ -1,0 +1,17 @@
+-- forge format deletes a `resource` declaration's name binding: run
+--   forge format --stdin < tools/repros/format_deletes_resource.march.txt
+-- and `resource Gradient` comes out as `type Gradient = ` (a type with no
+-- right-hand side), which no longer parses. Seen on march main b7c963d74.
+-- Workaround in shell/glue.march: no resource type; the glue keeps the
+-- CanvasGradient itself.
+mod FormatResource do
+
+  needs IO.Foreign
+
+  resource Gradient
+
+  extern "./x.mjs" : Cap(IO.Foreign) do
+    fn make_gradient() : Gradient
+  end
+
+end

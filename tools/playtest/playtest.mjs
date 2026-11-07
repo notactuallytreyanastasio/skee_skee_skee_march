@@ -130,6 +130,8 @@ async function run(browser, name, viewport, touch) {
     writeFileSync(file, Buffer.from(shot, "base64"));
     frames.push(shot);
   }
+  const rollFps = await frameCount(page, 500);
+  rollFps >= 25 ? ok(`frames while rolling: ${rollFps * 2}/s`) : fail(`only ${rollFps * 2} frames/s while rolling`);
   const moving = frames.filter((f, i) => f !== (i === 0 ? before : frames[i - 1])).length;
   moving >= 4 ? ok(`the alley changes while the ball rolls (${moving} of 6 frames differ)`) : fail(`only ${moving} of 6 frames differ during the roll`);
   const after = await waitFor(page, (m) => m.busy === "0", "the ball to settle", 20000);

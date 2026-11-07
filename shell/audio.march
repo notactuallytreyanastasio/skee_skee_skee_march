@@ -6,7 +6,6 @@ mod Audio do
   --   Audio.apply(a : AudioHandle, effects : List(Skee.App.Effect)) : ()
   -- apply is given every effect of an update; it acts on FxSound (Skee.Synth.play),
   -- FxRumble (set_rumble) and FxDrum (set_drum) and ignores the rest.
-
   type AudioHandle = { audio_started : Bool }
 
   fn start() : AudioHandle do

@@ -195,10 +195,20 @@ mod Game do
     Glue.size_canvas(canvas, w, h, dpr)
     let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Skee.U64.make(hi, lo))
     let s =
-      { model: m, k: k, canvas: canvas, ctx: ctx, hud: hud, audio: Audio.start(), width: w, height: h, dpr: dpr }
+      {
+        model: m,
+        k: k,
+        canvas: canvas,
+        ctx: ctx,
+        hud: hud,
+        audio: Audio.start(),
+        width: w,
+        height: h,
+        dpr: dpr
+      }
     glue_cell_put(s)
     perform(s, effects)
-    Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn -> dispatch(MsgPointerCancel))
+    Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
     Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
     Glue.request_frame(fn t -> frame(t))
   end
