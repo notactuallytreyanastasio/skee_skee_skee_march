@@ -21,7 +21,7 @@ export async function open(browser, url, vp, store) {
     // A realistic flick: raw CDP events `gap` ms apart, smoothstep eased.
     flick: async ({ xoff = 0, dx = 0, y1off = 15, steps = 8, gap = 13, y1 = null } = {}) => {
       const m = await g.marks();
-      const x = vp.width / 2 + xoff, y0 = vp.height - 55, Y1 = y1 ?? m.crease + y1off;
+      const x = vp.width / 2 + xoff, y0 = Math.min(vp.height - 55, m.crease + 260), Y1 = y1 ?? m.crease + y1off;
       const pts = []; for (let k = 0; k <= steps; k++) { const f = k / steps; const e = f * f * (3 - 2 * f); pts.push([x + dx * f, y0 + (Y1 - y0) * e]); }
       const ps = [];
       if (touch) {

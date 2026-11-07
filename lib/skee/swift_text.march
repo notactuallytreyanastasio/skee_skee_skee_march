@@ -365,7 +365,11 @@ mod Skee.SwiftText do
 
   pfn key_piece(c : SwiftChar) : String needs () do
     let k = ascii(c)
-    if k <= 0 do Option.unwrap_or(String.from_codepoint(1), "") else piece(k) end
+    if k <= 0 do
+      Option.unwrap_or(String.from_codepoint(1), "")
+    else
+      piece(k)
+    end
   end
 
   doc """

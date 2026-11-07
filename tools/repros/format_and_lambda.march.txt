@@ -1,0 +1,12 @@
+-- forge format at main b7c963d74 turns `a && f(xs, fn x -> <multi-line body>)`
+-- into `&&(a, f(xs, fn x -> ...))`, which does not parse. Seen in
+-- Skee.Host.relay_accepts. Feed this file to `forge format --stdin`:
+mod FormatAndLambda do
+  fn ok(xs : List((Int, Int)), a : Bool) : Bool do
+    a && List.all(xs, fn p ->
+      match p do
+      (i, j) -> i < j
+      end
+    )
+  end
+end

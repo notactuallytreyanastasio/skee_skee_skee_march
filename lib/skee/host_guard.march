@@ -47,23 +47,101 @@ mod Skee.HostGuard do
 
   -- ---- The lists, in Swift's order ----
   fn crisis_phrases() : List(String) needs () do
-    ["kill myself", "killing myself", "suicide", "suicidal", "end my life", "want to die", "wanna die", "hurt myself", "hurting myself", "self harm", "self-harm", "not worth living"]
+    [
+      "kill myself",
+      "killing myself",
+      "suicide",
+      "suicidal",
+      "end my life",
+      "want to die",
+      "wanna die",
+      "hurt myself",
+      "hurting myself",
+      "self harm",
+      "self-harm",
+      "not worth living"
+    ]
   end
 
   fn personal_phrases() : List(String) needs () do
-    ["my address is", "i live at", "my password", "social security", "my ssn", "my card number", "my phone number is", "my email is", "my birthday is", "date of birth"]
+    [
+      "my address is",
+      "i live at",
+      "my password",
+      "social security",
+      "my ssn",
+      "my card number",
+      "my phone number is",
+      "my email is",
+      "my birthday is",
+      "date of birth"
+    ]
   end
 
   fn trick_phrases() : List(String) needs () do
-    ["ignore your", "ignore all", "ignore previous", "ignore the above", "disregard", "system prompt", "your instructions", "your rules", "your prompt", "you are now", "pretend to be", "pretend you", "act as", "roleplay", "role play", "jailbreak", "developer mode", "dan mode", "new persona", "repeat the text above"]
+    [
+      "ignore your",
+      "ignore all",
+      "ignore previous",
+      "ignore the above",
+      "disregard",
+      "system prompt",
+      "your instructions",
+      "your rules",
+      "your prompt",
+      "you are now",
+      "pretend to be",
+      "pretend you",
+      "act as",
+      "roleplay",
+      "role play",
+      "jailbreak",
+      "developer mode",
+      "dan mode",
+      "new persona",
+      "repeat the text above"
+    ]
   end
 
   fn money_phrases() : List(String) needs () do
-    ["real money", "real cash", "cash out", "bank account", "credit card", "debit card", "loan", "mortgage", "paypal", "venmo", "cash app", "bitcoin", "crypto", "stock market", "online casino", "sportsbook", "lottery", "gambling problem", "gambling addiction", "investment"]
+    [
+      "real money",
+      "real cash",
+      "cash out",
+      "bank account",
+      "credit card",
+      "debit card",
+      "loan",
+      "mortgage",
+      "paypal",
+      "venmo",
+      "cash app",
+      "bitcoin",
+      "crypto",
+      "stock market",
+      "online casino",
+      "sportsbook",
+      "lottery",
+      "gambling problem",
+      "gambling addiction",
+      "investment"
+    ]
   end
 
   fn leak_phrases() : List(String) needs () do
-    ["system prompt", "my instructions", "my prompt", "language model", "large language", "openai", "chatgpt", "deepseek", "private limit", "as an assistant", "json"]
+    [
+      "system prompt",
+      "my instructions",
+      "my prompt",
+      "language model",
+      "large language",
+      "openai",
+      "chatgpt",
+      "deepseek",
+      "private limit",
+      "as an assistant",
+      "json"
+    ]
   end
 
   fn link_phrases() : List(String) needs () do
@@ -72,15 +150,86 @@ mod Skee.HostGuard do
 
   -- Sets in Swift; listed here sorted.
   fn adult_words() : List(String) needs () do
-    ["bomb", "boobs", "cocaine", "erotic", "fentanyl", "fetish", "gun", "guns", "heroin", "hitler", "hooker", "horny", "kinky", "kkk", "marijuana", "meth", "naked", "nazi", "nazis", "nude", "nudes", "orgasm", "pedophile", "penis", "porn", "porno", "rape", "rapist", "sex", "sexting", "sexual", "sexy", "stripper", "terrorist", "tits", "vagina", "weed"]
+    [
+      "bomb",
+      "boobs",
+      "cocaine",
+      "erotic",
+      "fentanyl",
+      "fetish",
+      "gun",
+      "guns",
+      "heroin",
+      "hitler",
+      "hooker",
+      "horny",
+      "kinky",
+      "kkk",
+      "marijuana",
+      "meth",
+      "naked",
+      "nazi",
+      "nazis",
+      "nude",
+      "nudes",
+      "orgasm",
+      "pedophile",
+      "penis",
+      "porn",
+      "porno",
+      "rape",
+      "rapist",
+      "sex",
+      "sexting",
+      "sexual",
+      "sexy",
+      "stripper",
+      "terrorist",
+      "tits",
+      "vagina",
+      "weed"
+    ]
   end
 
   fn off_topic_words() : List(String) needs () do
-    ["abortion", "allah", "biden", "congress", "democrat", "democrats", "election", "gaza", "harris", "immigrants", "israel", "jesus", "obama", "palestine", "republican", "republicans", "taiwan", "tiananmen", "trump", "vaccine", "vaccines"]
+    [
+      "abortion",
+      "allah",
+      "biden",
+      "congress",
+      "democrat",
+      "democrats",
+      "election",
+      "gaza",
+      "harris",
+      "immigrants",
+      "israel",
+      "jesus",
+      "obama",
+      "palestine",
+      "republican",
+      "republicans",
+      "taiwan",
+      "tiananmen",
+      "trump",
+      "vaccine",
+      "vaccines"
+    ]
   end
 
   fn swear_words() : List(String) needs () do
-    ["asshole", "bastard", "bitch", "bullshit", "cunt", "dick", "fuck", "fucking", "piss", "shit"]
+    [
+      "asshole",
+      "bastard",
+      "bitch",
+      "bullshit",
+      "cunt",
+      "dick",
+      "fuck",
+      "fucking",
+      "piss",
+      "shit"
+    ]
   end
 
   -- ---- Reading text as Swift does ----
@@ -235,10 +384,30 @@ mod Skee.HostGuard do
   doc """Phrasebook.offTopic: each host's wave-offs, which the guard's deflection says."""
   fn off_topic_lines(r : Room) : List(String) needs () do
     match r do
-    Boardwalk -> ["Not my department, friend. Let's talk nights, tickets and credit.", "I just run the arcade. So, what'll it take to make this deal?"]
-    NeonLounge -> ["Not a subject for my lounge, darling. Back to the deal.", "Let's keep to business. Nights, tickets or credit?"]
-    HighRoller -> ["That's not a matter for this room. Shall we return to your stay?", "I couldn't say. May we discuss your comp?"]
-    Penthouse -> ["Such a curious thing to say, my dear. Now, your stay!", "Let us speak only of your comp, my treasure."]
+    Boardwalk -> do
+      [
+        "Not my department, friend. Let's talk nights, tickets and credit.",
+        "I just run the arcade. So, what'll it take to make this deal?"
+      ]
+    end
+    NeonLounge -> do
+      [
+        "Not a subject for my lounge, darling. Back to the deal.",
+        "Let's keep to business. Nights, tickets or credit?"
+      ]
+    end
+    HighRoller -> do
+      [
+        "That's not a matter for this room. Shall we return to your stay?",
+        "I couldn't say. May we discuss your comp?"
+      ]
+    end
+    Penthouse -> do
+      [
+        "Such a curious thing to say, my dear. Now, your stay!",
+        "Let us speak only of your comp, my treasure."
+      ]
+    end
     end
   end
 
