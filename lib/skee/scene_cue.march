@@ -1,0 +1,128 @@
+mod Skee.SceneCue do
+
+  -- What ScenePresenter.update reads off a Presentation each frame, gathered
+  -- into Skee.Scene's FrameCue, so the shell never decides anything about the
+  -- scene: it calls `frame_cue`, then Skee.Scene.present, then Skee.Scene.draw.
+  -- A module of its own so that Skee.Scene does not depend on the
+  -- presentation, and only this bridge changes if the presentation does.
+  cap pure
+
+  doc """
+  The frame's cue from the presentation. `held` is the waiting ball under
+  the thumb while a stroke is in progress (Skee.Camera.waiting_ball).
+  """
+  fn frame_cue(k : Skee.Consts.Consts, p : Skee.Presentation.Presentation, held : Option(Skee.World.Vec3)) : Skee.Scene.FrameCue needs () do
+    let shown = p.shown
+    let busy = Skee.Presentation.is_busy(p)
+    let throwing = is_throwing(shown.phase)
+    let anticipation = Skee.Presentation.anticipation(k, p)
+    let ball_cue =
+      {
+        sample: Skee.Presentation.ball(p),
+        busy: busy,
+        beat_is_roll: is_roll(Skee.Presentation.current(p)),
+        resting: resting(p.resting_ball),
+        clock: p.clock,
+        throwing: throwing,
+        held: held
+      }
+    let tallying = is_some_tally(Skee.Presentation.tally_progress(p))
+    let have =
+      if tallying || busy do
+        []
+      else
+        List.map(shown.round.current_balls, fn b -> b.record_symbol)
+      end
+    let slot = if busy do None else Some(shown.top_slot) end
+    let excited =
+      p.flash > 0.05 || shown.fever || is_some_banner(Skee.Presentation.banner(p)) || anticipation > 0.0 || p.celebration > 0.0
+    {
+      ball_cue: ball_cue,
+      sparks: List.filter_map(p.cues, spark),
+      kind: shown.ball,
+      anticipation: anticipation,
+      shake: p.shake,
+      balls_left: Skee.Reducer.balls_left(shown.round),
+      excited: excited,
+      reel_cue: {
+        setup: shown.setup,
+        positions: p.reel_positions,
+        have: have,
+        slot: slot
+      }
+    }
+  end
+
+  doc """The cues that move the scene: swells, rings of light and hole flashes."""
+  fn spark(c : Skee.Presentation.Cue) : Option(Skee.Scene.Spark) needs () do
+    match c do
+    CueHump -> Some(SparkHump)
+    CueLip -> Some(SparkLip)
+    CueHop -> Some(SparkHop)
+    CueLanded -> Some(SparkLanded)
+    CueBackwall -> Some(SparkBackwall)
+    CueRail -> Some(SparkRail)
+    CueDrop(h) -> Some(SparkDrop(h))
+    CueLaunch -> None
+    CueGutter -> None
+    CueWhoosh -> None
+    CueHotSpot -> None
+    CueLever -> None
+    CuePullWin(_) -> None
+    CueReelTick -> None
+    CueReelStop -> None
+    CueCombo(_) -> None
+    CueTallyChips(_) -> None
+    CueTallyMult(_) -> None
+    CueFrameDone -> None
+    CueLineWon -> None
+    CueJackpot -> None
+    CueBanner(_) -> None
+    CueFoul -> None
+    end
+  end
+
+  pfn is_throwing(ph : Phase) : Bool needs () do
+    match ph do
+    Throwing -> true
+    AtCounter(_) -> false
+    Lost -> false
+    Won -> false
+    end
+  end
+
+  pfn is_roll(b : Option(Skee.Presentation.Beat)) : Bool needs () do
+    match b do
+    Some(BeatRoll(_, _)) -> true
+    Some(BeatSpin(_)) -> false
+    Some(BeatPull(_)) -> false
+    Some(BeatTally(_)) -> false
+    Some(BeatBanner(_, _, _)) -> false
+    Some(BeatCommit(_)) -> false
+    Some(BeatRestyle(_, _)) -> false
+    None -> false
+    end
+  end
+
+  pfn resting(r : Option(Skee.Presentation.RestingBall)) : Option((PathSample, Float)) needs () do
+    match r do
+    Some(x) -> Some((x.rest_sample, x.until))
+    None -> None
+    end
+  end
+
+  pfn is_some_tally(t : Option(Skee.Presentation.TallyShown)) : Bool needs () do
+    match t do
+    Some(_) -> true
+    None -> false
+    end
+  end
+
+  pfn is_some_banner(t : Option(Skee.Presentation.BannerShown)) : Bool needs () do
+    match t do
+    Some(_) -> true
+    None -> false
+    end
+  end
+
+end

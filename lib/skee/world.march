@@ -58,7 +58,11 @@ mod Skee.World do
   end
 
   fn cross(a : Vec3, b : Vec3) : Vec3 needs () do
-    { x: a.y *. b.z -. a.z *. b.y, y: a.z *. b.x -. a.x *. b.z, z: a.x *. b.y -. a.y *. b.x }
+    {
+      x: a.y *. b.z -. a.z *. b.y,
+      y: a.z *. b.x -. a.x *. b.z,
+      z: a.x *. b.y -. a.y *. b.x
+    }
   end
 
   fn length3(a : Vec3) : Float needs () do
@@ -129,7 +133,8 @@ mod Skee.World do
 
   doc """Point on (z = 0) or above the board, from board coordinates."""
   fn board(w : World, p : Vec2, z : Float) : Vec3 needs () do
-    let local = plus(plus(v3(p.x, 0.0, 0.0), times(board_up(w), p.y)), times(board_normal(w), z))
+    let local =
+      plus(plus(v3(p.x, 0.0, 0.0), times(board_up(w), p.y)), times(board_normal(w), z))
     plus(board_origin(w), times(local, w.board_scale))
   end
 

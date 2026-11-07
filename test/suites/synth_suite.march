@@ -569,13 +569,14 @@ mod SynthSuite do
   -- are the real Swift Synth's, from tools/synth_probe/life.
   fn voice_lives_through_t_equal_to_life() : Outcome do
     let c = Skee.Synth.consts()
-    let v = Skee.Synth.voice(c, WaveSine, 440.0, 440.0, 0.1, 0.5, f32("3c20fe0e"), 0.0)
+    let v =
+      Skee.Synth.voice(c, WaveSine, 440.0, 440.0, 0.1, 0.5, f32("3c20fe0e"), 0.0)
     let s = Skee.Synth.add(Skee.Synth.new(), [v])
     let (_, s1) = Skee.Synth.render(s, 2599)
     let (last_alive, s2) = Skee.Synth.render(s1, 1)
     let (last, s3) = Skee.Synth.render(s2, 1)
     let (after, s4) = Skee.Synth.render(s3, 1)
-    all([Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.map(List.zip(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"]), fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
+    all([Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.zip_with(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"], fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
   end
 
   fn cases() : List(Case) do

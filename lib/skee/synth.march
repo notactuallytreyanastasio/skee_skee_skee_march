@@ -528,7 +528,7 @@ mod Skee.Synth do
       f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
     let t = f32(c, v.t +. c.dt)
     let kept =
-      if t >= v.life do
+      if t > v.life do
         m.kept
       else
         Cons({ v with t: t, phase: phase }, m.kept)

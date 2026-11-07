@@ -79,7 +79,11 @@ mod SceneSuite do
   end
 
   fn phase_of(token : String) : PathPhase do
-    if token == "lane" do OnLane else if token == "air" do InAir else OnBoard end end
+    if token == "lane" do
+      OnLane
+    else
+      if token == "air" do InAir else OnBoard end
+    end
   end
 
   fn hole_of(token : String) : Hole do
@@ -105,7 +109,7 @@ mod SceneSuite do
   -- ---- World ----
   fn world_row(row : List(String)) : Outcome do
     match row do
-    [r, length, br, nx, ny, nz, fx, fy, fz, ox, oy, oz, ux, uy, uz, nbx, nby, nbz] -> do
+    Cons(r, Cons(length, Cons(br, Cons(nx, Cons(ny, Cons(nz, Cons(fx, Cons(fy, Cons(fz, Cons(ox, Cons(oy, Cons(oz, Cons(ux, Cons(uy, Cons(uz, Cons(nbx, Cons(nby, Cons(nbz, Nil)))))))))))))))))) -> do
       let w = world_of(r)
       all([near(lane_length(w), length, metres_tol(), r ++ " laneLength"), near(ball_radius(w), br, metres_tol(), r ++ " ballRadius"), near3(lane_normal(w), nx, ny, nz, unit_tol(), r ++ " laneNormal"), near3(lane_forward(w), fx, fy, fz, unit_tol(), r ++ " laneForward"), near3(board_origin(w), ox, oy, oz, metres_tol(), r ++ " boardOrigin"), near3(board_up(w), ux, uy, uz, unit_tol(), r ++ " boardUp"), near3(board_normal(w), nbx, nby, nbz, unit_tol(), r ++ " boardNormal")])
     end
@@ -115,25 +119,35 @@ mod SceneSuite do
 
   fn lane_row(row : List(String)) : Outcome do
     match row do
-    [r, x, s, px, py, pz] -> near3(lane(world_of(r), fl(x), fl(s)), px, py, pz, metres_tol(), r ++ " lane " ++ x ++ " " ++ s)
+    Cons(r, Cons(x, Cons(s, Cons(px, Cons(py, Cons(pz, Nil)))))) -> do
+      near3(lane(world_of(r), fl(x), fl(s)), px, py, pz, metres_tol(), r ++ " lane " ++ x ++ " " ++ s)
+    end
     _ -> Mismatch("bad lane row")
     end
   end
 
   fn board_row(row : List(String)) : Outcome do
     match row do
-    [r, x, y, z, px, py, pz] -> near3(board(world_of(r), vec2(fl(x), fl(y)), fl(z)), px, py, pz, metres_tol(), r ++ " board")
+    Cons(r, Cons(x, Cons(y, Cons(z, Cons(px, Cons(py, Cons(pz, Nil))))))) -> do
+      near3(board(world_of(r), vec2(fl(x), fl(y)), fl(z)), px, py, pz, metres_tol(), r ++ " board")
+    end
     _ -> Mismatch("bad board row")
     end
   end
 
   fn sample_of(phase : String, x : String, along : String, height : String) : PathSample do
-    { t: 0.0, phase: phase_of(phase), px: fl(x), along: fl(along), height: fl(height) }
+    {
+      t: 0.0,
+      phase: phase_of(phase),
+      px: fl(x),
+      along: fl(along),
+      height: fl(height)
+    }
   end
 
   fn ball_row(row : List(String)) : Outcome do
     match row do
-    [r, phase, x, along, height, scale, cx, cy, cz, nx, ny, nz] -> do
+    Cons(r, Cons(phase, Cons(x, Cons(along, Cons(height, Cons(scale, Cons(cx, Cons(cy, Cons(cz, Cons(nx, Cons(ny, Cons(nz, Nil)))))))))))) -> do
       let w = world_of(r)
       let s = sample_of(phase, x, along, height)
       all([near(ball_scale(w, s), scale, unit_tol(), r ++ " ballScale"), near3(ball_center(w, s), cx, cy, cz, metres_tol(), r ++ " ballCenter"), near3(surface_normal(w, s), nx, ny, nz, unit_tol(), r ++ " surfaceNormal")])
@@ -157,7 +171,7 @@ mod SceneSuite do
 
   fn framing_row(row : List(String)) : Outcome do
     match row do
-    [nx, ny, nz, hx, hy, hz, tx, ty, tz] -> do
+    Cons(nx, Cons(ny, Cons(nz, Cons(hx, Cons(hy, Cons(hz, Cons(tx, Cons(ty, Cons(tz, Nil))))))))) -> do
       let f = Skee.Camera.framing(boardwalk())
       all([near3(f.near_point, nx, ny, nz, metres_tol(), "near"), near3(f.hump_point, hx, hy, hz, metres_tol(), "hump"), near3(f.top_point, tx, ty, tz, metres_tol(), "top")])
     end
@@ -167,7 +181,7 @@ mod SceneSuite do
 
   fn fit_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, ex, ey, ez, tx, ty, tz, fov] -> do
+    Cons(w, Cons(h, Cons(ex, Cons(ey, Cons(ez, Cons(tx, Cons(ty, Cons(tz, Cons(fov, Nil))))))))) -> do
       let what = "fit " ++ w ++ "x" ++ h
       all([near3(rig.eye, ex, ey, ez, metres_tol(), what ++ " eye"), near3(rig.target, tx, ty, tz, metres_tol(), what ++ " target"), near(rig.fov, fov, unit_tol(), what ++ " fov")])
     end
@@ -181,23 +195,37 @@ mod SceneSuite do
     let f = Skee.Camera.framing(w)
     if name == "laneNearLeft" do
       lane(w, -hw, 0.0)
-    else if name == "laneNearRight" do
-      lane(w, hw, 0.0)
-    else if name == "laneFarLeft" do
-      lane(w, -hw, span)
-    else if name == "laneFarRight" do
-      lane(w, hw, span)
-    else if name == "hump" do
-      f.hump_point
-    else if name == "near" do
-      f.near_point
-    else if name == "top" do
-      f.top_point
-    else if String.starts_with(name, "sample") do
-      ball_center(w, sample_n(GoldenIo.int(String.replace_all(name, "sample", ""))))
     else
-      board(w, Skee.Physics.hole_center(w.table.board, hole_of(name)), 0.0)
-    end end end end end end end end
+      if name == "laneNearRight" do
+        lane(w, hw, 0.0)
+      else
+        if name == "laneFarLeft" do
+          lane(w, -hw, span)
+        else
+          if name == "laneFarRight" do
+            lane(w, hw, span)
+          else
+            if name == "hump" do
+              f.hump_point
+            else
+              if name == "near" do
+                f.near_point
+              else
+                if name == "top" do
+                  f.top_point
+                else
+                  if String.starts_with(name, "sample") do
+                    ball_center(w, sample_n(GoldenIo.int(String.replace_all(name, "sample", ""))))
+                  else
+                    board(w, Skee.Physics.hole_center(w.table.board, hole_of(name)), 0.0)
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
   end
 
   -- The samples golden-scene projects, in its order.
@@ -227,7 +255,7 @@ mod SceneSuite do
 
   fn proj_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, name, px, py] -> do
+    Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
       let world = boardwalk()
       let l = Skee.Camera.lens(k(), rig, view_of(w, h))
       near2(Skee.Camera.pixel(k(), l, proj_point(world, name)), px, py, pixels_tol(), w ++ "x" ++ h ++ " " ++ name)
@@ -238,7 +266,7 @@ mod SceneSuite do
 
   fn holes_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, name, px, py] -> do
+    Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
       let spots = Skee.Camera.hole_on_screen(k(), boardwalk(), rig, view_of(w, h))
       if List.any(Skee.HoleMap.all_holes(), fn x -> hole_token(x) == name) do
         near2(Skee.HoleMap.at(spots, hole_of(name)), px, py, pixels_tol(), "holeOnScreen " ++ name)
@@ -252,7 +280,7 @@ mod SceneSuite do
 
   fn flick_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, crease, cx, half, give] -> do
+    Cons(w, Cons(h, Cons(crease, Cons(cx, Cons(half, Cons(give, Nil)))))) -> do
       let g = Skee.Camera.flick_geometry(k(), boardwalk(), rig, view_of(w, h))
       let what = "flick " ++ w ++ "x" ++ h
       all([near(g.crease_y, crease, pixels_tol(), what ++ " creaseY"), near(g.lane_center_x, cx, pixels_tol(), what ++ " laneCenterX"), near(g.lane_half_width, half, pixels_tol(), what ++ " laneHalfWidth"), near(g.foul_give, give, 0.0, what ++ " foulGive")])
@@ -278,21 +306,30 @@ mod SceneSuite do
 
   fn waiting_row(row : List(String)) : Outcome do
     match row do
-    [line, x, y, z] -> near3(Skee.Camera.waiting_ball(boardwalk(), fl(line)), x, y, z, metres_tol(), "waitingBall " ++ line)
+    Cons(line, Cons(x, Cons(y, Cons(z, Nil)))) -> do
+      near3(Skee.Camera.waiting_ball(boardwalk(), fl(line)), x, y, z, metres_tol(), "waitingBall " ++ line)
+    end
     _ -> Mismatch("bad waiting row")
     end
   end
 
   fn lane_point_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, fx, fy, hit, x, y, z] -> do
-      let got = Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy)))
+    Cons(w, Cons(h, Cons(fx, Cons(fy, Cons(hit, Cons(x, Cons(y, Cons(z, Nil)))))))) -> do
+      let got =
+        Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy)))
       match got do
-      Some(p) -> if hit == "1" do near3(p, x, y, z, ray_tol(), "lanePoint") else Mismatch("lanePoint hit, Swift missed") end
+      Some(p) -> do
+        if hit == "1" do
+          near3(p, x, y, z, ray_tol(), "lanePoint")
+        else
+          Mismatch("lanePoint hit, Swift missed")
+        end
+      end
       None -> Mismatch("lanePoint missed, Swift hit")
       end
     end
-    [w, h, fx, fy, _] -> do
+    Cons(w, Cons(h, Cons(fx, Cons(fy, Cons(_, Nil))))) -> do
       match Skee.Camera.lane_point(k(), boardwalk(), rig, view_of(w, h), vec2(fl(fx), fl(fy))) do
       Some(_) -> Mismatch("lanePoint hit, Swift missed")
       None -> Passed(1)
@@ -304,7 +341,7 @@ mod SceneSuite do
 
   fn lane_coords_row(row : List(String)) : Outcome do
     match row do
-    [px, py, pz, x, s] -> do
+    Cons(px, Cons(py, Cons(pz, Cons(x, Cons(s, Nil))))) -> do
       let (gx, gs) = Skee.Camera.lane_coordinates(boardwalk(), v3(fl(px), fl(py), fl(pz)))
       all([near(gx, x, metres_tol(), "laneCoordinates x"), near(gs, s, metres_tol(), "laneCoordinates s")])
     end
@@ -314,7 +351,7 @@ mod SceneSuite do
 
   fn ray_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
     match row do
-    [w, h, ox, oy, oz, dx, dy, dz] -> do
+    Cons(w, Cons(h, Cons(ox, Cons(oy, Cons(oz, Cons(dx, Cons(dy, Cons(dz, Nil)))))))) -> do
       let l = Skee.Camera.lens(k(), rig, view_of(w, h))
       let (o, d) = Skee.Camera.ray(l, vec2(0.3, 0.6))
       all([near3(o, ox, oy, oz, metres_tol(), "ray origin"), near3(d, dx, dy, dz, unit_tol(), "ray direction")])
@@ -325,7 +362,7 @@ mod SceneSuite do
 
   fn camera0_row(row : List(String)) : Outcome do
     match row do
-    [_, x, y, z, fov] -> do
+    Cons(_, Cons(x, Cons(y, Cons(z, Cons(fov, Nil))))) -> do
       let r = Skee.Camera.initial()
       all([near3(r.eye, x, y, z, metres_tol(), "initial camera"), near(r.fov, fov, 0.0, "initial fov")])
     end
@@ -339,7 +376,8 @@ mod SceneSuite do
     let v = Skee.Camera.viewport(390.0, 844.0)
     let spots = Skee.Camera.hole_on_screen(k(), w, rig, v)
     let at50 = spots.ring50
-    let near50 = Skee.Camera.tapped_hole(k(), w, rig, v, vec2(at50.x +. 3.0, at50.y -. 2.0))
+    let near50 =
+      Skee.Camera.tapped_hole(k(), w, rig, v, vec2(at50.x +. 3.0, at50.y -. 2.0))
     let far = Skee.Camera.tapped_hole(k(), w, rig, v, vec2(5.0, 840.0))
     let gutter = Skee.Camera.tapped_hole(k(), w, rig, v, spots.gutter)
     all([expect(near50 == Some(Ring50), "tap by the 50 picks the 50"), expect(far == None, "a tap far from every hole picks none"), expect(gutter != Some(Gutter), "the gutter is never a target")])
@@ -386,9 +424,31 @@ mod SceneSuite do
   fn fresh_stage(r : Room) : Skee.Scene.Scenery do
     let w = Skee.World.make(k(), Skee.Rooms.table(k(), r))
     let rad = ball_radius(w)
-    let place = { centre: plus(lane(w, 0.0, 0.15), times(lane_normal(w), rad)), scale: 1.0, normal: lane_normal(w), airborne: false, visible: true, sink: 0.0, over_board: false }
-    let motion = { orientation: Skee.Scene.quat_identity(), last: None, spin: origin(), pop: 0.0 }
-    let shadow = { spot: origin(), facing: v3(0.0, 0.0, 1.0), size: 1.0, fade: 1.0, shown: true }
+    let place =
+      {
+        centre: plus(lane(w, 0.0, 0.15), times(lane_normal(w), rad)),
+        scale: 1.0,
+        normal: lane_normal(w),
+        airborne: false,
+        visible: true,
+        sink: 0.0,
+        over_board: false
+      }
+    let motion =
+      {
+        orientation: Skee.Scene.quat_identity(),
+        last: None,
+        spin: origin(),
+        pop: 0.0
+      }
+    let shadow =
+      {
+        spot: origin(),
+        facing: v3(0.0, 0.0, 1.0),
+        size: 1.0,
+        fade: 1.0,
+        shown: true
+      }
     let look = { symbol: Blank, turn: 0.0, glow: 0.0, slot_match: false, pulse: 1.0 }
     {
       world: w,
@@ -449,7 +509,20 @@ mod SceneSuite do
   end
 
   fn frame_floats(f : Skee.Scene.Frame) : List(Float) do
-    [f.ax.x, f.ax.y, f.ax.z, f.ay.x, f.ay.y, f.ay.z, f.az.x, f.az.y, f.az.z, f.at.x, f.at.y, f.at.z]
+    [
+      f.ax.x,
+      f.ax.y,
+      f.ax.z,
+      f.ay.x,
+      f.ay.y,
+      f.ay.z,
+      f.az.x,
+      f.az.y,
+      f.az.z,
+      f.at.x,
+      f.at.y,
+      f.at.z
+    ]
   end
 
   fn compare_floats(got : List(Float), want : List(String), tol : Float, what : String) : Outcome do
@@ -471,12 +544,32 @@ mod SceneSuite do
       match after do
       Cons(colour, Cons(thick, Cons(hidden, Cons(opacity, frame)))) -> do
         let kind_ok = expect_string(solid_kind(p.solid), kind, what ++ " kind")
-        let dims_ok = if mesh == 1 do Passed(1) else compare_floats(solid_tokens(p.solid), dim_tokens, metres_tol(), what ++ " size") end
-        let colour_ok = if is_halo(p) do Passed(0) else expect_string(colour_token(p.colour), colour, what ++ " colour") end
+        let dims_ok =
+          if mesh == 1 do
+            Passed(1)
+          else
+            compare_floats(solid_tokens(p.solid), dim_tokens, metres_tol(), what ++ " size")
+          end
+        let colour_ok =
+          if is_halo(p) do
+            Passed(0)
+          else
+            expect_string(colour_token(p.colour), colour, what ++ " colour")
+          end
         let thick_ok = near(p.outline, thick, unit_tol(), what ++ " outline")
-        let hidden_ok = if is_coin(p) do Passed(0) else expect_string(if p.hidden do "1" else "0" end, hidden, what ++ " hidden") end
+        let hidden_ok =
+          if is_coin(p) do
+            Passed(0)
+          else
+            expect_string(if p.hidden do "1" else "0" end, hidden, what ++ " hidden")
+          end
         let opacity_ok = near(p.opacity, opacity, unit_tol(), what ++ " opacity")
-        let frame_ok = if is_coin(p) do Passed(0) else compare_floats(frame_floats(p.frame), frame, metres_tol(), what ++ " transform") end
+        let frame_ok =
+          if is_coin(p) do
+            Passed(0)
+          else
+            compare_floats(frame_floats(p.frame), frame, metres_tol(), what ++ " transform")
+          end
         all([kind_ok, dims_ok, colour_ok, thick_ok, hidden_ok, opacity_ok, frame_ok])
       end
       _ -> Mismatch("bad node row")
@@ -489,11 +582,15 @@ mod SceneSuite do
   fn room_model(r : Room) : Outcome do
     let parts = Skee.Scene.model(k(), fresh_stage(r))
     let want = List.filter(rows("node"), fn row -> List.take(row, 1) == [room_token(r)])
-    let count = List.filter(rows("nodecount"), fn row -> List.take(row, 1) == [room_token(r)])
-    let count_ok = match count do
-    [[_, n]] -> expect_int(List.length(parts), GoldenIo.int(n), room_token(r) ++ " node count")
-    _ -> Mismatch("no nodecount row")
-    end
+    let count =
+      List.filter(rows("nodecount"), fn row -> List.take(row, 1) == [room_token(r)])
+    let count_ok =
+      match count do
+      Cons(Cons(_, Cons(n, Nil)), Nil) -> do
+        expect_int(List.length(parts), GoldenIo.int(n), room_token(r) ++ " node count")
+      end
+      _ -> Mismatch("no nodecount row")
+      end
     if List.length(parts) == List.length(want) do
       all(Cons(count_ok, List.zip_with(parts, want, node_row)))
     else
@@ -507,7 +604,13 @@ mod SceneSuite do
 
   -- ---- Cabinet.setReel and lightBulbs ----
   fn look_of(turn : String, glow : String, slot : String, pulse : String) : Skee.Scene.ReelLook do
-    { symbol: Bell, turn: fl(turn), glow: fl(glow), slot_match: slot == "1", pulse: fl(pulse) }
+    {
+      symbol: Bell,
+      turn: fl(turn),
+      glow: fl(glow),
+      slot_match: slot == "1",
+      pulse: fl(pulse)
+    }
   end
 
   fn reel_parts_for(h : Hole, look : Skee.Scene.ReelLook) : List(Skee.Scene.Part) do
@@ -517,18 +620,20 @@ mod SceneSuite do
 
   fn decal_row(row : List(String)) : Outcome do
     match row do
-    [h, turn, glow, slot, pulse, i, hidden, scale, lx, ly, lz, wx, wy, wz] -> do
+    Cons(h, Cons(turn, Cons(glow, Cons(slot, Cons(pulse, Cons(i, Cons(hidden, Cons(scale, Cons(lx, Cons(ly, Cons(lz, Cons(wx, Cons(wy, Cons(wz, Nil)))))))))))))) -> do
       let hole = hole_of(h)
       let look = look_of(turn, glow, slot, pulse)
       let table = Skee.Rooms.table(k(), Boardwalk)
       let layout = Skee.Scene.reel_layout(k(), table.board, hole)
       let c = Skee.Scene.coin(k(), layout, look, GoldenIo.int(i))
       let what = "decal " ++ h ++ " " ++ i ++ " turn " ++ float_to_string(fl(turn))
-      let coins = List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.CoinPart(hole))
-      let world_ok = match List.nth_opt(coins, GoldenIo.int(i)) do
-      Some(p) -> near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world")
-      None -> Mismatch(what ++ ": no such coin")
-      end
+      let coins =
+        List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.CoinPart(hole))
+      let world_ok =
+        match List.nth_opt(coins, GoldenIo.int(i)) do
+        Some(p) -> near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world")
+        None -> Mismatch(what ++ ": no such coin")
+        end
       all([expect_string(if c.coin_hidden do "1" else "0" end, hidden, what ++ " hidden"), near(c.swell, scale, unit_tol(), what ++ " scale"), near3(c.local, lx, ly, lz, metres_tol(), what ++ " local"), world_ok])
     end
     _ -> Mismatch("bad decal row")
@@ -537,16 +642,20 @@ mod SceneSuite do
 
   fn halo_row(row : List(String)) : Outcome do
     match row do
-    [h, turn, glow, slot, pulse, opacity, colour, wx, wy, wz] -> do
+    Cons(h, Cons(turn, Cons(glow, Cons(slot, Cons(pulse, Cons(opacity, Cons(colour, Cons(wx, Cons(wy, Cons(wz, Nil)))))))))) -> do
       let hole = hole_of(h)
       let look = look_of(turn, glow, slot, pulse)
       let (o, c) = Skee.Scene.halo(look)
-      let halos = List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.HaloPart(hole))
+      let halos =
+        List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.HaloPart(hole))
       let what = "halo " ++ h
-      let at_ok = match halos do
-      [p] -> all([near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world"), near(p.opacity, opacity, unit_tol(), what ++ " part opacity")])
-      _ -> Mismatch(what ++ ": want one halo")
-      end
+      let at_ok =
+        match halos do
+        Cons(p, Nil) -> do
+          all([near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world"), near(p.opacity, opacity, unit_tol(), what ++ " part opacity")])
+        end
+        _ -> Mismatch(what ++ ": want one halo")
+        end
       all([near(o, opacity, unit_tol(), what ++ " opacity"), expect_string(colour_token(Some(c)), colour, what ++ " colour"), at_ok])
     end
     _ -> Mismatch("bad halo row")
@@ -578,37 +687,59 @@ mod SceneSuite do
   fn spark_of(token : String) : List(Skee.Scene.Spark) do
     if token == "hump" do
       [SparkHump]
-    else if token == "lip" do
-      [SparkLip]
-    else if token == "hop" do
-      [SparkHop]
-    else if token == "landed" do
-      [SparkLanded]
-    else if token == "backwall" do
-      [SparkBackwall]
-    else if token == "rail" do
-      [SparkRail]
-    else if String.starts_with(token, "drop-") do
-      [SparkDrop(hole_of(String.replace_all(token, "drop-", "")))]
     else
-      []
-    end end end end end end end
+      if token == "lip" do
+        [SparkLip]
+      else
+        if token == "hop" do
+          [SparkHop]
+        else
+          if token == "landed" do
+            [SparkLanded]
+          else
+            if token == "backwall" do
+              [SparkBackwall]
+            else
+              if token == "rail" do
+                [SparkRail]
+              else
+                if String.starts_with(token, "drop-") do
+                  [SparkDrop(hole_of(String.replace_all(token, "drop-", "")))]
+                else
+                  []
+                end
+              end
+            end
+          end
+        end
+      end
+    end
   end
 
   fn sparks_of(token : String) : List(Skee.Scene.Spark) do
-    if token == "-" do [] else List.flat_map(String.split(token, ","), spark_of) end
+    if token == "-" do
+      []
+    else
+      List.flat_map(String.split(token, ","), spark_of)
+    end
   end
 
   fn sample_or_none(fields : List(String)) : Option(PathSample) do
     match fields do
-    [phase, x, along, h] -> if phase == "-" do None else Some(sample_of(phase, x, along, h)) end
+    Cons(phase, Cons(x, Cons(along, Cons(h, Nil)))) -> if phase == "-" do None else Some(sample_of(phase, x, along, h)) end
     _ -> None
     end
   end
 
   fn resting_of(fields : List(String)) : Option((PathSample, Float)) do
     match fields do
-    [phase, x, along, h, until] -> if phase == "-" do None else Some((sample_of(phase, x, along, h), fl(until))) end
+    Cons(phase, Cons(x, Cons(along, Cons(h, Cons(until, Nil))))) -> do
+      if phase == "-" do
+        None
+      else
+        Some((sample_of(phase, x, along, h), fl(until)))
+      end
+    end
     _ -> None
     end
   end
@@ -621,9 +752,33 @@ mod SceneSuite do
   end
 
   fn frame_cue(row : List(String)) : Skee.Scene.FrameCue do
-    let bc = { sample: sample_or_none(List.take(List.drop(row, 5), 4)), busy: token_at(row, 3) == "1", beat_is_roll: token_at(row, 4) == "1", resting: resting_of(List.take(List.drop(row, 9), 5)), clock: fl(token_at(row, 2)), throwing: token_at(row, 14) == "1", held: None }
-    let reel_cue = { setup: Skee.Types.standard_setup(), positions: Skee.HoleMap.fill_reels(0.0), have: [], slot: None }
-    { ball_cue: bc, sparks: sparks_of(token_at(row, 19)), kind: ClassicBall, anticipation: fl(token_at(row, 16)), shake: fl(token_at(row, 17)), balls_left: GoldenIo.int(token_at(row, 15)), excited: false, reel_cue: reel_cue }
+    let bc =
+      {
+        sample: sample_or_none(List.take(List.drop(row, 5), 4)),
+        busy: token_at(row, 3) == "1",
+        beat_is_roll: token_at(row, 4) == "1",
+        resting: resting_of(List.take(List.drop(row, 9), 5)),
+        clock: fl(token_at(row, 2)),
+        throwing: token_at(row, 14) == "1",
+        held: None
+      }
+    let reel_cue =
+      {
+        setup: Skee.Types.standard_setup(),
+        positions: Skee.HoleMap.fill_reels(0.0),
+        have: [],
+        slot: None
+      }
+    {
+      ball_cue: bc,
+      sparks: sparks_of(token_at(row, 19)),
+      kind: ClassicBall,
+      anticipation: fl(token_at(row, 16)),
+      shake: fl(token_at(row, 17)),
+      balls_left: GoldenIo.int(token_at(row, 15)),
+      excited: false,
+      reel_cue: reel_cue
+    }
   end
 
   -- Tolerance for the roll: 32-bit quaternion products over hundreds of frames.
@@ -640,10 +795,31 @@ mod SceneSuite do
     let sh = b.shadow
     let sq = Skee.Scene.quat_between(v3(0.0, 0.0, 1.0), sh.facing)
     let cam = s.camera.eye
-    let got = [b.place.centre.x, b.place.centre.y, b.place.centre.z, q.qw, q.qx, q.qy, q.qz, size]
-    let got_shadow = [sh.spot.x, sh.spot.y, sh.spot.z, sq.qw, sq.qx, sq.qy, sq.qz, sh.size, sh.fade]
+    let got =
+      [
+        b.place.centre.x,
+        b.place.centre.y,
+        b.place.centre.z,
+        q.qw,
+        q.qx,
+        q.qy,
+        q.qz,
+        size
+      ]
+    let got_shadow =
+      [
+        sh.spot.x,
+        sh.spot.y,
+        sh.spot.z,
+        sq.qw,
+        sq.qx,
+        sq.qy,
+        sq.qz,
+        sh.size,
+        sh.fade
+      ]
     match tail do
-    [px, py, pz, qr, qx, qy, qz, scale, hidden, sx, sy, sz, sr, sqx, sqy, sqz, ss, so, shidden, waiting, cx, cy, cz] -> do
+    Cons(px, Cons(py, Cons(pz, Cons(qr, Cons(qx, Cons(qy, Cons(qz, Cons(scale, Cons(hidden, Cons(sx, Cons(sy, Cons(sz, Cons(sr, Cons(sqx, Cons(sqy, Cons(sqz, Cons(ss, Cons(so, Cons(shidden, Cons(waiting, Cons(cx, Cons(cy, Cons(cz, Nil))))))))))))))))))))))) -> do
       all([compare_floats(List.take(got, 3), [px, py, pz], metres_tol(), what ++ " ball"), compare_floats(List.drop(got, 3), [qr, qx, qy, qz, scale], spin_tol(), what ++ " roll"), expect_string(if b.place.visible do "0" else "1" end, hidden, what ++ " ball hidden"), compare_floats(got_shadow, [sx, sy, sz, sr, sqx, sqy, sqz, ss, so], metres_tol(), what ++ " shadow"), expect_string(if sh.shown do "0" else "1" end, shidden, what ++ " shadow hidden"), expect_int(s.waiting, GoldenIo.int(waiting), what ++ " waiting"), near3(cam, cx, cy, cz, metres_tol(), what ++ " camera")])
     end
     _ -> Mismatch("bad frame row")
@@ -654,7 +830,13 @@ mod SceneSuite do
   -- orientation of the frame before. Where the ball sinks straight into a
   -- hole Swift's roll axis is rounding noise (see Skee.Scene.rolled), so those
   -- frames are not compared for orientation and are counted instead.
-  type Replay = { rig : Skee.Camera.Rig, kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float, skipped : Int }
+  type SceneReplay = {
+    rig : Skee.Camera.Rig,
+    kept : Skee.Scene.Keep,
+    outcomes : List(Outcome),
+    worst_spin : Float,
+    skipped : Int
+  }
 
   fn swift_orientation(row : List(String)) : Option(Skee.Scene.Quat) do
     match List.drop(row, 23) do
@@ -663,22 +845,46 @@ mod SceneSuite do
     end
   end
 
-  fn replay_step(acc : Replay, row : List(String)) : Replay do
+  fn replay_step(acc : SceneReplay, row : List(String)) : SceneReplay do
     let w = boardwalk()
-    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
+    let (scene, kept) =
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
     let q = scene.ball.motion.orientation
     let sinking = scene.ball.place.sink > 0.0 && scene.ball.place.visible
     let want = swift_orientation(row)
-    let off_q = match want do
-    Some(sq) -> if sinking do 0.0 else worst([Math.abs(q.qw -. sq.qw), Math.abs(q.qx -. sq.qx), Math.abs(q.qy -. sq.qy), Math.abs(q.qz -. sq.qz)]) end
-    None -> 0.0
-    end
-    let next_motion = match want do
-    Some(sq) -> { kept.motion with orientation: sq }
-    None -> kept.motion
-    end
-    let outcome = if sinking do frame_check({ scene with ball: { scene.ball with motion: { scene.ball.motion with orientation: unwrap_quat(want, q) } } }, row) else frame_check(scene, row) end
-    { rig: acc.rig, kept: { kept with motion: next_motion }, outcomes: Cons(outcome, acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end, skipped: acc.skipped + (if sinking do 1 else 0 end) }
+    let off_q =
+      match want do
+      Some(sq) -> do
+        if sinking do
+          0.0
+        else
+          worst([Math.abs(q.qw -. sq.qw), Math.abs(q.qx -. sq.qx), Math.abs(q.qy -. sq.qy), Math.abs(q.qz -. sq.qz)])
+        end
+      end
+      None -> 0.0
+      end
+    let next_motion =
+      match want do
+      Some(sq) -> { kept.motion with orientation: sq }
+      None -> kept.motion
+      end
+    let outcome =
+      if sinking do
+        frame_check({ scene with ball: { scene.ball with motion: { scene.ball.motion with orientation: unwrap_quat(want, q) } } }, row)
+      else
+        frame_check(scene, row)
+      end
+    {
+      rig: acc.rig,
+      kept: { kept with motion: next_motion },
+      outcomes: Cons(outcome, acc.outcomes),
+      worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end,
+      skipped: acc.skipped + count_if(sinking)
+    }
+  end
+
+  fn count_if(b : Bool) : Int do
+    if b do 1 else 0 end
   end
 
   fn unwrap_quat(q : Option(Skee.Scene.Quat), fallback : Skee.Scene.Quat) : Skee.Scene.Quat do
@@ -697,7 +903,7 @@ mod SceneSuite do
   -- Before the first recorded frame the pull finished and one idle frame put
   -- the waiting ball at the release spot: that is the last centre the roll
   -- starts from.
-  fn replayed() : Replay do
+  fn replayed() : SceneReplay do
     let w = boardwalk()
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
@@ -712,7 +918,9 @@ mod SceneSuite do
   end
 
   fn presenter_cases() : List(Case) do
-    [case("ScenePresenter.update over three real throws", fn () -> replay_outcome())]
+    [
+      case("ScenePresenter.update over three real throws", fn () -> replay_outcome())
+    ]
   end
 
   fn replay_outcome() : Outcome do
@@ -769,20 +977,81 @@ mod SceneSuite do
 
   fn clip_step(acc : (Int, Bool), op : Skee.Scene.DrawOp) : (Int, Bool) do
     match acc do
-    (d, ok) -> match op do
+    (d, ok) -> do
+      match op do
       PushClip(_) -> (d + 1, ok)
       PopClip -> (d - 1, ok && d > 0)
       _ -> (d, ok)
       end
+    end
     end
   end
 
   -- The fresh cabinet with the ball somewhere along a real path.
   fn stage_at(sample : Option(PathSample), resting : Option((PathSample, Float)), clock : Float) : Skee.Scene.Scenery do
     let w = boardwalk()
-    let bc = { sample: sample, busy: true, beat_is_roll: true, resting: resting, clock: clock, throwing: true, held: None }
-    let cue = { ball_cue: { bc with busy: no_rest(resting), beat_is_roll: no_rest(resting) }, sparks: [SparkHump, SparkDrop(Ring40)], kind: ClassicBall, anticipation: 0.0, shake: 0.0, balls_left: 8, excited: true, reel_cue: { setup: Skee.Types.standard_setup(), positions: Skee.HoleMap.fill_reels(1.0), have: [Cherry, Cherry], slot: None } }
-    let (scene, _) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+    let bc =
+      {
+        sample: sample,
+        busy: true,
+        beat_is_roll: true,
+        resting: resting,
+        clock: clock,
+        throwing: true,
+        held: None
+      }
+    let cue =
+      {
+        ball_cue: { bc with busy: no_rest(resting), beat_is_roll: no_rest(resting) },
+        sparks: [SparkHump, SparkDrop(Ring40)],
+        kind: ClassicBall,
+        anticipation: 0.0,
+        shake: 0.0,
+        balls_left: 8,
+        excited: true,
+        reel_cue: {
+          setup: Skee.Types.standard_setup(),
+          positions: Skee.HoleMap.fill_reels(1.0),
+          have: [Cherry, Cherry],
+          slot: None
+        }
+      }
+    let (scene, _) =
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+    scene
+  end
+
+  -- What a new run shows before its first pull: the ball waiting, nothing lit.
+  fn idle_stage() : Skee.Scene.Scenery do
+    let w = boardwalk()
+    let bc =
+      {
+        sample: None,
+        busy: false,
+        beat_is_roll: false,
+        resting: None,
+        clock: 0.05,
+        throwing: true,
+        held: None
+      }
+    let cue =
+      {
+        ball_cue: bc,
+        sparks: [],
+        kind: ClassicBall,
+        anticipation: 0.0,
+        shake: 0.0,
+        balls_left: 9,
+        excited: false,
+        reel_cue: {
+          setup: Skee.Types.standard_setup(),
+          positions: Skee.HoleMap.fill_reels(0.0),
+          have: [],
+          slot: None
+        }
+      }
+    let (scene, _) =
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
     scene
   end
 
@@ -799,7 +1068,8 @@ mod SceneSuite do
       ("on the lane", stage_at(Some(sample_n(1)), None, 1.0)),
       ("in the air", stage_at(Some(sample_n(4)), None, 2.0)),
       ("on the board", stage_at(Some(sample_n(6)), None, 3.0)),
-      ("sinking", stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0))
+      ("sinking", stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0)),
+      ("idle, as a new run opens", idle_stage())
     ]
   end
 
@@ -810,17 +1080,19 @@ mod SceneSuite do
       let n = List.length(ops)
       let pts = List.flat_map(ops, op_points)
       let (depth, nested) = clip_depth(ops)
-      let first_ok = match ops do
-      Cons(ClearTo(c), _) -> c.red == 255 && c.green == 233 && c.blue == 246
-      _ -> false
-      end
+      let first_ok =
+        match ops do
+        Cons(ClearTo(c), _) -> c.red == 255 && c.green == 233 && c.blue == 246
+        _ -> false
+        end
       all([expect(n > 300 && n < 2000, name ++ ": " ++ int_to_string(n) ++ " ops, want 300 to 2000"), expect(List.all(pts, fn p -> finite(p.x) && finite(p.y)), name ++ ": every point finite"), expect(List.all(ops, polys_ok), name ++ ": every polygon has 3 points"), expect(depth == 0 && nested, name ++ ": clips balanced"), expect(first_ok, name ++ ": cleared to the backdrop")])
     end
     end
   end
 
   fn sink_clip_case() : Outcome do
-    let sunk = Skee.Scene.draw(k(), stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0))
+    let sunk =
+      Skee.Scene.draw(k(), stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0))
     let rolling = Skee.Scene.draw(k(), stage_at(Some(sample_n(6)), None, 3.0))
     all([expect(clip_count(sunk) > clip_count(rolling), "a sinking ball is clipped to its hole")])
   end
@@ -859,13 +1131,34 @@ mod SceneSuite do
     all([expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Blank)) == 0, "a blank draws nothing"), expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Seven)) == 1, "a seven is one outlined glyph"), expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Cherry)) > 6, "a cherry has stems, a leaf and two fruit")])
   end
 
+  fn css_case() : Outcome do
+    let c = Skee.Scene.with_alpha(Skee.Scene.hex(3810118), 0.55)
+    all([expect_string(Skee.Scene.css(c), "rgba(58,35,70,0.550)", "css colour"), expect_string(Skee.Scene.css(Skee.Scene.hex(16777215)), "rgba(255,255,255,1)", "opaque css colour"), expect_string(Skee.Scene.css_number(112.0), "112", "whole css number"), expect_string(Skee.Scene.css_number(-3.456), "-3.46", "css number")])
+  end
+
   fn hull_case() : Outcome do
-    let h = Skee.Scene.hull([vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.5, 0.5), vec2(1.0, 1.0), vec2(0.0, 1.0)])
+    let h =
+      Skee.Scene.hull([vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.5, 0.5), vec2(1.0, 1.0), vec2(0.0, 1.0)])
     expect_int(List.length(h), 4, "hull drops the inside point")
   end
 
+  -- A new run's Presentation through the bridge: the ball waits on the lane,
+  -- one in hand and the rest in the trough.
+  fn bridge_case() : Outcome do
+    let run =
+      Skee.Reducer.new_run(k(), Skee.U64.make(0, 7), Skee.Types.standard_config(), Boardwalk, Tickets(0))
+    let p = Skee.Presentation.make(run)
+    let cue = Skee.SceneCue.frame_cue(k(), p, None)
+    let w = boardwalk()
+    let (scene, _) =
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+    let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
+    let ops = Skee.Scene.draw(k(), scene)
+    all([expect(scene.ball.place.visible, "the waiting ball shows"), expect(length3(minus(scene.ball.place.centre, spot)) < 0.000001, "at the release spot"), expect_int(scene.waiting, Skee.Reducer.balls_left(run.round) - 1, "the rest wait in the trough"), expect(List.length(cue.sparks) == 0, "no sparks yet"), expect(List.length(ops) > 300, "the cabinet draws")])
+  end
+
   fn draw_cases() : List(Case) do
-    List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case())]])
+    List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case()), case("CSS text for colours and fonts", fn () -> css_case()), case("Presentation to scene, through Skee.SceneCue", fn () -> bridge_case())]])
   end
 
   -- ---- Measured error, printed by the runner ----
@@ -879,7 +1172,7 @@ mod SceneSuite do
 
   fn proj_off(rig : Skee.Camera.Rig, row : List(String)) : List(Float) do
     match row do
-    [w, h, name, px, py] -> do
+    Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
       let l = Skee.Camera.lens(k(), rig, view_of(w, h))
       let p = Skee.Camera.pixel(k(), l, proj_point(boardwalk(), name))
       [off(p.x, px), off(p.y, py)]
@@ -890,7 +1183,7 @@ mod SceneSuite do
 
   fn lane_off(row : List(String)) : List(Float) do
     match row do
-    [r, x, s, px, py, pz] -> do
+    Cons(r, Cons(x, Cons(s, Cons(px, Cons(py, Cons(pz, Nil)))))) -> do
       let p = lane(world_of(r), fl(x), fl(s))
       [off(p.x, px), off(p.y, py), off(p.z, pz)]
     end
@@ -900,7 +1193,7 @@ mod SceneSuite do
 
   fn ball_off(row : List(String)) : List(Float) do
     match row do
-    [r, phase, x, along, height, _, cx, cy, cz, _, _, _] -> do
+    Cons(r, Cons(phase, Cons(x, Cons(along, Cons(height, Cons(_, Cons(cx, Cons(cy, Cons(cz, Cons(_, Cons(_, Cons(_, Nil)))))))))))) -> do
       let c = ball_center(world_of(r), sample_of(phase, x, along, height))
       [off(c.x, cx), off(c.y, cy), off(c.z, cz)]
     end

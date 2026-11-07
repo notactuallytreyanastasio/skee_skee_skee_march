@@ -129,7 +129,14 @@ mod Skee.Camera do
 
   -- One candidate rig's view of the three framing points: rise and depth of
   -- each. The field of view only enters afterwards, so it is the inner loop.
-  type Sighting = { near_rise : Float, near_depth : Float, hump_rise : Float, hump_depth : Float, top_rise : Float, top_depth : Float }
+  type Sighting = {
+    near_rise : Float,
+    near_depth : Float,
+    hump_rise : Float,
+    hump_depth : Float,
+    top_rise : Float,
+    top_depth : Float
+  }
 
   -- The best rig so far, with its grid indices in Swift's loop order (field of
   -- view outermost), so a tie keeps the rig Swift saw first.
@@ -182,7 +189,14 @@ mod Skee.Camera do
     let (nr, nd) = sight(f, u, eye, pts.near_point)
     let (hr, hd) = sight(f, u, eye, pts.hump_point)
     let (tr, td) = sight(f, u, eye, pts.top_point)
-    { near_rise: nr, near_depth: nd, hump_rise: hr, hump_depth: hd, top_rise: tr, top_depth: td }
+    {
+      near_rise: nr,
+      near_depth: nd,
+      hump_rise: hr,
+      hump_depth: hd,
+      top_rise: tr,
+      top_depth: td
+    }
   end
 
   pfn screen_y(k : Skee.Consts.Consts, rise : Float, depth : Float, t : Float) : Float needs () do
@@ -246,7 +260,11 @@ mod Skee.Camera do
   end
 
   pfn try_hs(k : Skee.Consts.Consts, pts : Framing, tans : List((Int, Float)), hi : Int, best : Best) : Best needs () do
-    if hi >= h_count() do best else try_hs(k, pts, tans, hi + 1, try_zs(k, pts, tans, hi, 0, best)) end
+    if hi >= h_count() do
+      best
+    else
+      try_hs(k, pts, tans, hi + 1, try_zs(k, pts, tans, hi, 0, best))
+    end
   end
 
   doc """
@@ -260,7 +278,11 @@ mod Skee.Camera do
     let tans = List.map(List.range(0, fov_count()), fn i -> (i, tan_half(k, fov_at(i))))
     let start = { err: k.infinity, fi: fov_count(), hi: 0, zi: 0, li: 0 }
     let b = try_hs(k, pts, tans, 0, start)
-    { eye: v3(0.0, h_at(b.hi), z_at(b.zi)), target: v3(0.0, pts.hump_point.y, look_at(b.li)), fov: fov_at(b.fi) }
+    {
+      eye: v3(0.0, h_at(b.hi), z_at(b.zi)),
+      target: v3(0.0, pts.hump_point.y, look_at(b.li)),
+      fov: fov_at(b.fi)
+    }
   end
 
   doc """The fitted rig for a world: Cabinet.fit(points: framingPoints)."""
@@ -308,7 +330,13 @@ mod Skee.Camera do
     let l = lens(k, rig, v)
     let x = lane_x(w, line)
     let span = w.table.lane.length
-    let pts = [lane(w, x, 0.24), lane(w, x, span), board(w, vec2(x, 0.0), 0.0), board(w, vec2(x, w.table.board.board_height -. 0.04), 0.0)]
+    let pts =
+      [
+        lane(w, x, 0.24),
+        lane(w, x, span),
+        board(w, vec2(x, 0.0), 0.0),
+        board(w, vec2(x, w.table.board.board_height -. 0.04), 0.0)
+      ]
     List.map(pts, fn p -> pixel(k, l, p))
   end
 
@@ -340,7 +368,12 @@ mod Skee.Camera do
     let fwd = lane_forward(w)
     let along = dot3(minus(across, p0), fwd)
     let max_along = lane_length(w) -. 0.03
-    let held = if along > max_along do minus(across, times(fwd, along -. max_along)) else across end
+    let held =
+      if along > max_along do
+        minus(across, times(fwd, along -. max_along))
+      else
+        across
+      end
     plus(held, times(lane_normal(w), ball_radius(w)))
   end
 
@@ -378,7 +411,8 @@ mod Skee.Camera do
   """
   fn tapped_hole(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport, tap : Vec2) : Option(Hole) needs () do
     let spots = hole_on_screen(k, w, rig, v)
-    let nearest = List.fold_left(Skee.HoleMap.reel_holes(), None, fn (acc, h) -> closer(acc, h, length(sub(Skee.HoleMap.at(spots, h), tap))))
+    let nearest =
+      List.fold_left(Skee.HoleMap.reel_holes(), None, fn (acc, h) -> closer(acc, h, length(sub(Skee.HoleMap.at(spots, h), tap))))
     match nearest do
     Some((h, d)) -> if d < 44.0 do Some(h) else None end
     None -> None
@@ -412,7 +446,11 @@ mod Skee.Camera do
     let k = shake *. 0.012
     let pos = plus(rig.eye, times(minus(focus, rig.eye), 0.2 *. lean))
     let jolt = v3(Math.sin(clock *. 71.0) *. k, Math.cos(clock *. 53.0) *. k, 0.0)
-    { eye: plus(pos, jolt), target: plus(rig.target, times(minus(focus, rig.target), 0.45 *. lean)), fov: rig.fov }
+    {
+      eye: plus(pos, jolt),
+      target: plus(rig.target, times(minus(focus, rig.target), 0.45 *. lean)),
+      fov: rig.fov
+    }
   end
 
 end

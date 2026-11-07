@@ -1,0 +1,40 @@
+mod BenchMain do
+
+  -- Times Skee.Scene per frame under node: present (the presenter step) plus
+  -- draw (the DrawOps), over the frames of a real throw from the scene goldens.
+  --   tools/scene_preview/bench.sh
+  needs IO.Console
+  needs IO.Clock
+
+  fn frame_ops(rig : Skee.Camera.Rig, keep : Skee.Scene.Keep, row : List(String)) : (Int, Skee.Scene.Keep) do
+    let k = Skee.Consts.make()
+    let w = Skee.World.make(k, Skee.Rooms.table(k, Boardwalk))
+    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), rig, Skee.Camera.viewport(390.0, 844.0), keep, SceneSuite.frame_cue(row), 1.0 /. 60.0)
+    (List.length(Skee.Scene.draw(k, scene)), kept)
+  end
+
+  fn run(rig : Skee.Camera.Rig, rows : List(List(String)), keep : Skee.Scene.Keep, most : Int) : Int do
+    match rows do
+    Nil -> most
+    Cons(row, rest) -> do
+      let (n, kept) = frame_ops(rig, keep, row)
+      run(rig, rest, kept, Math.max_int(most, n))
+    end
+    end
+  end
+
+  fn main(_c : Cap(IO.Console), _t : Cap(IO.Clock)) : () do
+    let k = Skee.Consts.make()
+    let w = Skee.World.make(k, Skee.Rooms.table(k, Boardwalk))
+    let t0 = unix_time_ms()
+    let rig = Skee.Camera.fit_world(k, w)
+    let t1 = unix_time_ms()
+    let rows = SceneSuite.rows("frame")
+    let frames = List.length(rows)
+    let most = run(rig, rows, Skee.Scene.keep_fresh(), 0)
+    let t2 = unix_time_ms()
+    println("Cabinet.fit once: " ++ int_to_string(t1 - t0) ++ " ms")
+    println(int_to_string(frames) ++ " frames, present + draw: " ++ float_to_string(int_to_float(t2 - t1) /. int_to_float(frames)) ++ " ms per frame, at most " ++ int_to_string(most) ++ " ops")
+  end
+
+end
