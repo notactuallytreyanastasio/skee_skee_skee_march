@@ -261,7 +261,8 @@ both targets. Where Swift chains operations, round after each one.
   libm rounded to Float is bit-identical to March for `frameDone` over 20000
   samples, so libm is the only cause. The suite's tolerance is 2^-22.
 - The LCG is exact Int arithmetic: `seed * 1664525 + 1013904223` stays below 2^53.
-- `make test-synth` takes about a minute: most of it is compiling the golden.
+- `make test-synth` takes about a minute: the native runner (`--opt 0`) runs for
+  46 s, node for 4 s.
 - Speed, `tools/synth_bench/run.sh` (M-series Mac, node 26), per `render(128)`
   call (budget 2902 us): idle 19 us, 9 voices 116 us, 48 voices 196 us on node
   (7% of real time); native 27, 251, 292 us. `render(44100)` with 48 voices:
