@@ -508,8 +508,51 @@ mod MetaSuite do
     end
   end
 
-  -- Swift writes these with one room and no comps, so there is one order and
-  -- the encoder must reproduce the file byte for byte.
+  -- Swift writes these with one room and no comps. The one thing whose order
+  -- Swift does not fix is the meters, a [JackpotTier: Int] written in
+  -- Dictionary order, which Swift seeds per process: any of 24 orders is a file
+  -- Swift could write. So the meter pairs are compared as a set, the rest byte
+  -- for byte, and March's own order is pinned to the tier order.
+  fn pairs_go(xs : List(String), acc : List(String)) : List(String) do
+    match xs do
+    Cons(a, Cons(b, rest)) -> pairs_go(rest, Cons(a ++ "," ++ b, acc))
+    Cons(a, Nil) -> List.reverse(Cons(a, acc))
+    Nil -> List.reverse(acc)
+    end
+  end
+
+  fn meters_split(text : String) : Option((String, String, String)) do
+    match String.split_first(text, "\"meters\":[") do
+    None -> None
+    Some((before, after)) -> do
+      match String.split_first(after, "]") do
+      None -> None
+      Some((inside, rest)) -> Some((before, inside, rest))
+      end
+    end
+    end
+  end
+
+  fn meters_as_set(text : String) : String do
+    match meters_split(text) do
+    None -> text
+    Some((before, inside, rest)) -> do
+      let pairs = List.sort_by(pairs_go(String.split(inside, ","), []), fn (a, b) -> a <= b)
+      before ++ "\"meters\":{" ++ String.join(pairs, ";") ++ "}" ++ rest
+    end
+    end
+  end
+
+  fn meters_in_tier_order(text : String) : Outcome do
+    match meters_split(text) do
+    None -> Mismatch("no meters in " ++ text)
+    Some((_, inside, _)) -> do
+      let order = String.join(List.map(pairs_go(String.split(inside, ","), []), fn p -> Tuple.first(Option.unwrap_or(String.split_first(p, ","), ("", "")))), ",")
+      expect_string(order, "\"mini\",\"minor\",\"major\",\"grand\"", "March writes the meters in tier order")
+    end
+    end
+  end
+
   fn wallet_bytes_row(row : List(String)) : Option(Outcome) do
     match row do
     Cons(label, Cons(json, _)) -> do
@@ -525,7 +568,10 @@ mod MetaSuite do
 
   fn same_bytes(label : String, text : String) : Outcome do
     match Skee.Save.decode_wallet(text) do
-    Ok(w) -> expect_string(Skee.Save.encode_wallet(w), text, label ++ " bytes")
+    Ok(w) -> do
+      let mine = Skee.Save.encode_wallet(w)
+      all([expect_string(meters_as_set(mine), meters_as_set(text), label ++ " bytes"), meters_in_tier_order(mine)])
+    end
     Err(e) -> Mismatch(label ++ ": " ++ Skee.Save.describe(e))
     end
   end
@@ -973,9 +1019,25 @@ mod MetaSuite do
     all([expect_string(tips_token(t0.tips_seen), "fever", "a set from the store"), expect_tip(t1.tip_showing, Some(TipCombo), "first card"), expect(t1.since_tip == BallsSince(0), "the gap restarts"), expect_tip(t2.tip_showing, Some(TipCombo), "one card at a time"), expect(t2.since_tip == BallsSince(1), "a throw counts"), expect_tip(t3.tip_showing, None, "a card that can wait waits for the gap"), expect(t3.since_tip == BallsSince(2), "two throws"), expect_tip(t4.tip_showing, Some(TipJackpot), "a jackpot does not wait"), expect_string(tips_token(t4.tips_seen), "combo,fever,jackpot", "seen grows")])
   end
 
+  -- GameModel.send: `if case .throwBall = action { sinceTip += 1 }`, and no
+  -- other action counts.
+  fn only_throws_count_toward_the_gap() : Outcome do
+    let t0 = { tips_seen: Skee.Walkthrough.all_tips(), since_tip: BallsSince(2), tip_showing: None }
+    let after_foul = Skee.Walkthrough.track(t0, CommitFoul, step_of_events([Fouled]))
+    let after_pull =
+      Skee.Walkthrough.track(after_foul, PullLever(BetOne), step_of_events([]))
+    let after_rest =
+      List.fold_left([ChooseBall(ClassicBall), Arm(0), Buy(0, None), Reroll, Sell(0), LeaveCounter], after_pull, fn (t, a) -> Skee.Walkthrough.track(t, a, step_of_events([])))
+    let after_throw =
+      Skee.Walkthrough.track(after_rest, throw_at(0.5), step_of_events([]))
+    let never = Skee.Walkthrough.track(Skee.Walkthrough.new_tracker(Skee.Walkthrough.all_tips()), throw_at(0.5), step_of_events([]))
+    all([expect(after_foul.since_tip == BallsSince(2), "a foul is not a throw"), expect(after_pull.since_tip == BallsSince(2), "a pull is not a throw"), expect(after_rest.since_tip == BallsSince(2), "nor is anything at the counter"), expect(after_throw.since_tip == BallsSince(3), "a throw counts"), expect(never.since_tip == NoTipYet, "Int.max stays Int.max")])
+  end
+
   fn tracker_cases() : List(Case) do
     [
-      case("tips: one card at a time, the gap counted in throws", fn () -> tracker_counts_balls_and_shows_one_tip())
+      case("tips: one card at a time, the gap counted in throws", fn () -> tracker_counts_balls_and_shows_one_tip()),
+      case("tips: only a thrown ball counts toward the gap", fn () -> only_throws_count_toward_the_gap())
     ]
   end
 
@@ -1278,7 +1340,7 @@ mod MetaSuite do
 
   fn deep_nesting_is_refused() : Outcome do
     let deep = nest(5000, "")
-    let deep_object = "{\"balance\":" ++ nest(40, "") ++ "1"
+    let deep_object = "{\"balance\":" ++ nest(512, "") ++ "1"
     all([expect(err_is(Skee.Save.decode_wallet(deep), SaveTooDeep), "wallet"), expect(err_is(Skee.Save.decode_tips(deep), SaveTooDeep), "tips"), expect(err_is(Skee.Save.decode_wallet(deep_object), SaveTooDeep), "inside an object"), expect(err_is(Skee.Save.decode_wallet("{\"balance\":\"[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[\",\"lifetime\":1,\"owned\":[]}"), SaveWrongType("balance")), "brackets inside a string are text")])
   end
 
@@ -1311,7 +1373,14 @@ mod MetaSuite do
     let w = Skee.Save.bank_step(Skee.Rooms.empty_wallet(), lost)
     let pulled_w =
       Skee.Save.bank_step(Skee.Rooms.empty_wallet(), { run: s, step_events: [Pulled({ stops: Three(0, 0, 0), bet: BetFive, free: false, pull_room: Boardwalk })] })
-    all([expect_int(Skee.Units.winnings_int(w.balance), 40, "400 / 20 + 20"), expect_int(w.games_since_host, 1, "a game played"), expect_int(Skee.Units.winnings_int(Skee.Scoring.amount(pulled_w.progressive, Mini)), 54, "a pull feeds the meters")])
+    let won =
+      {
+        run: { s with stats: { s.stats with points: Points(400), rounds_cleared: 8 } },
+        step_events: [RunWon]
+      }
+    let ww = Skee.Save.bank_step({ Skee.Rooms.empty_wallet() with balance: Winnings(3), lifetime: Winnings(3) }, won)
+    let idle = Skee.Save.bank_step(Skee.Rooms.empty_wallet(), { run: s, step_events: [Fouled, FeverLit, CounterOpened] })
+    all([expect_int(Skee.Units.winnings_int(w.balance), 40, "400 / 20 + 20"), expect_int(w.games_since_host, 1, "a game played"), expect_int(Skee.Units.winnings_int(ww.balance), 3 + 400 / 20 + 8 * 20 + 500, "a won run pays winnings(won: true)"), expect_int(Skee.Units.winnings_int(ww.lifetime), 3 + 680, "and counts toward lifetime"), expect_int(ww.games_since_host, 1, "a won game is a game played"), expect_int(Skee.Units.winnings_int(idle.balance), 0, "nothing else pays"), expect_int(idle.games_since_host, 0, "nothing else is a game"), expect_int(Skee.Units.winnings_int(Skee.Scoring.amount(pulled_w.progressive, Mini)), 54, "a pull feeds the meters")])
   end
 
   fn save_property_cases() : List(Case) do

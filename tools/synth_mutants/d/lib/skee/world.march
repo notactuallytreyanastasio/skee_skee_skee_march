@@ -1,0 +1,166 @@
+mod Skee.World do
+
+  -- Physics coordinates to scene coordinates (SkeeScene/World.swift). Metres,
+  -- y up, the player stands at +z looking down -z.
+  --
+  -- The lane rises at its physical incline. The board is drawn steeper than
+  -- the physics' 20 degrees so the rings face the player, the way a real
+  -- target stands up at the end of the alley; positions on it map one to one
+  -- in board coordinates, so the ball is always where the physics says.
+  --
+  -- Swift computes in Float (32-bit); this port computes in Float (64-bit).
+  -- The scene suite compares against Swift with a stated tolerance.
+  cap pure
+
+  import Skee.Maths
+
+  -- A point or direction in scene space.
+  type Vec3 = { x : Float, y : Float, z : Float }
+
+  derive Show for Vec3
+
+  -- The drawing constants of World.swift, with the sines and cosines of the
+  -- two angles worked out once, since every mapping needs them.
+  type World = {
+    table : Table,
+    board_tilt : Float,
+    hump_height : Float,
+    lane_scale : Float,
+    board_scale : Float,
+    incline_sin : Float,
+    incline_cos : Float,
+    tilt_sin : Float,
+    tilt_cos : Float
+  }
+
+  fn v3(x : Float, y : Float, z : Float) : Vec3 needs () do
+    { x: x, y: y, z: z }
+  end
+
+  fn origin() : Vec3 needs () do
+    v3(0.0, 0.0, 0.0)
+  end
+
+  fn plus(a : Vec3, b : Vec3) : Vec3 needs () do
+    { x: a.x +. b.x, y: a.y +. b.y, z: a.z +. b.z }
+  end
+
+  fn minus(a : Vec3, b : Vec3) : Vec3 needs () do
+    { x: a.x -. b.x, y: a.y -. b.y, z: a.z -. b.z }
+  end
+
+  fn times(a : Vec3, k : Float) : Vec3 needs () do
+    { x: a.x *. k, y: a.y *. k, z: a.z *. k }
+  end
+
+  fn dot3(a : Vec3, b : Vec3) : Float needs () do
+    a.x *. b.x +. a.y *. b.y +. a.z *. b.z
+  end
+
+  fn cross(a : Vec3, b : Vec3) : Vec3 needs () do
+    { x: a.y *. b.z -. a.z *. b.y, y: a.z *. b.x -. a.x *. b.z, z: a.x *. b.y -. a.y *. b.x }
+  end
+
+  fn length3(a : Vec3) : Float needs () do
+    Math.sqrt(dot3(a, a))
+  end
+
+  doc """simd_normalize. The zero vector stays zero rather than becoming NaN."""
+  fn unit(a : Vec3) : Vec3 needs () do
+    let l = length3(a)
+    if l == 0.0 do a else times(a, 1.0 /. l) end
+  end
+
+  doc """a + (b - a) * t."""
+  fn mix3(a : Vec3, b : Vec3, t : Float) : Vec3 needs () do
+    plus(a, times(minus(b, a), t))
+  end
+
+  doc """World(table:) with World.swift's defaults."""
+  fn make(k : Skee.Consts.Consts, t : Table) : World needs () do
+    let tilt = degrees(k, 50.0)
+    let incline = t.lane.incline
+    {
+      table: t,
+      board_tilt: tilt,
+      hump_height: 0.035,
+      lane_scale: 0.42,
+      board_scale: 1.55,
+      incline_sin: Math.sin(incline),
+      incline_cos: Math.cos(incline),
+      tilt_sin: Math.sin(tilt),
+      tilt_cos: Math.cos(tilt)
+    }
+  end
+
+  doc """The lane as drawn: shorter than the physics' lane, see lane_scale."""
+  fn lane_length(w : World) : Float needs () do
+    w.table.lane.length *. w.lane_scale
+  end
+
+  fn ball_radius(w : World) : Float needs () do
+    w.table.board.ball_radius
+  end
+
+  fn lane_normal(w : World) : Vec3 needs () do
+    v3(0.0, w.incline_cos, w.incline_sin)
+  end
+
+  fn lane_forward(w : World) : Vec3 needs () do
+    v3(0.0, w.incline_sin, -w.incline_cos)
+  end
+
+  doc """Point on the lane surface: x across, s up the lane in physics metres."""
+  fn lane(w : World, x : Float, s : Float) : Vec3 needs () do
+    plus(v3(x, 0.0, 0.0), times(lane_forward(w), s *. w.lane_scale))
+  end
+
+  fn board_origin(w : World) : Vec3 needs () do
+    plus(lane(w, 0.0, w.table.lane.length), times(lane_normal(w), w.hump_height))
+  end
+
+  fn board_up(w : World) : Vec3 needs () do
+    v3(0.0, w.tilt_sin, -w.tilt_cos)
+  end
+
+  fn board_normal(w : World) : Vec3 needs () do
+    v3(0.0, w.tilt_cos, w.tilt_sin)
+  end
+
+  doc """Point on (z = 0) or above the board, from board coordinates."""
+  fn board(w : World, p : Vec2, z : Float) : Vec3 needs () do
+    let local = plus(plus(v3(p.x, 0.0, 0.0), times(board_up(w), p.y)), times(board_normal(w), z))
+    plus(board_origin(w), times(local, w.board_scale))
+  end
+
+  doc """
+  Drawn ball size at a sample: real size on the lane, growing to the board's
+  scale over the first 15 cm past the ridge so the ball stays in proportion
+  with the holes it drops into.
+  """
+  fn ball_scale(w : World, s : PathSample) : Float needs () do
+    let past = max_float(0.0, s.along -. w.table.lane.length)
+    1.0 +. (w.board_scale -. 1.0) *. min_float(1.0, past /. 0.15)
+  end
+
+  doc """Ball centre for a recorded sample."""
+  fn ball_center(w : World, s : PathSample) : Vec3 needs () do
+    let l = w.table.lane.length
+    if s.along <= l do
+      plus(lane(w, s.px, s.along), times(lane_normal(w), ball_radius(w)))
+    else
+      plus(board(w, vec2(s.px, s.along -. l), s.height), times(board_normal(w), ball_radius(w) *. ball_scale(w, s)))
+    end
+  end
+
+  doc """The surface normal under a sample, for rolling."""
+  fn surface_normal(w : World, s : PathSample) : Vec3 needs () do
+    if s.along <= w.table.lane.length do lane_normal(w) else board_normal(w) end
+  end
+
+  doc """Drawn radius of a ring hole: a touch bigger than the ball (Shapes.swift)."""
+  fn ring_hole_visual() : Float needs () do
+    0.033
+  end
+
+end

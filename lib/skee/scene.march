@@ -903,9 +903,16 @@ mod Skee.Scene do
 
   pfn rolled(w : World, m : Motion, b : BallPlace, d : Vec3, dt : Float) : Motion needs () do
     let dist = length3(d)
-    if b.airborne == false && dist > 0.00001 && dist < 0.5 do
+    let across = cross(b.normal, d)
+    -- Sinking straight into a hole moves along the normal: Swift normalises a
+    -- cross product of rounding noise there and spins the ball at random. A
+    -- move with no part across the surface does not roll it here.
+    let straight_down = length3(across) <= dist *. 0.000001
+    if b.airborne == false && dist > 0.00001 && dist < 0.5 && straight_down do
+      m
+    else if b.airborne == false && dist > 0.00001 && dist < 0.5 do
       do
-        let axis = unit(cross(b.normal, d))
+        let axis = unit(across)
         let angle = dist /. (ball_radius(w) *. b.scale)
         let o = quat_mul(quat_axis(angle, axis), m.orientation)
         let spin = if dt > 1.0 /. 400.0 do plus(times(m.spin, 0.6), times(axis, angle /. dt *. 0.4)) else m.spin end
@@ -920,7 +927,7 @@ mod Skee.Scene do
           m
         end
       end
-    end
+    end end
   end
 
   doc """The shadow on the surface under the ball: smaller and fainter the higher it flies."""

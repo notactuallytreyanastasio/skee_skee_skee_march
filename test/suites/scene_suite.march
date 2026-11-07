@@ -650,17 +650,48 @@ mod SceneSuite do
     end
   end
 
-  type Replay = { kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float }
+  -- The roll is checked one frame at a time: each frame starts from Swift's
+  -- orientation of the frame before. Where the ball sinks straight into a
+  -- hole Swift's roll axis is rounding noise (see Skee.Scene.rolled), so those
+  -- frames are not compared for orientation and are counted instead.
+  type Replay = { kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float, skipped : Int }
+
+  fn swift_orientation(row : List(String)) : Option(Skee.Scene.Quat) do
+    match List.drop(row, 23) do
+    Cons(qr, Cons(qx, Cons(qy, Cons(qz, _)))) -> Some({ qw: fl(qr), qx: fl(qx), qy: fl(qy), qz: fl(qz) })
+    _ -> None
+    end
+  end
 
   fn replay_step(acc : Replay, row : List(String)) : Replay do
     let w = boardwalk()
     let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
     let q = scene.ball.motion.orientation
-    let off_q = match List.drop(row, 23) do
-    Cons(qr, Cons(qx, Cons(qy, Cons(qz, _)))) -> worst([off(q.qw, qr), off(q.qx, qx), off(q.qy, qy), off(q.qz, qz)])
-    _ -> 0.0
+    let sinking = scene.ball.place.sink > 0.0 && scene.ball.place.visible
+    let want = swift_orientation(row)
+    let off_q = match want do
+    Some(sq) -> if sinking do 0.0 else worst([Math.abs(q.qw -. sq.qw), Math.abs(q.qx -. sq.qx), Math.abs(q.qy -. sq.qy), Math.abs(q.qz -. sq.qz)]) end
+    None -> 0.0
     end
-    { kept: kept, outcomes: Cons(frame_check(scene, row), acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end }
+    let next_motion = match want do
+    Some(sq) -> { kept.motion with orientation: sq }
+    None -> kept.motion
+    end
+    let outcome = if sinking do frame_check({ scene with ball: { scene.ball with motion: { scene.ball.motion with orientation: unwrap_quat(want, q) } } }, row) else frame_check(scene, row) end
+    { kept: { kept with motion: next_motion }, outcomes: Cons(outcome, acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end, skipped: acc.skipped + (if sinking do 1 else 0 end) }
+  end
+
+  fn unwrap_quat(q : Option(Skee.Scene.Quat), fallback : Skee.Scene.Quat) : Skee.Scene.Quat do
+    match q do
+    Some(x) -> x
+    None -> fallback
+    end
+  end
+
+  doc """Frames whose roll is Swift's rounding noise, not compared."""
+  fn noise_frames() : Int do
+    let r = replayed()
+    r.skipped
   end
 
   -- Before the first recorded frame the pull finished and one idle frame put
@@ -671,7 +702,7 @@ mod SceneSuite do
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
     let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
-    List.fold_left(rows("frame"), { kept: start, outcomes: [], worst_spin: 0.0 }, replay_step)
+    List.fold_left(rows("frame"), { kept: start, outcomes: [], worst_spin: 0.0, skipped: 0 }, replay_step)
   end
 
   doc """Worst quaternion component error over the replay."""

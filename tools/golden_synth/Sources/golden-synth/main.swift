@@ -215,6 +215,14 @@ for _ in 0..<1000 {
 for x in [0.0, -0.0, 1.0, -1.0, 0.0008, 0.035, 0.9, 0.055, 0.0001, 0.003, 1.0 / 44100, Double.pi, 2.76, 1.0595, 1.06] {
     g.line("fround", f64(x), f64(Double(Float(x))))
 }
+// Float's overflow threshold: 2^128 - 2^103 is halfway past greatestFiniteMagnitude,
+// so it and everything above go to infinity; the double just below stays finite.
+let overflow = Double(Float.greatestFiniteMagnitude) + Double(Float.greatestFiniteMagnitude.ulp) / 2
+for x in [Double(Float.greatestFiniteMagnitude), overflow.nextDown, overflow, overflow.nextUp, 1e39, 1e300,
+          Double.greatestFiniteMagnitude, Double.infinity] {
+    g.line("fround", f64(x), f64(Double(Float(x))))
+    g.line("fround", f64(-x), f64(Double(Float(-x))))
+}
 // Swift rounds Float.pi toward zero, not to nearest.
 g.line("floatpi", f64(Double(Float.pi)))
 for _ in 0..<3000 {

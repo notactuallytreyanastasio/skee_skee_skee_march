@@ -306,8 +306,9 @@ mod Skee.Save do
     end
   end
 
+  doc """How deep Swift's JSONDecoder still reads: 512 levels, the 513th is refused (golden rows deepArrays512, deepArrays513)."""
   pfn deepest() : Int needs () do
-    32
+    512
   end
 
   -- Json.parse recurses once per level and overflows the stack on a few
@@ -345,15 +346,235 @@ mod Skee.Save do
     end
   end
 
-  doc """Parse JSON text, refusing anything nested deeper than any save is."""
+  pfn is_space(c : Int) : Bool needs () do
+    c == 32 || c == 9 || c == 10 || c == 13
+  end
+
+  -- ---- Reading JSON as Swift's JSONDecoder reads it ----
+  -- Two differences between Json.parse and Swift's decoder are bridged here,
+  -- in one tail-recursive pass, before Json.parse sees the text:
+  --   * Swift reads a trailing comma, `[1,]` and `{"a":1,}`; Json.parse does
+  --     not. Each comma that closes a list or object right after a value is
+  --     dropped.
+  --   * Swift reads 512 levels. Json.parse recurses per level and overflows a
+  --     native stack at a few hundred (tools/repros/json_depth_probe). No
+  --     decoder here looks below level 6, so every container below
+  --     `kept_depth()` is checked in this pass, bracket by bracket and leaf by
+  --     leaf, and then handed on as an empty one of the same kind. A decoder
+  --     sees only a value's kind at that depth, so nothing it reads changes.
+  -- Anything this pass does not understand above that depth is left for
+  -- Json.parse to judge, so it refuses exactly what it refused before.
+  type JsonWant =
+    WantTop
+    | WantEnd
+    | WantArrayValue
+    | WantKey
+    | WantColon
+    | WantObjectValue
+    | WantAfter
+
+  derive Show for JsonWant
+
+  -- `open` holds the bracket bytes of the containers we are in, innermost
+  -- first, and `depth` its length. `pruned_at` is the depth of the container
+  -- being checked and dropped, or -1. `pieces` (reversed) and `copy_from` are
+  -- the text kept so far. `comma` is the offset of a comma not yet known to
+  -- separate, or -1.
+  type JsonScan = {
+    scan_at : Int,
+    want : JsonWant,
+    open : List(Int),
+    depth : Int,
+    pruned_at : Int,
+    pieces : List(String),
+    copy_from : Int,
+    comma : Int
+  }
+
+  derive Show for JsonScan
+
+  doc """The deepest container passed to Json.parse whole. Saves go 5 deep."""
+  pfn kept_depth() : Int needs () do
+    16
+  end
+
+  pfn skip_space(s : String, i : Int) : Int needs () do
+    if is_space(string_byte_at(s, i)) do skip_space(s, i + 1) else i end
+  end
+
+  -- The offset just past the closing quote, or -1 if the string never ends.
+  pfn string_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      -1
+    else
+      if c == 92 do string_end(s, i + 2) else if c == 34 do i + 1 else string_end(s, i + 1) end end
+    end
+  end
+
+  pfn is_token_byte(c : Int) : Bool needs () do
+    c >= 48 && c <= 57 || c >= 97 && c <= 122 || c >= 65 && c <= 90 || c == 43 || c == 45 || c == 46
+  end
+
+  -- The end of a number or a literal (true, false, null).
+  pfn token_end(s : String, i : Int) : Int needs () do
+    if is_token_byte(string_byte_at(s, i)) do token_end(s, i + 1) else i end
+  end
+
+  pfn kept_text(s : String, st : JsonScan) : String needs () do
+    String.join(List.reverse(Cons(String.slice_bytes(s, st.copy_from, string_byte_length(s) - st.copy_from), st.pieces)), "")
+  end
+
+  -- Inside a dropped container a fault is ours to report; above it, Json.parse
+  -- judges the text as it stands.
+  pfn scan_fault(s : String, st : JsonScan, why : String) : Result(String, SaveError) needs () do
+    if st.pruned_at > 0 do Err(SaveNotJson(why)) else Ok(kept_text(s, st)) end
+  end
+
+  pfn after_value(open : List(Int)) : JsonWant needs () do
+    match open do
+    Nil -> WantEnd
+    Cons(_, _) -> WantAfter
+    end
+  end
+
+  pfn scan_leaf(s : String, st : JsonScan, i : Int, e : Int, next : JsonWant) : Result(String, SaveError) needs () do
+    if e <= i do
+      scan_fault(s, st, "unexpected character at byte " ++ int_to_string(i))
+    else
+      if st.pruned_at > 0 do
+        match Json.parse(String.slice_bytes(s, i, e - i)) do
+        Ok(_) -> scan_go(s, { st with scan_at: e, want: next, comma: -1 })
+        Err(why) -> Err(SaveNotJson(why))
+        end
+      else
+        scan_go(s, { st with scan_at: e, want: next, comma: -1 })
+      end
+    end
+  end
+
+  pfn scan_open(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
+    let depth = st.depth + 1
+    let want = if c == 91 do WantArrayValue else WantKey end
+    let opened = { st with scan_at: i + 1, want: want, open: Cons(c, st.open), depth: depth, comma: -1 }
+    if st.pruned_at < 0 && depth > kept_depth() do
+      let empty = if c == 91 do "[]" else "{}" end
+      let kept = Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ empty, st.pieces)
+      scan_go(s, { opened with pruned_at: depth, pieces: kept })
+    else
+      scan_go(s, opened)
+    end
+  end
+
+  pfn scan_value(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
+    if c == 91 || c == 123 do
+      scan_open(s, st, i, c)
+    else
+      if c == 34 do
+        scan_leaf(s, st, i, string_end(s, i + 1), after_value(st.open))
+      else
+        scan_leaf(s, st, i, token_end(s, i), after_value(st.open))
+      end
+    end
+  end
+
+  pfn closes(top : Int, c : Int) : Bool needs () do
+    top == 91 && c == 93 || top == 123 && c == 125
+  end
+
+  pfn scan_closed(s : String, st : JsonScan, i : Int, rest : List(Int)) : Result(String, SaveError) needs () do
+    let trimmed =
+      if st.comma >= 0 && st.pruned_at < 0 do
+        { st with pieces: Cons(String.slice_bytes(s, st.copy_from, st.comma - st.copy_from), st.pieces), copy_from: st.comma + 1 }
+      else
+        st
+      end
+    let depth = st.depth - 1
+    let closed =
+      { trimmed with scan_at: i + 1, want: after_value(rest), open: rest, depth: depth, comma: -1 }
+    if st.pruned_at > 0 && depth < st.pruned_at do
+      scan_go(s, { closed with pruned_at: -1, copy_from: i + 1 })
+    else
+      scan_go(s, closed)
+    end
+  end
+
+  pfn scan_close(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
+    match st.open do
+    Nil -> scan_fault(s, st, "unbalanced close at byte " ++ int_to_string(i))
+    Cons(top, rest) -> do
+      if closes(top, c) do scan_closed(s, st, i, rest) else scan_fault(s, st, "mismatched close at byte " ++ int_to_string(i)) end
+    end
+    end
+  end
+
+  pfn scan_after(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
+    if c == 44 do
+      let next = match st.open do
+        Cons(91, _) -> WantArrayValue
+        Cons(_, _) -> WantKey
+        Nil -> WantEnd
+        end
+      scan_go(s, { st with scan_at: i + 1, want: next, comma: i })
+    else
+      if c == 93 || c == 125 do scan_close(s, st, i, c) else scan_fault(s, st, "expected , or a close at byte " ++ int_to_string(i)) end
+    end
+  end
+
+  pfn scan_byte(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
+    match st.want do
+    WantTop -> scan_value(s, st, i, c)
+    WantObjectValue -> scan_value(s, st, i, c)
+    WantArrayValue -> if c == 93 do scan_close(s, st, i, c) else scan_value(s, st, i, c) end
+    WantKey -> do
+      if c == 125 do
+        scan_close(s, st, i, c)
+      else
+        if c == 34 do scan_leaf(s, st, i, string_end(s, i + 1), WantColon) else scan_fault(s, st, "expected a key at byte " ++ int_to_string(i)) end
+      end
+    end
+    WantColon -> do
+      if c == 58 do scan_go(s, { st with scan_at: i + 1, want: WantObjectValue }) else scan_fault(s, st, "expected : at byte " ++ int_to_string(i)) end
+    end
+    WantAfter -> scan_after(s, st, i, c)
+    WantEnd -> scan_fault(s, st, "text after the value at byte " ++ int_to_string(i))
+    end
+  end
+
+  pfn scan_go(s : String, st : JsonScan) : Result(String, SaveError) needs () do
+    let i = skip_space(s, st.scan_at)
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      match st.want do
+      WantEnd -> Ok(kept_text(s, st))
+      WantTop -> scan_fault(s, st, "unexpected end")
+      WantArrayValue -> scan_fault(s, st, "unexpected end")
+      WantKey -> scan_fault(s, st, "unexpected end")
+      WantColon -> scan_fault(s, st, "unexpected end")
+      WantObjectValue -> scan_fault(s, st, "unexpected end")
+      WantAfter -> scan_fault(s, st, "unexpected end")
+      end
+    else
+      scan_byte(s, st, i, c)
+    end
+  end
+
+  doc """The text Json.parse is given: trailing commas dropped, containers deeper than `kept_depth()` checked and emptied. Err only for a fault inside an emptied container."""
+  fn for_json_parse(s : String) : Result(String, SaveError) needs () do
+    scan_go(s, { scan_at: 0, want: WantTop, open: [], depth: 0, pruned_at: -1, pieces: [], copy_from: 0, comma: -1 })
+  end
+
+  doc """Parse JSON text as Swift's JSONDecoder reads it, refusing anything nested deeper than it reads."""
   fn parse(text : String) : Result(JsonValue, SaveError) needs () do
     if !depth_ok(text, 0, 0, false) do
       Err(SaveTooDeep)
     else
-      match Json.parse(text) do
-      Ok(v) -> Ok(v)
-      Err(why) -> Err(SaveNotJson(why))
-      end
+      bind(for_json_parse(text), fn kept ->
+        match Json.parse(kept) do
+        Ok(v) -> Ok(v)
+        Err(why) -> Err(SaveNotJson(why))
+        end
+      )
     end
   end
 
@@ -814,12 +1035,24 @@ mod Skee.Save do
     end
   end
 
-  doc """One Action: an object with exactly one key, the case name."""
+  pfn is_case_name(name : String) : Bool needs () do
+    List.any(["pull", "throwBall", "foul", "chooseBall", "arm", "buy", "reroll", "sell", "leaveCounter"], fn n -> n == name)
+  end
+
+  pfn unknown_case(f : List((String, JsonValue)), path : String) : Result(Action, SaveError) needs () do
+    match f do
+    Cons((name, _), Nil) -> Err(SaveUnknownName(path, name))
+    Nil -> Err(SaveWrongType(path))
+    Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))
+    end
+  end
+
+  doc """One Action: an object with exactly one key that names a case. As in Swift's synthesized decoding, keys that name no case are not counted."""
   fn action_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Action, SaveError) needs () do
     bind(object_of(v, path), fn f ->
-      match f do
+      match List.filter(f, fn kv -> is_case_name(Tuple.first(kv))) do
       Cons((name, payload_value), Nil) -> case_of(k, name, payload_value, path)
-      Nil -> Err(SaveWrongType(path))
+      Nil -> unknown_case(f, path)
       Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))
       end
     )

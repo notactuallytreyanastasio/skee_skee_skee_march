@@ -1,0 +1,39 @@
+mod JsonDepthProbe do
+
+  -- How deep Json.parse goes before the stack runs out, on each target, for
+  -- well-formed nesting ([[...]] and {"a":{"a":...}}).
+  --   march --compile --opt 0 -o $SCRATCH/jdp probe.march && $SCRATCH/jdp
+  --   march --target js -o $SCRATCH/jdp.mjs probe.march && node $SCRATCH/jdp.mjs
+  needs IO.Console
+
+  fn arrays(n : Int) : String do
+    String.repeat("[", n) ++ String.repeat("]", n)
+  end
+
+  fn objects(n : Int) : String do
+    String.repeat("{\"a\":", n) ++ "1" ++ String.repeat("}", n)
+  end
+
+  fn try_depth(label : String, text : String) : () do
+    match Json.parse(text) do
+    Ok(_) -> println(label ++ " parsed")
+    Err(e) -> println(label ++ " refused: " ++ e)
+    end
+  end
+
+  fn each(ns : List(Int)) : () do
+    match ns do
+    Nil -> ()
+    Cons(n, rest) -> do
+      try_depth("arrays " ++ int_to_string(n), arrays(n))
+      try_depth("objects " ++ int_to_string(n), objects(n))
+      each(rest)
+    end
+    end
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    each([64, 128, 256, 512, 1024])
+  end
+
+end

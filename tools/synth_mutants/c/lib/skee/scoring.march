@@ -1,0 +1,795 @@
+mod Skee.Scoring do
+
+  -- The scoring piece, ported from Scoring/*.swift: reel symbols and paylines,
+  -- the cabinet's board setup, the top slot, the pull machine, the progressive
+  -- meters and the frame scorer. Pure throughout: a draw takes the Rng and
+  -- returns it, and nothing here reads a clock.
+  cap pure
+
+  -- ---- Symbols ----
+  doc """Paid per symbol whether or not it matches: cherries, like a real slot."""
+  fn flat_chips(s : Symbol) : Chips needs () do
+    match s do
+    Cherry -> Chips(10)
+    Blank -> Chips(0)
+    Lemon -> Chips(0)
+    Bell -> Chips(0)
+    BarSym -> Chips(0)
+    Seven -> Chips(0)
+    Diamond -> Chips(0)
+    Clover -> Chips(0)
+    end
+  end
+
+  fn pair_mult(s : Symbol) : Float needs () do
+    match s do
+    Blank -> 0.0
+    Cherry -> 1.0
+    Lemon -> 1.0
+    Bell -> 2.0
+    BarSym -> 2.0
+    Clover -> 2.0
+    Seven -> 3.0
+    Diamond -> 4.0
+    end
+  end
+
+  fn triple_mult(s : Symbol) : Float needs () do
+    match s do
+    Blank -> 0.0
+    Cherry -> 3.0
+    Lemon -> 3.0
+    Bell -> 4.0
+    BarSym -> 5.0
+    Clover -> 5.0
+    Seven -> 10.0
+    Diamond -> 12.0
+    end
+  end
+
+  doc """Clover stands in for any symbol except blank."""
+  fn is_wild(s : Symbol) : Bool needs () do
+    match s do
+    Clover -> true
+    Blank -> false
+    Cherry -> false
+    Lemon -> false
+    Bell -> false
+    BarSym -> false
+    Seven -> false
+    Diamond -> false
+    end
+  end
+
+  -- Neither blank nor wild: a symbol a line can be made of.
+  pfn is_real(s : Symbol) : Bool needs () do
+    match s do
+    Blank -> false
+    Clover -> false
+    Cherry -> true
+    Lemon -> true
+    Bell -> true
+    BarSym -> true
+    Seven -> true
+    Diamond -> true
+    end
+  end
+
+  -- ---- Paylines ----
+  fn added_mult(p : Payline) : Float needs () do
+    match p do
+    NoLine -> 0.0
+    Pair(s) -> pair_mult(s)
+    Triple(s) -> triple_mult(s)
+    end
+  end
+
+  pfn count_where(xs : List(a), pred : a -> Bool) : Int needs () do
+    List.length(List.filter(xs, pred))
+  end
+
+  pfn line_of(s : Symbol, matched : Int) : Payline needs () do
+    if matched >= 3 do
+      Triple(s)
+    else
+      if matched == 2 do Pair(s) else NoLine end
+    end
+  end
+
+  pfn wild_line(wilds : Int) : Payline needs () do
+    if wilds >= 3 do
+      Triple(Clover)
+    else
+      if wilds == 2 do Pair(Clover) else NoLine end
+    end
+  end
+
+  -- Swift's (count, tripleMult) tuple order.
+  pfn outranks(a : (Symbol, Int), b : (Symbol, Int)) : Bool needs () do
+    let (a_symbol, a_count) = a
+    let (b_symbol, b_count) = b
+    a_count > b_count || a_count == b_count && triple_mult(a_symbol) > triple_mult(b_symbol)
+  end
+
+  doc """
+  The best line the symbols make. Wilds join whichever real symbol pays most;
+  blanks never match anything.
+
+  Swift breaks a tie between symbols of equal count and pay in the hash order of
+  a Set, which it seeds per process, so [Cherry, Lemon, Clover] reads as a pair of
+  either from one launch to the next. The two pay the same. Here the first symbol
+  to appear wins, so the answer is one of Swift's and never changes.
+  """
+  fn evaluate(symbols : List(Symbol)) : Payline needs () do
+    let wilds = count_where(symbols, is_wild)
+    let real = List.filter(symbols, is_real)
+    let scored = List.map(real, fn s -> (s, count_where(real, fn x -> x == s) + wilds))
+    match scored do
+    Nil -> wild_line(wilds)
+    Cons(first, rest) -> do
+      let (best, matched) =
+        List.fold_left(rest, first, fn (held, next) -> if outranks(next, held) do next else held end)
+      line_of(best, matched)
+    end
+    end
+  end
+
+  -- ---- The top slot ----
+  doc """The highest combo level that counts."""
+  fn max_level() : Int needs () do
+    5
+  end
+
+  doc """Tickets for a ball that matches all three targets."""
+  fn jackpot_tickets() : Tickets needs () do
+    Tickets(3)
+  end
+
+  doc """Before the first pull of a run: nothing to match."""
+  fn empty_slot() : TopSlot needs () do
+    { targets: Three(Blank, Blank, Blank) }
+  end
+
+  pfn three_list(t : Three(a)) : List(a) needs () do
+    match t do
+    Three(a, b, c) -> [a, b, c]
+    end
+  end
+
+  pfn best_showing(shown : List(Symbol)) : Int needs () do
+    List.fold_left(List.filter(shown, is_real), 0, fn (best, x) -> Math.max_int(best, count_where(shown, fn y -> y == x)))
+  end
+
+  doc """
+  How many targets a ball showing `s` matches. A wild target matches any real
+  symbol; a wild ball matches whichever symbol shows most.
+  """
+  fn hits(t : TopSlot, s : Symbol) : Int needs () do
+    let shown = three_list(t.targets)
+    let wild = count_where(shown, is_wild)
+    match s do
+    Blank -> 0
+    Clover -> best_showing(shown) + wild
+    Cherry -> count_where(shown, fn x -> x == s) + wild
+    Lemon -> count_where(shown, fn x -> x == s) + wild
+    Bell -> count_where(shown, fn x -> x == s) + wild
+    BarSym -> count_where(shown, fn x -> x == s) + wild
+    Seven -> count_where(shown, fn x -> x == s) + wild
+    Diamond -> count_where(shown, fn x -> x == s) + wild
+    end
+  end
+
+  doc """Mult a matching ball adds: half a mult per target matched, times the combo level, capped."""
+  fn combo_mult(slot_hits : Int, level : Int) : Float needs () do
+    let matched = if slot_hits > 0 do 1.0 else 0.0 end
+    0.5 *. int_to_float(slot_hits) *. int_to_float(Skee.Maths.clamp_int(level, 1, max_level())) *. matched
+  end
+
+  doc """Free games a BONUS trigger awards."""
+  fn free_games_awarded() : Int needs () do
+    3
+  end
+
+  -- ---- Reel symbols ----
+  doc """Substitutes for any paying symbol on a line."""
+  fn reel_is_wild(s : ReelSymbol) : Bool needs () do
+    match s do
+    ReelWild -> true
+    ReelX2 -> true
+    ReelX3 -> true
+    ReelCherry -> false
+    ReelLemon -> false
+    ReelBell -> false
+    ReelBar -> false
+    ReelSeven -> false
+    ReelDiamond -> false
+    ReelBonus -> false
+    end
+  end
+
+  doc """What a wild multiplies the line it completes by."""
+  fn line_multiplier(s : ReelSymbol) : Int needs () do
+    match s do
+    ReelX2 -> 2
+    ReelX3 -> 3
+    ReelWild -> 1
+    ReelCherry -> 1
+    ReelLemon -> 1
+    ReelBell -> 1
+    ReelBar -> 1
+    ReelSeven -> 1
+    ReelDiamond -> 1
+    ReelBonus -> 1
+    end
+  end
+
+  doc """Chips banked for three alike on an active line."""
+  fn line_pay(s : ReelSymbol) : Chips needs () do
+    match s do
+    ReelCherry -> Chips(20)
+    ReelLemon -> Chips(25)
+    ReelBell -> Chips(40)
+    ReelBar -> Chips(60)
+    ReelSeven -> Chips(100)
+    ReelDiamond -> Chips(150)
+    ReelWild -> Chips(250)
+    ReelX2 -> Chips(250)
+    ReelX3 -> Chips(250)
+    ReelBonus -> Chips(0)
+    end
+  end
+
+  doc """
+  The board symbol a ball must show to match this target. Wilds match anything
+  (clover is the board's wild); a BONUS is no target at all.
+  """
+  fn reel_target(s : ReelSymbol) : Symbol needs () do
+    match s do
+    ReelCherry -> Cherry
+    ReelLemon -> Lemon
+    ReelBell -> Bell
+    ReelBar -> BarSym
+    ReelSeven -> Seven
+    ReelDiamond -> Diamond
+    ReelWild -> Clover
+    ReelX2 -> Clover
+    ReelX3 -> Clover
+    ReelBonus -> Blank
+    end
+  end
+
+  -- ---- Bets ----
+  fn bet_lines(b : Bet) : { Int | _ >= 1 && _ <= 5 } needs () do
+    match b do
+    BetOne -> 1
+    BetThree -> 3
+    BetFive -> 5
+    end
+  end
+
+  fn bet_cost(b : Bet) : Tickets needs () do
+    match b do
+    BetOne -> Tickets(0)
+    BetThree -> Tickets(1)
+    BetFive -> Tickets(2)
+    end
+  end
+
+  fn bet_is_max(b : Bet) : Bool needs () do
+    match b do
+    BetFive -> true
+    BetOne -> false
+    BetThree -> false
+    end
+  end
+
+  -- ---- Jackpot tiers ----
+  fn tier_title(t : JackpotTier) : String needs () do
+    match t do
+    Mini -> "MINI"
+    Minor -> "MINOR"
+    Major -> "MAJOR"
+    Grand -> "GRAND"
+    end
+  end
+
+  doc """What a meter starts at, and falls back to when it pays."""
+  fn tier_seed(t : JackpotTier) : Winnings needs () do
+    match t do
+    Mini -> Winnings(50)
+    Minor -> Winnings(150)
+    Major -> Winnings(600)
+    Grand -> Winnings(2500)
+    end
+  end
+
+  doc """Per ticket bet, how much a meter grows."""
+  fn tier_growth(t : JackpotTier) : Winnings needs () do
+    match t do
+    Mini -> Winnings(2)
+    Minor -> Winnings(4)
+    Major -> Winnings(8)
+    Grand -> Winnings(15)
+    end
+  end
+
+  -- ---- Line wins ----
+  pfn win_of(s : ReelSymbol, mult : Int, line : { Int | _ >= 0 && _ < 5 }) : LineWin needs () do
+    {
+      line: line,
+      symbol: s,
+      line_chips: Chips(Skee.Units.chips_int(line_pay(s)) * mult),
+      multiplier: mult
+    }
+  end
+
+  doc """
+  Three alike on a line, wilds standing in. All wilds pay as wilds. Multiplier
+  wilds on the line multiply its pay together.
+  """
+  fn line_win(s : Three(ReelSymbol), line : { Int | _ >= 0 && _ < 5 }) : Option(LineWin) needs () do
+    let symbols = three_list(s)
+    let mult = List.fold_left(symbols, 1, fn (m, x) -> m * line_multiplier(x))
+    let real = List.filter(symbols, fn x -> !reel_is_wild(x))
+    if List.member(symbols, ReelBonus) do
+      None
+    else
+      match real do
+      Nil -> Some(win_of(ReelWild, mult, line))
+      Cons(first, rest) -> do
+        if List.all(rest, fn x -> x == first) do
+          Some(win_of(first, mult, line))
+        else
+          None
+        end
+      end
+      end
+    end
+  end
+
+  -- ---- The progressive meters ----
+  pfn tier_at(m : PerTier(a), t : JackpotTier) : a needs () do
+    match t do
+    Mini -> m.mini
+    Minor -> m.minor
+    Major -> m.major
+    Grand -> m.grand
+    end
+  end
+
+  pfn tier_put(m : PerTier(a), t : JackpotTier, v : a) : PerTier(a) needs () do
+    match t do
+    Mini -> { m with mini: v }
+    Minor -> { m with minor: v }
+    Major -> { m with major: v }
+    Grand -> { m with grand: v }
+    end
+  end
+
+  doc """Every meter at its seed."""
+  fn new_progressive() : Progressive needs () do
+    {
+      meters: {
+        mini: tier_seed(Mini),
+        minor: tier_seed(Minor),
+        major: tier_seed(Major),
+        grand: tier_seed(Grand)
+      }
+    }
+  end
+
+  fn amount(p : Progressive, t : JackpotTier) : Winnings needs () do
+    tier_at(p.meters, t)
+  end
+
+  doc """Every pull feeds the meters, a free bet still a little."""
+  fn feed(p : Progressive, b : Bet) : Progressive needs () do
+    let units = Math.max_int(1, Skee.Units.tickets_int(bet_cost(b)))
+    let grown =
+      fn (m, t) -> tier_put(m, t, Skee.Units.add_winnings(tier_at(m, t), Winnings(Skee.Units.winnings_int(tier_growth(t)) * units)))
+    { meters: List.fold_left([Mini, Minor, Major, Grand], p.meters, grown) }
+  end
+
+  doc """Pay a tier: its amount, and the meter falls back to its seed."""
+  fn hit(p : Progressive, t : JackpotTier) : (Winnings, Progressive) needs () do
+    (amount(p, t), { meters: tier_put(p.meters, t, tier_seed(t)) })
+  end
+
+  -- ---- The board setup ----
+  doc """What a hole can show. The gutter's reel is one blank."""
+  fn reel(setup : BoardSetup, h : Hole) : List(Symbol) needs () do
+    match Skee.HoleMap.reel_at(setup.reels, h) do
+    Some(symbols) -> symbols
+    None -> [Blank]
+    end
+  end
+
+  doc """The first symbol on a hole's reel: what a classic cabinet would print."""
+  fn home_symbol(setup : BoardSetup, h : Hole) : Symbol needs () do
+    match reel(setup, h) do
+    Cons(first, _) -> first
+    Nil -> Blank
+    end
+  end
+
+  doc """A hole's face value plus its gild."""
+  fn hole_chips(setup : BoardSetup, h : Hole) : Chips needs () do
+    let face = Chips(Skee.Physics.face_value(h))
+    match Skee.HoleMap.reel_at(setup.gild, h) do
+    Some(gild) -> Skee.Units.add_chips(face, gild)
+    None -> face
+    end
+  end
+
+  -- ---- The pull ----
+  -- A row of the window, top to bottom. Swift's Pull.lines holds these as ints.
+  type WindowRow = TopRow | CentreRow | BottomRow
+
+  -- A reel of the window, left to right.
+  type WindowReel = Reel0 | Reel1 | Reel2
+
+  pfn on_reel(row : Three(a), r : WindowReel) : a needs () do
+    match row do
+    Three(left, middle, right) -> do
+      match r do
+      Reel0 -> left
+      Reel1 -> middle
+      Reel2 -> right
+      end
+    end
+    end
+  end
+
+  doc """A row's index in `grid`, 0 at the top."""
+  fn row_index(r : WindowRow) : Int needs () do
+    match r do
+    TopRow -> 0
+    CentreRow -> 1
+    BottomRow -> 2
+    end
+  end
+
+  pfn at_row(rows : Three(a), r : WindowRow) : a needs () do
+    match rows do
+    Three(top, centre_row, bottom) -> do
+      match r do
+      TopRow -> top
+      CentreRow -> centre_row
+      BottomRow -> bottom
+      end
+    end
+    end
+  end
+
+  doc """
+  The row each reel reads on line `i`. Line 0 is the centre row: one-line bets
+  play it alone.
+  """
+  fn line_rows(i : { Int | _ >= 0 && _ < 5 }) : Three(WindowRow) needs () do
+    if i == 0 do
+      Three(CentreRow, CentreRow, CentreRow)
+    else
+      if i == 1 do
+        Three(TopRow, TopRow, TopRow)
+      else
+        if i == 2 do
+          Three(BottomRow, BottomRow, BottomRow)
+        else
+          if i == 3 do
+            Three(TopRow, CentreRow, BottomRow)
+          else
+            Three(BottomRow, CentreRow, TopRow)
+          end
+        end
+      end
+    end
+  end
+
+  pfn map_three(t : Three(a), f : a -> b) : Three(b) needs () do
+    match t do
+    Three(a, b, c) -> Three(f(a), f(b), f(c))
+    end
+  end
+
+  pfn draw_stop(r : Skee.Rng.Rng, strip : List(ReelSymbol)) : (Int, Skee.Rng.Rng) needs () do
+    Skee.Rng.next_int_below(r, List.length(strip))
+  end
+
+  doc """One pull of the lever: one draw per reel, left to right."""
+  fn spin(r : Skee.Rng.Rng, bet : Bet, free : Bool, room : Room) : (Pull, Skee.Rng.Rng) needs () do
+    match Skee.Rooms.strips(room) do
+    Three(left, middle, right) -> do
+      let (a, r1) = draw_stop(r, left)
+      let (b, r2) = draw_stop(r1, middle)
+      let (c, r3) = draw_stop(r2, right)
+      ({ stops: Three(a, b, c), bet: bet, free: free, pull_room: room }, r3)
+    end
+    end
+  end
+
+  pfn strip_symbol(strip : List(ReelSymbol), position : Int) : ReelSymbol needs () do
+    List.nth(strip, position % List.length(strip))
+  end
+
+  pfn window_row(strips : Three(List(ReelSymbol)), stops : Three(Int), row : Int) : Three(ReelSymbol) needs () do
+    match (strips, stops) do
+    (Three(s0, s1, s2), Three(a, b, c)) -> do
+      Three(strip_symbol(s0, a + row), strip_symbol(s1, b + row), strip_symbol(s2, c + row))
+    end
+    end
+  end
+
+  doc """The window, as three rows top to bottom of three reels."""
+  fn grid(p : Pull) : Three(Three(ReelSymbol)) needs () do
+    let strips = Skee.Rooms.strips(p.pull_room)
+    Three(window_row(strips, p.stops, 0), window_row(strips, p.stops, 1), window_row(strips, p.stops, 2))
+  end
+
+  doc """The centre row."""
+  fn centre(p : Pull) : Three(ReelSymbol) needs () do
+    at_row(grid(p), CentreRow)
+  end
+
+  doc """The frame's three targets."""
+  fn targets(p : Pull) : Three(Symbol) needs () do
+    map_three(centre(p), reel_target)
+  end
+
+  doc """Indices of the lines this pull's bet plays."""
+  fn active_lines(p : Pull) : List(Int) needs () do
+    List.range(0, bet_lines(p.bet))
+  end
+
+  pfn line_symbols(g : Three(Three(ReelSymbol)), i : { Int | _ >= 0 && _ < 5 }) : Three(ReelSymbol) needs () do
+    match line_rows(i) do
+    Three(r0, r1, r2) -> do
+      Three(on_reel(at_row(g, r0), Reel0), on_reel(at_row(g, r1), Reel1), on_reel(at_row(g, r2), Reel2))
+    end
+    end
+  end
+
+  doc """What line `i` shows, one symbol per reel."""
+  fn symbols_on_line(p : Pull, i : { Int | _ >= 0 && _ < 5 }) : Three(ReelSymbol) needs () do
+    line_symbols(grid(p), i)
+  end
+
+  doc """Every active line that pays."""
+  fn line_wins(p : Pull) : List(LineWin) needs () do
+    let g = grid(p)
+    List.filter_map(active_lines(p), fn i -> line_win(line_symbols(g, i), i))
+  end
+
+  doc """Chips the pull's line wins bank into the frame."""
+  fn line_chips(p : Pull) : Chips needs () do
+    List.fold_left(line_wins(p), Chips(0), fn (total, w) -> Skee.Units.add_chips(total, w.line_chips))
+  end
+
+  doc """BONUS symbols anywhere in the window, whatever the bet."""
+  fn scatters(p : Pull) : Int needs () do
+    let shown = List.flat_map(three_list(grid(p)), three_list)
+    count_where(shown, fn s -> s == ReelBonus)
+  end
+
+  fn triggers_free_games(p : Pull) : Bool needs () do
+    scatters(p) >= 3
+  end
+
+  pfn tier_of_win(w : LineWin, all_wild_centre : Bool) : Option(JackpotTier) needs () do
+    match w.symbol do
+    ReelBar -> Some(Mini)
+    ReelSeven -> Some(Minor)
+    ReelDiamond -> Some(Major)
+    ReelWild -> if w.line == 0 && all_wild_centre do Some(Grand) else None end
+    ReelCherry -> None
+    ReelLemon -> None
+    ReelBell -> None
+    ReelX2 -> None
+    ReelX3 -> None
+    ReelBonus -> None
+    end
+  end
+
+  pfn better_tier(held : Option(JackpotTier), found : Option(JackpotTier)) : Option(JackpotTier) needs () do
+    match (held, found) do
+    (_, None) -> held
+    (None, Some(_)) -> found
+    (Some(a), Some(b)) -> do
+      if Skee.Units.tier_rank(b) > Skee.Units.tier_rank(a) do
+        found
+      else
+        held
+      end
+    end
+    end
+  end
+
+  doc """The best jackpot this pull wins. Max bet only, never on a free game."""
+  fn jackpot(p : Pull) : Option(JackpotTier) needs () do
+    if bet_is_max(p.bet) && !p.free do
+      do
+        let all_wild_centre = List.all(three_list(centre(p)), fn s -> s == ReelWild)
+        List.fold_left(line_wins(p), None, fn (best, w) -> better_tier(best, tier_of_win(w, all_wild_centre)))
+      end
+    else
+      None
+    end
+  end
+
+  -- ---- The frame ----
+  doc """A ball with Swift's default fields: just what it hit."""
+  fn ball_record(h : Hole, s : Symbol, c : Chips) : BallRecord needs () do
+    {
+      record_hole: h,
+      record_symbol: s,
+      record_chips: c,
+      rattles: 0,
+      record_fold: 0.0,
+      foul: false,
+      slot_hits: 0,
+      record_combo: 0,
+      record_ball: ClassicBall,
+      hot: false
+    }
+  end
+
+  doc """A ball scored if it found any hole but the gutter."""
+  fn scored(b : BallRecord) : Bool needs () do
+    b.record_hole != Gutter
+  end
+
+  doc """No charms, no streak, no fever, pairs paying, no pull."""
+  fn default_context() : ScoringContext needs () do
+    {
+      context_charms: [],
+      streak_before: 0,
+      context_fever: false,
+      pairs_pay: true,
+      context_pull: None
+    }
+  end
+
+  pfn step(source : ScoreSource, effect : ScoreEffect) : ScoreStep needs () do
+    { source: source, effect: effect }
+  end
+
+  pfn pull_steps(pull : Option(Pull)) : List(ScoreStep) needs () do
+    match pull do
+    None -> []
+    Some(p) -> do
+      let chips = line_chips(p)
+      if Skee.Units.chips_int(chips) > 0 do
+        [step(FromPull, AddChips(chips))]
+      else
+        []
+      end
+    end
+    end
+  end
+
+  pfn slot_steps(i : Int, b : BallRecord) : List(ScoreStep) needs () do
+    if b.slot_hits > 0 do
+      do
+        let added = step(FromSlot(i), AddMult(combo_mult(b.slot_hits, b.record_combo)))
+        if b.slot_hits >= 3 do
+          [added, step(FromSlot(i), AddTickets(jackpot_tickets()))]
+        else
+          [added]
+        end
+      end
+    else
+      []
+    end
+  end
+
+  pfn ball_steps(i : Int, b : BallRecord) : List(ScoreStep) needs () do
+    let flat = flat_chips(b.record_symbol)
+    let flat_step =
+      if Skee.Units.chips_int(flat) > 0 do
+        [step(FromBall(i), AddChips(flat))]
+      else
+        []
+      end
+    List.concat([[step(FromBall(i), AddChips(b.record_chips))], flat_step, slot_steps(i, b)])
+  end
+
+  pfn payline_steps(line : Payline, pairs_pay : Bool) : List(ScoreStep) needs () do
+    match line do
+    NoLine -> []
+    Pair(_) -> do
+      if pairs_pay do
+        [step(FromPayline, AddMult(added_mult(line)))]
+      else
+        [step(FromPayline, Note("the house keeps pairs"))]
+      end
+    end
+    Triple(_) -> [step(FromPayline, AddMult(added_mult(line)))]
+    end
+  end
+
+  pfn free_game_steps(pull : Option(Pull)) : List(ScoreStep) needs () do
+    match pull do
+    Some(p) -> if p.free do [step(FromFreeGame, TimesMult(2.0))] else [] end
+    None -> []
+    end
+  end
+
+  pfn streak_after(before : Int, balls : List(BallRecord)) : Int needs () do
+    List.fold_left(balls, before, fn (streak, b) -> if scored(b) do streak + 1 else 0 end)
+  end
+
+  -- What the steps fold to.
+  type FrameTally = { chips : Chips, mult : Float, tickets : Tickets }
+
+  pfn apply_step(t : FrameTally, s : ScoreStep) : FrameTally needs () do
+    match s.effect do
+    SetBase(c, m) -> { t with chips: c, mult: m }
+    AddChips(c) -> { t with chips: Skee.Units.add_chips(t.chips, c) }
+    AddMult(m) -> { t with mult: t.mult +. m }
+    TimesMult(x) -> { t with mult: t.mult *. x }
+    AddTickets(n) -> { t with tickets: Skee.Units.add_tickets(t.tickets, n) }
+    Note(_) -> t
+    end
+  end
+
+  doc """
+  Score one three-ball frame. Order: base, the pull's line wins, each ball's
+  chips, flat symbol chips and target combo, the payline, charms left to right,
+  fever, free game. Order matters because TimesMult multiplies whatever mult
+  exists at that point.
+  """
+  fn score_frame(balls : List(BallRecord), c : ScoringContext) : FrameScore needs () do
+    let line = evaluate(List.map(balls, fn b -> b.record_symbol))
+    let streak = streak_after(c.streak_before, balls)
+    let view = { view_balls: balls, view_payline: line, view_streak_after: streak }
+    let charm_steps =
+      fn charm -> List.map(Skee.Items.charm_effects(charm, view), fn e -> step(FromCharm(charm), e))
+    let opening = [step(FromBase, SetBase(Chips(0), 1.0))]
+    let banked = pull_steps(c.context_pull)
+    let thrown =
+      List.flat_map(List.enumerate(balls), fn pair -> ball_steps(Tuple.first(pair), Tuple.second(pair)))
+    let lined = payline_steps(line, c.pairs_pay)
+    let charmed = List.flat_map(c.context_charms, charm_steps)
+    let fevered = if c.context_fever do [step(FromFever, TimesMult(2.0))] else [] end
+    let doubled = free_game_steps(c.context_pull)
+    let steps = List.concat([opening, banked, thrown, lined, charmed, fevered, doubled])
+    let folded =
+      List.fold_left(steps, { chips: Chips(0), mult: 1.0, tickets: Tickets(0) }, apply_step)
+    {
+      balls: balls,
+      payline: line,
+      steps: steps,
+      frame_chips: folded.chips,
+      mult: folded.mult,
+      frame_tickets: folded.tickets,
+      streak_after: streak
+    }
+  end
+
+  doc """chips times mult, rounded down."""
+  fn frame_total(f : FrameScore) : Points needs () do
+    Points(float_floor(int_to_float(Skee.Units.chips_int(f.frame_chips)) *. f.mult))
+  end
+
+  pfn is_jackpot_symbol(s : Symbol) : Bool needs () do
+    match s do
+    Seven -> true
+    Diamond -> true
+    Blank -> false
+    Cherry -> false
+    Lemon -> false
+    Bell -> false
+    BarSym -> false
+    Clover -> false
+    end
+  end
+
+  doc """Three sevens or three diamonds on the board."""
+  fn is_jackpot(f : FrameScore) : Bool needs () do
+    match f.payline do
+    Triple(s) -> is_jackpot_symbol(s)
+    Pair(_) -> false
+    NoLine -> false
+    end
+  end
+
+end

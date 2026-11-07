@@ -1,0 +1,80 @@
+mod Skee.Palette do
+
+  -- SkeeRender's Palette.swift (RGB) and ArtStyle.swift. A colour here is three
+  -- channels 0...1, as CGFloat in the Swift; Skee.Rooms' Rgb is the packed 0xRRGGBB
+  -- the cabinet palettes are written in, and `of_hex` turns one into the other.
+  cap pure
+
+  -- Swift's RGB. Channels are 0...1; `mix` may leave that range, as in the Swift.
+  type Tint = { red : Float, green : Float, blue : Float }
+
+  derive Show for Tint
+
+  -- Art eras. Every ante is cel for now, as in the Swift.
+  type ArtStyle = Cel
+
+  derive Eq, Show for ArtStyle
+
+  doc """RGB(hex): 0xRRGGBB to channels."""
+  fn of_hex(hex : { Int | hex >= 0 && hex <= 16777215 }) : Tint needs () do
+    let r = hex / 65536
+    let g = hex / 256 % 256
+    let b = hex % 256
+    {
+      red: int_to_float(r) /. 255.0,
+      green: int_to_float(g) /. 255.0,
+      blue: int_to_float(b) /. 255.0
+    }
+  end
+
+  doc """Skee.Rooms' packed colour as channels."""
+  fn of_rgb(c : Skee.Rooms.Rgb) : Tint needs () do
+    of_hex(c.packed)
+  end
+
+  doc """`a + (b - a) * t` on every channel."""
+  fn mix(a : Tint, b : Tint, t : Float) : Tint needs () do
+    {
+      red: a.red +. (b.red -. a.red) *. t,
+      green: a.green +. (b.green -. a.green) *. t,
+      blue: a.blue +. (b.blue -. a.blue) *. t
+    }
+  end
+
+  fn lighter(a : Tint, t : Float) : Tint needs () do
+    mix(a, of_hex(16777215), t)
+  end
+
+  fn darker(a : Tint, t : Float) : Tint needs () do
+    mix(a, of_hex(0), t)
+  end
+
+  doc """Two tints with the same value in every channel."""
+  fn same_tint(a : Tint, b : Tint) : Bool needs () do
+    a.red == b.red && a.green == b.green && a.blue == b.blue
+  end
+
+  doc """ArtStyle.allCases."""
+  fn all_styles() : List(ArtStyle) needs () do
+    [Cel]
+  end
+
+  doc """ArtStyle.forAnte: every ante is cel until later eras exist."""
+  fn style_for_ante(_ante : Int) : ArtStyle needs () do
+    Cel
+  end
+
+  fn style_title(s : ArtStyle) : String needs () do
+    match s do
+    Cel -> "CARTOON ALLEY"
+    end
+  end
+
+  doc """ArtStyle's rawValue, for saves."""
+  fn style_raw(s : ArtStyle) : String needs () do
+    match s do
+    Cel -> "cel"
+    end
+  end
+
+end

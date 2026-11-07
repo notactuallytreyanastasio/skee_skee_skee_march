@@ -6,6 +6,17 @@ import GoldenSupport
 // (Wallet's decoder for old saves, the run file of seed + actions, tips seen).
 // Text travels as UTF-8 hex, since a page holds spaces, quotes and newlines.
 
+// JSONEncoder writes a [JackpotTier: Int] in Dictionary order, which Swift
+// seeds afresh in every process, so the same Wallet can be written in 24
+// orders. Re-run with deterministic hashing so `make golden-meta` writes the
+// same file every time; the suite compares the meters as a set of pairs.
+if getenv("SWIFT_DETERMINISTIC_HASHING") == nil {
+    setenv("SWIFT_DETERMINISTIC_HASHING", "1", 1)
+    let argv = CommandLine.arguments.map { strdup($0) } + [nil]
+    execv(CommandLine.arguments[0], argv)
+    fatalError("execv failed: \(errno)")
+}
+
 func hex(_ s: String) -> String {
     s.isEmpty ? "-" : s.utf8.map { String(format: "%02x", $0) }.joined()
 }
@@ -216,6 +227,12 @@ let hand: [(String, String)] = [
     ("exponent", #"{"balance":1e3,"lifetime":9,"owned":[]}"#),
     ("big", #"{"balance":4503599627370496,"lifetime":9,"owned":[]}"#),
     ("dupOwned", #"{"balance":5,"lifetime":9,"owned":["kazoo","kazoo"]}"#),
+    // Shapes neither encoder writes, which Swift's decoder still reads.
+    ("trailingCommaObject", #"{"balance":1,"lifetime":0,"owned":[],}"#),
+    ("trailingCommaArray", #"{"balance":1,"lifetime":0,"owned":["kazoo",]}"#),
+    ("trailingCommaSpaced", "{\"balance\":1,\"lifetime\":0,\"owned\":[\"kazoo\" , \n] ,\n}"),
+    ("trailingCommaNested", #"{"balance":1,"lifetime":0,"owned":[],"future":[1,{"x":[2,],},],}"#),
+    ("commaInString", #"{"balance":1,"lifetime":0,"owned":[],"future":",}"}"#),
     // Swift refuses all of these, so the app starts with a fresh Wallet().
     ("empty", ""),
     ("truncated", #"{"balance":5,"lifetime":"#),
@@ -239,8 +256,64 @@ let hand: [(String, String)] = [
     ("trailing", #"{"balance":5,"lifetime":9,"owned":[]} x"#),
     ("ownedString", #"{"balance":5,"lifetime":9,"owned":"kazoo"}"#),
     ("boolHost", #"{"balance":5,"lifetime":9,"owned":[],"hostVisits":true}"#),
+    ("doubleComma", #"{"balance":1,"lifetime":0,"owned":[],,}"#),
+    ("leadingComma", #"{,"balance":1,"lifetime":0,"owned":[]}"#),
+    ("loneComma", #"{"balance":1,"lifetime":0,"owned":[,]}"#),
+    ("trailingCommaTop", #"{"balance":1,"lifetime":0,"owned":[]},"#),
+    ("commaAfterColon", #"{"balance":1,"lifetime":0,"owned":[],"future":,}"#),
+    ("commaAfterKey", #"{"balance":1,"lifetime":0,"owned",:[]}"#),
 ]
 for (label, json) in hand { walletRow(label, json) }
+// An unknown field nested n deep: how deep Swift's decoder still reads.
+func nested(_ n: Int) -> String { String(repeating: "[", count: n) + String(repeating: "]", count: n) }
+func nestedObjects(_ n: Int) -> String { String(repeating: "{\"a\":", count: n) + "1" + String(repeating: "}", count: n) }
+func deepWith(_ n: Int, _ leaf: String) -> String { String(repeating: "[", count: n) + leaf + String(repeating: "]", count: n) }
+let deepHand: [(String, String)] = [
+    ("deepBadLeaf", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, "tru") + "}"),
+    ("deepBadNumber", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, "1.") + "}"),
+    ("deepGoodLeaves", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, #"1,-2.5e3,true,false,null,"a\"]}","# + "{}") + "}"),
+    ("deepBadString", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, #""\x""#) + "}"),
+    ("deepControlChar", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, "\"a\tb\"") + "}"),
+    ("deepMismatch", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + String(repeating: "[", count: 100) + String(repeating: "]", count: 99) + "}}"),
+    ("deepTrailingComma", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, "1,") + "}"),
+    ("deepDoubleComma", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, "1,,") + "}"),
+    ("deepMissingColon", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, #"{"a" 1}"#) + "}"),
+    ("deepInProgressive", #"{"balance":1,"lifetime":0,"owned":[],"progressive":{"meters":["mini",77],"x":"# + deepWith(400, "") + "}}"),
+    ("deepInComp", #"{"balance":1,"lifetime":2,"owned":[],"comps":["boardwalk",{"room":"boardwalk","nights":3,"tickets":2,"credit":0,"x":"# + deepWith(400, "") + "}]}"),
+    ("badNumberShallow", #"{"balance":1,"lifetime":0,"owned":[],"future":1.}"#),
+    ("badEscapeShallow", #"{"balance":1,"lifetime":0,"owned":[],"future":"\x"}"#),
+    ("badEscapeKnown", #"{"balance":1,"lifetime":0,"owned":["\x"]}"#),
+    ("badNumberKnown", #"{"balance":1.,"lifetime":0,"owned":[]}"#),
+    ("leafDots", #"{"balance":1,"lifetime":0,"owned":[],"future":1.2.3}"#),
+    ("leafMinus", #"{"balance":1,"lifetime":0,"owned":[],"future":--1}"#),
+    ("leafExp", #"{"balance":1,"lifetime":0,"owned":[],"future":1e}"#),
+    ("leafPlus", #"{"balance":1,"lifetime":0,"owned":[],"future":+1}"#),
+    ("leafZero", #"{"balance":1,"lifetime":0,"owned":[],"future":01}"#),
+    ("leafDot", #"{"balance":1,"lifetime":0,"owned":[],"future":.5}"#),
+    ("leafHex", #"{"balance":1,"lifetime":0,"owned":[],"future":0x1}"#),
+    ("leafE", #"{"balance":1,"lifetime":0,"owned":[],"future":e5}"#),
+    ("leafShortU", #"{"balance":1,"lifetime":0,"owned":[],"future":"\u12"}"#),
+    ("leafBadU", #"{"balance":1,"lifetime":0,"owned":[],"future":"\uZZZZ"}"#),
+    ("leafSurrogate", #"{"balance":1,"lifetime":0,"owned":[],"future":"\ud800"}"#),
+    ("leafNul", #"{"balance":1,"lifetime":0,"owned":[],"future":"a\u0000b"}"#),
+    ("leafTru", #"{"balance":1,"lifetime":0,"owned":[],"future":tru}"#),
+    ("leafNULL", #"{"balance":1,"lifetime":0,"owned":[],"future":NULL}"#),
+    ("leafNaN", #"{"balance":1,"lifetime":0,"owned":[],"future":NaN}"#),
+    ("leafInf", #"{"balance":1,"lifetime":0,"owned":[],"future":Infinity}"#),
+    ("badKeyNested", #"{"balance":1,"lifetime":0,"owned":[],"future":{"\x":1}}"#),
+    ("badKeyTop", #"{"\x":1,"balance":1,"lifetime":0,"owned":[]}"#),
+    ("badKeyDeep", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + deepWith(100, #"{"\x":1}"#) + "}"),
+    ("leafNumberThenJunk", #"{"balance":1,"lifetime":0,"owned":[],"future":1.x}"#),
+    ("leafSurrogateKnown", #"{"balance":1,"lifetime":0,"owned":[],"room":"\ud800"}"#),
+    ("leafBadNumberInMeters", #"{"balance":1,"lifetime":0,"owned":[],"progressive":{"meters":["mini",1.]}}"#),
+    ("leafBadInOwned", #"{"balance":1,"lifetime":0,"owned":["\x"]}"#),
+    ("deepKnown", #"{"balance":1,"lifetime":0,"owned":"# + deepWith(100, "") + "}"),
+]
+for (label, json) in deepHand { walletRow(label, json) }
+for n in [31, 32, 40, 100, 256, 510, 511, 512, 513, 600, 1000] {
+    walletRow("deepArrays\(n)", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + nested(n - 1) + "}")
+    walletRow("deepObjects\(n)", #"{"balance":1,"lifetime":0,"owned":[],"future":"# + nestedObjects(n - 1) + "}")
+}
 
 // ---- The run file: seed + actions, as GameModel's RunStore writes it ----
 struct File: Codable { var seed: UInt64; var room: Room?; var extraTickets: Int?; var actions: [Action] }
@@ -341,10 +414,28 @@ let handRuns: [(String, String)] = [
     ("badHole", #"{"seed":1,"actions":[{"buy":{"_0":1,"target":"ring60"}}]}"#),
     ("badRoom", #"{"seed":1,"room":"moon","actions":[]}"#),
     ("truncated", #"{"seed":1,"actions":[{"pull""#),
+    // Synthesized enum decoding counts only the keys it knows.
+    ("foulJunk", #"{"seed":1,"actions":[{"foul":{},"junk":1}]}"#),
+    ("junkFoul", #"{"seed":1,"actions":[{"junk":{"_0":3},"foul":{}}]}"#),
+    ("pullJunk", #"{"seed":1,"actions":[{"pull":{"_0":1,"x":[2]},"junk":null}]}"#),
+    ("junkOnly", #"{"seed":1,"actions":[{"junk":1}]}"#),
+    ("emptyAction", #"{"seed":1,"actions":[{}]}"#),
+    ("twoKnownAndJunk", #"{"seed":1,"actions":[{"foul":{},"junk":1,"reroll":{}}]}"#),
+    ("trailingCommaRun", #"{"seed":1,"actions":[{"pull":{"_0":1,},},],}"#),
+    ("foulNotObject", #"{"seed":1,"actions":[{"foul":1}]}"#),
+    ("deepInPayload", #"{"seed":1,"actions":[{"foul":{"x":"# + deepWith(500, "") + #"}},{"pull":{"_0":1}}]}"#),
+    ("deepInLaunch", #"{"seed":1,"actions":[{"throwBall":{"_0":{"power":0.6,"aim":0,"x":"# + deepWith(400, "{}") + "}}}]}"),
+    ("deepTooFar", #"{"seed":1,"actions":[{"foul":{"x":"# + deepWith(510, "") + "}}]}"),
+    ("foulWithJunk", #"{"seed":1,"actions":[{"foul":{"x":1}}]}"#),
 ]
 for (label, json) in handRuns { runRow(label, json) }
 
 // ---- Tips seen, as TipStore keeps them: unknown names are dropped ----
+// TipStore reads [String]; a malformed string anywhere refuses the whole list.
+for (label, json) in [("tipsBadEscape", #"["combo","\x"]"#), ("tipsTrailingComma", #"["combo",]"#), ("tipsNumber", #"["combo",1.]"#)] {
+    let seen = (try? JSONDecoder().decode([String].self, from: Data(json.utf8))).map { Set($0.compactMap(Tip.init)) }
+    g.line("tipsraw", label, hex(json), seen.map(tipsToken) ?? "error")
+}
 for names in [[String](), ["combo"], ["fever", "combo", "fever"], ["combo", "teleport", "gameOver"], Tip.allCases.map(\.rawValue)] {
     let seen = Set(names.compactMap(Tip.init))
     g.line("tipstore", names.isEmpty ? "-" : names.joined(separator: ","), tipsToken(seen))

@@ -1,0 +1,418 @@
+mod Skee.Camera do
+
+  -- The camera, as plain numbers (SkeeScene/Snapshot.swift's CameraRig and
+  -- Cabinet.fit, and the screen-space half of ScenePresenter.swift): where it
+  -- stands, how it frames the alley on any screen, and where scene points
+  -- land in pixels. Nothing here draws.
+  --
+  -- Screen fractions run 0...1 with y down, as in Swift. Pixels are fractions
+  -- times the viewport size.
+  cap pure
+
+  import Skee.Maths
+  import Skee.World
+
+  -- A look-at camera: vertical field of view in degrees. Up is always +y.
+  type Rig = { eye : Vec3, target : Vec3, fov : Float }
+
+  -- The drawing surface, in CSS pixels.
+  type Viewport = { width : { Float | _ > 0.0 }, height : { Float | _ > 0.0 } }
+
+  -- What Cabinet.fit lines up: the near end of the lane, the hump, and the top
+  -- of the target board.
+  type Framing = { near_point : Vec3, hump_point : Vec3, top_point : Vec3 }
+
+  -- A rig ready to project onto one viewport: its basis, worked out once.
+  type Lens = {
+    eye : Vec3,
+    forward : Vec3,
+    right : Vec3,
+    up : Vec3,
+    tan_half : Float,
+    aspect : Float,
+    width : Float,
+    height : Float
+  }
+
+  -- A scene point in camera space: across, up, and depth along the view.
+  type Seen = { across : Float, rise : Float, depth : Float }
+
+  doc """Width over height."""
+  fn aspect(v : Viewport) : Float needs () do
+    v.width /. v.height
+  end
+
+  doc """Viewport sizes are positive; anything else falls back to one pixel."""
+  fn viewport(width : Float, height : Float) : Viewport needs () do
+    let w = if width > 0.0 do width else 1.0 end
+    let h = if height > 0.0 do height else 1.0 end
+    { width: w, height: h }
+  end
+
+  fn tan_half(k : Skee.Consts.Consts, fov : Float) : Float needs () do
+    Math.tan(fov *. k.pi /. 360.0)
+  end
+
+  pfn world_up() : Vec3 needs () do
+    v3(0.0, 1.0, 0.0)
+  end
+
+  doc """The rig's basis for one viewport."""
+  fn lens(k : Skee.Consts.Consts, rig : Rig, v : Viewport) : Lens needs () do
+    let f = unit(minus(rig.target, rig.eye))
+    let r = unit(cross(f, world_up()))
+    {
+      eye: rig.eye,
+      forward: f,
+      right: r,
+      up: cross(r, f),
+      tan_half: tan_half(k, rig.fov),
+      aspect: aspect(v),
+      width: v.width,
+      height: v.height
+    }
+  end
+
+  fn seen(l : Lens, p : Vec3) : Seen needs () do
+    let d = minus(p, l.eye)
+    { across: dot3(d, l.right), rise: dot3(d, l.up), depth: dot3(d, l.forward) }
+  end
+
+  doc """
+  CameraRig.project: where a camera-space point lands on screen, as fractions
+  with y down. A point at zero depth goes to infinity, as in Swift.
+  """
+  fn fraction_of_seen(k : Skee.Consts.Consts, l : Lens, s : Seen) : Vec2 needs () do
+    let x = (ieee_div(k, s.across, s.depth *. l.tan_half *. l.aspect) +. 1.0) /. 2.0
+    let y = (1.0 -. ieee_div(k, s.rise, s.depth *. l.tan_half)) /. 2.0
+    vec2(x, y)
+  end
+
+  doc """CameraRig.project: a scene point to screen fractions, y down."""
+  fn fraction(k : Skee.Consts.Consts, l : Lens, p : Vec3) : Vec2 needs () do
+    fraction_of_seen(k, l, seen(l, p))
+  end
+
+  doc """A camera-space point to pixels."""
+  fn pixel_of_seen(k : Skee.Consts.Consts, l : Lens, s : Seen) : Vec2 needs () do
+    let f = fraction_of_seen(k, l, s)
+    vec2(f.x *. l.width, f.y *. l.height)
+  end
+
+  doc """A scene point to pixels."""
+  fn pixel(k : Skee.Consts.Consts, l : Lens, p : Vec3) : Vec2 needs () do
+    pixel_of_seen(k, l, seen(l, p))
+  end
+
+  doc """Pixels per metre at a depth: how big a thing that size looks there."""
+  fn pixels_per_metre(l : Lens, depth : Float) : Float needs () do
+    if depth <= 0.0 do 0.0 else l.height /. (2.0 *. l.tan_half *. depth) end
+  end
+
+  doc """CameraRig.ray: the ray through a screen position (fractions, y down)."""
+  fn ray(l : Lens, f : Vec2) : (Vec3, Vec3) needs () do
+    let x = (f.x *. 2.0 -. 1.0) *. l.tan_half *. l.aspect
+    let y = (1.0 -. f.y *. 2.0) *. l.tan_half
+    (l.eye, unit(plus(plus(l.forward, times(l.right, x)), times(l.up, y))))
+  end
+
+  -- ---- Cabinet.fit ----
+  doc """Cabinet.framingPoints: near end of the lane, the hump, top of the board."""
+  fn framing(w : World) : Framing needs () do
+    let b = w.table.board
+    {
+      near_point: lane(w, 0.0, -0.05),
+      hump_point: lane(w, 0.0, w.table.lane.length),
+      top_point: board(w, vec2(0.0, b.board_height +. 0.06), 0.0)
+    }
+  end
+
+  -- One candidate rig's view of the three framing points: rise and depth of
+  -- each. The field of view only enters afterwards, so it is the inner loop.
+  type Sighting = { near_rise : Float, near_depth : Float, hump_rise : Float, hump_depth : Float, top_rise : Float, top_depth : Float }
+
+  -- The best rig so far, with its grid indices in Swift's loop order (field of
+  -- view outermost), so a tie keeps the rig Swift saw first.
+  type Best = { err : Float, fi : Int, hi : Int, zi : Int, li : Int }
+
+  -- Swift strides in Float, which decides how many values each grid has:
+  -- stride(from: -1.8, through: -0.2, by: 0.05) stops at -0.25 in Float, where
+  -- a Double would reach -0.2. The counts are Swift's, measured.
+  pfn fov_at(i : Int) : Float needs () do
+    22.0 +. int_to_float(i) *. 2.0
+  end
+
+  pfn h_at(i : Int) : Float needs () do
+    0.55 +. int_to_float(i) *. 0.025
+  end
+
+  pfn z_at(i : Int) : Float needs () do
+    -0.2 +. int_to_float(i) *. 0.05
+  end
+
+  pfn look_at(i : Int) : Float needs () do
+    -1.8 +. int_to_float(i) *. 0.05
+  end
+
+  pfn fov_count() : Int needs () do
+    25
+  end
+
+  pfn h_count() : Int needs () do
+    19
+  end
+
+  pfn z_count() : Int needs () do
+    65
+  end
+
+  pfn look_count() : Int needs () do
+    32
+  end
+
+  pfn sight(f : Vec3, u : Vec3, eye : Vec3, p : Vec3) : (Float, Float) needs () do
+    let d = minus(p, eye)
+    (dot3(d, u), dot3(d, f))
+  end
+
+  pfn sighting(pts : Framing, eye : Vec3, target : Vec3) : Sighting needs () do
+    let f = unit(minus(target, eye))
+    let r = unit(cross(f, world_up()))
+    let u = cross(r, f)
+    let (nr, nd) = sight(f, u, eye, pts.near_point)
+    let (hr, hd) = sight(f, u, eye, pts.hump_point)
+    let (tr, td) = sight(f, u, eye, pts.top_point)
+    { near_rise: nr, near_depth: nd, hump_rise: hr, hump_depth: hd, top_rise: tr, top_depth: td }
+  end
+
+  pfn screen_y(k : Skee.Consts.Consts, rise : Float, depth : Float, t : Float) : Float needs () do
+    (1.0 -. ieee_div(k, rise, depth *. t)) /. 2.0
+  end
+
+  pfn fit_error(k : Skee.Consts.Consts, s : Sighting, t : Float, fov : Float) : Float needs () do
+    let a = screen_y(k, s.near_rise, s.near_depth, t) -. 0.84
+    let b = screen_y(k, s.hump_rise, s.hump_depth, t) -. 0.5
+    let c = screen_y(k, s.top_rise, s.top_depth, t) -. 0.23
+    a *. a +. 8.0 *. b *. b +. c *. c +. fov *. 0.00002
+  end
+
+  -- Lexicographic order of grid indices, Swift's loop nesting.
+  pfn earlier(a : Best, b : Best) : Bool needs () do
+    if a.fi != b.fi do
+      a.fi < b.fi
+    else
+      if a.hi != b.hi do
+        a.hi < b.hi
+      else
+        if a.zi != b.zi do a.zi < b.zi else a.li < b.li end
+      end
+    end
+  end
+
+  pfn better(a : Best, b : Best) : Bool needs () do
+    a.err < b.err || a.err == b.err && earlier(a, b)
+  end
+
+  pfn try_fovs(k : Skee.Consts.Consts, s : Sighting, tans : List((Int, Float)), hi : Int, zi : Int, li : Int, best : Best) : Best needs () do
+    match tans do
+    Nil -> best
+    Cons((fi, t), rest) -> do
+      let e = fit_error(k, s, t, fov_at(fi))
+      let cand = { err: e, fi: fi, hi: hi, zi: zi, li: li }
+      try_fovs(k, s, rest, hi, zi, li, if better(cand, best) do cand else best end)
+    end
+    end
+  end
+
+  pfn try_looks(k : Skee.Consts.Consts, pts : Framing, tans : List((Int, Float)), hi : Int, zi : Int, li : Int, best : Best) : Best needs () do
+    if li >= look_count() do
+      best
+    else
+      do
+        let eye = v3(0.0, h_at(hi), z_at(zi))
+        let target = v3(0.0, pts.hump_point.y, look_at(li))
+        let b = try_fovs(k, sighting(pts, eye, target), tans, hi, zi, li, best)
+        try_looks(k, pts, tans, hi, zi, li + 1, b)
+      end
+    end
+  end
+
+  pfn try_zs(k : Skee.Consts.Consts, pts : Framing, tans : List((Int, Float)), hi : Int, zi : Int, best : Best) : Best needs () do
+    if zi >= z_count() do
+      best
+    else
+      try_zs(k, pts, tans, hi, zi + 1, try_looks(k, pts, tans, hi, zi, 0, best))
+    end
+  end
+
+  pfn try_hs(k : Skee.Consts.Consts, pts : Framing, tans : List((Int, Float)), hi : Int, best : Best) : Best needs () do
+    if hi >= h_count() do best else try_hs(k, pts, tans, hi + 1, try_zs(k, pts, tans, hi, 0, best)) end
+  end
+
+  doc """
+  Cabinet.fit: the rig that puts the near end of the lane, the hump and the
+  top of the board at 84%, 50% and 23% of the screen height, the hump weighted
+  most so it sits on the crease, preferring narrower lenses. Same grid and
+  same tie-break as Swift. Only screen heights enter the error, so the answer
+  does not depend on the viewport: work it out once per table.
+  """
+  fn fit(k : Skee.Consts.Consts, pts : Framing) : Rig needs () do
+    let tans = List.map(List.range(0, fov_count()), fn i -> (i, tan_half(k, fov_at(i))))
+    let start = { err: k.infinity, fi: fov_count(), hi: 0, zi: 0, li: 0 }
+    let b = try_hs(k, pts, tans, 0, start)
+    { eye: v3(0.0, h_at(b.hi), z_at(b.zi)), target: v3(0.0, pts.hump_point.y, look_at(b.li)), fov: fov_at(b.fi) }
+  end
+
+  doc """The fitted rig for a world: Cabinet.fit(points: framingPoints)."""
+  fn fit_world(k : Skee.Consts.Consts, w : World) : Rig needs () do
+    fit(k, framing(w))
+  end
+
+  doc """The camera before any fit (Cabinet.build): 58 degrees from (0, 0.95, 0.42)."""
+  fn initial() : Rig needs () do
+    { eye: v3(0.0, 0.95, 0.42), target: v3(0.0, 0.12, -1.05), fov: 58.0 }
+  end
+
+  -- ---- ScenePresenter: the screen half ----
+  doc """ScenePresenter.flickGeometry: crease and lane spots screen, for Skee.Stroke."""
+  fn flick_geometry(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport) : FlickGeometry needs () do
+    let l = lens(k, rig, v)
+    let lane_spec = w.table.lane
+    let hump = fraction(k, l, lane(w, 0.0, lane_spec.length))
+    let crease = hump.y *. v.height
+    let left = fraction(k, l, lane(w, -lane_spec.width /. 2.0, 0.2))
+    let right = fraction(k, l, lane(w, lane_spec.width /. 2.0, 0.2))
+    {
+      crease_y: crease,
+      lane_center_x: (left.x +. right.x) /. 2.0 *. v.width,
+      lane_half_width: (right.x -. left.x) /. 2.0 *. v.width,
+      foul_give: 140.0
+    }
+  end
+
+  doc """ScenePresenter.laneX: a release line -1...1 as a physics lane x."""
+  fn lane_x(w : World, line : Float) : Float needs () do
+    line *. (w.table.lane.width /. 2.0 -. ball_radius(w))
+  end
+
+  doc """ScenePresenter.waitingBall: where the waiting ball sits for a release line."""
+  fn waiting_ball(w : World, line : Float) : Vec3 needs () do
+    plus(lane(w, lane_x(w, line), 0.12), times(lane_normal(w), ball_radius(w)))
+  end
+
+  doc """
+  ScenePresenter.guide: screen points along a release line, up the lane, over
+  the hump and up the board.
+  """
+  fn guide(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport, line : Float) : List(Vec2) needs () do
+    let l = lens(k, rig, v)
+    let x = lane_x(w, line)
+    let span = w.table.lane.length
+    let pts = [lane(w, x, 0.24), lane(w, x, span), board(w, vec2(x, 0.0), 0.0), board(w, vec2(x, w.table.board.board_height -. 0.04), 0.0)]
+    List.map(pts, fn p -> pixel(k, l, p))
+  end
+
+  doc """
+  ScenePresenter.lanePoint: the ball centre over the lane point under a screen
+  position (fractions, y down), clamped across the lane and never past the
+  hump. None when the ray misses the lane plane.
+  """
+  fn lane_point(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport, f : Vec2) : Option(Vec3) needs () do
+    let l = lens(k, rig, v)
+    let (o, d) = ray(l, f)
+    let n = lane_normal(w)
+    let p0 = lane(w, 0.0, 0.0)
+    let denom = dot3(d, n)
+    if Math.abs(denom) > 0.00001 do
+      do
+        let t = dot3(minus(p0, o), n) /. denom
+        if t > 0.0 do Some(clamp_on_lane(w, plus(o, times(d, t)))) else None end
+      end
+    else
+      None
+    end
+  end
+
+  pfn clamp_on_lane(w : World, hit : Vec3) : Vec3 needs () do
+    let half = w.table.lane.width /. 2.0 -. ball_radius(w)
+    let across = { hit with x: min_float(max_float(hit.x, -half), half) }
+    let p0 = lane(w, 0.0, 0.0)
+    let fwd = lane_forward(w)
+    let along = dot3(minus(across, p0), fwd)
+    let max_along = lane_length(w) -. 0.03
+    let held = if along > max_along do minus(across, times(fwd, along -. max_along)) else across end
+    plus(held, times(lane_normal(w), ball_radius(w)))
+  end
+
+  doc """ScenePresenter.laneCoordinates: physics (x, s) of a scene point spots the lane."""
+  fn lane_coordinates(w : World, p : Vec3) : (Float, Float) needs () do
+    let rel = minus(p, lane(w, 0.0, 0.0))
+    (rel.x, dot3(rel, lane_forward(w)) /. w.lane_scale)
+  end
+
+  doc """
+  Where each hole is spots screen, in pixels: GameModel's holeOnScreen, for
+  HUDState popups and board taps. Uses the fitted rig, not the leaning one.
+  """
+  fn hole_on_screen(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport) : PerHole(Vec2) needs () do
+    let l = lens(k, rig, v)
+    {
+      gutter: hole_pixel(k, w, l, Gutter),
+      ring10: hole_pixel(k, w, l, Ring10),
+      ring20: hole_pixel(k, w, l, Ring20),
+      ring30: hole_pixel(k, w, l, Ring30),
+      ring40: hole_pixel(k, w, l, Ring40),
+      ring50: hole_pixel(k, w, l, Ring50),
+      pocket_left: hole_pixel(k, w, l, PocketLeft),
+      pocket_right: hole_pixel(k, w, l, PocketRight)
+    }
+  end
+
+  -- Named, not a let-bound lambda: see tools/repros/lambda_tagged_int.
+  pfn hole_pixel(k : Skee.Consts.Consts, w : World, l : Lens, h : Hole) : Vec2 needs () do
+    pixel(k, l, board(w, Skee.Physics.hole_center(w.table.board, h), 0.0))
+  end
+
+  doc """
+  GameModel.tapBoard: the reel hole nearest a tap, if it is within 44 pixels.
+  """
+  fn tapped_hole(k : Skee.Consts.Consts, w : World, rig : Rig, v : Viewport, tap : Vec2) : Option(Hole) needs () do
+    let spots = hole_on_screen(k, w, rig, v)
+    let nearest = List.fold_left(Skee.HoleMap.reel_holes(), None, fn (acc, h) -> closer(acc, h, length(sub(Skee.HoleMap.at(spots, h), tap))))
+    match nearest do
+    Some((h, d)) -> if d < 44.0 do Some(h) else None end
+    None -> None
+    end
+  end
+
+  -- Swift's `min { $0.1 < $1.1 }`: the first of equals wins.
+  pfn closer(acc : Option((Hole, Float)), h : Hole, d : Float) : Option((Hole, Float)) needs () do
+    match acc do
+    None -> Some((h, d))
+    Some((best, bd)) -> if d < bd do Some((h, d)) else Some((best, bd)) end
+    end
+  end
+
+  -- ---- The camera's lean and shake (ScenePresenter.update) ----
+  doc """
+  Ease the lean toward the target while a jackpot-chance ball flies: quicker
+  in than out. `want` is the presentation's anticipation, 0...1.
+  """
+  fn lean_step(lean : Float, want : Float, dt : Float) : Float needs () do
+    let rate = if want > lean do 5.0 else 2.5 end
+    lean +. (want -. lean) *. min_float(1.0, dt *. rate)
+  end
+
+  doc """
+  The camera for this frame: the fitted rig leaned toward the rings and
+  shaken spots big moments. `shake` and `clock` come from the presentation.
+  """
+  fn framed(w : World, rig : Rig, lean : Float, shake : Float, clock : Float) : Rig needs () do
+    let focus = board(w, vec2(0.0, w.table.board.ring_center.y), 0.0)
+    let k = shake *. 0.012
+    let pos = plus(rig.eye, times(minus(focus, rig.eye), 0.2 *. lean))
+    let jolt = v3(Math.sin(clock *. 71.0) *. k, Math.cos(clock *. 53.0) *. k, 0.0)
+    { eye: plus(pos, jolt), target: plus(rig.target, times(minus(focus, rig.target), 0.45 *. lean)), fov: rig.fov }
+  end
+
+end

@@ -1,0 +1,29 @@
+-- forge format moves a `--` comment from inside a function body to after the
+-- function, where it reads as the next function's comment. Run:
+--   forge format --stdin < tools/repros/format_moves_comments.march.txt
+-- Expected: both comments stay where they are. Got: they print after `end`
+-- of their function, above the next one. Workaround: comment above the function,
+-- or name the piece as a function of its own.
+mod Repro do
+
+  fn first(x : Int) : Int do
+    -- Inside first, before its let.
+    let y = x + 1
+    y
+  end
+
+  fn pick(n : Int) : List(Int) do
+    match n do
+    0 -> do
+      -- Inside the 0 arm.
+      [1, 2]
+    end
+    _ -> []
+    end
+  end
+
+  fn second() : Int do
+    2
+  end
+
+end

@@ -1,0 +1,115 @@
+mod Skee.Rng do
+
+  -- Seedable, platform-independent PRNG: SplitMix64 (Vigna 2015), ported from
+  -- Random/SplitMix64.swift. Purely functional: every draw returns the value and
+  -- the new generator. Every random choice in a run flows from one seed, so a
+  -- run is fully described by its seed and actions.
+  cap pure
+
+  import Skee.U64
+
+  type Rng = { word : U64 }
+
+  derive Show for Rng
+
+  fn seed(s : U64) : Rng needs () do
+    { word: s }
+  end
+
+  fn word(r : Rng) : U64 needs () do
+    r.word
+  end
+
+  -- The Swift constants, as limbs (March has no hex literals):
+  -- 0x9E3779B97F4A7C15, 0xBF58476D1CE4E5B9, 0x94D049BB133111EB.
+  fn next(r : Rng) : (U64, Rng) needs () do
+    let word = add(r.word, make(2654435769, 2135587861))
+    let z1 = mul(xor(word, shr(word, 30)), make(3210233709, 484763065))
+    let z2 = mul(xor(z1, shr(z1, 27)), make(2496678331, 321982955))
+    (xor(z2, shr(z2, 31)), { word: word })
+  end
+
+  doc """Uniform in [0, 1) from the top 53 bits."""
+  fn next_unit(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
+    let (v, after) = next(r)
+    let top53 = v.hi * 2097152 + int_shr(v.lo, 11)
+    (int_to_float(top53) *. k.unit53, after)
+  end
+
+  -- r * 2 + bit, modulo n, for r < n, without ever exceeding n. Long division
+  -- by doubling keeps a bound near 2^53 exact on the JS target.
+  pfn shift_in(r : Int, bit : Int, n : Int) : Int needs () do
+    let doubled = if r >= n - r do r - (n - r) else r + r end
+    if bit == 0 do
+      doubled
+    else
+      if doubled == n - 1 do 0 else doubled + 1 end
+    end
+  end
+
+  pfn divide_word(r : Int, word : Int, position : Int, n : Int) : Int needs () do
+    if position < 0 do
+      r
+    else
+      divide_word(shift_in(r, int_and(int_shr(word, position), 1), n), word, position - 1, n)
+    end
+  end
+
+  -- v % n. With n <= 2^20 two exact steps do it; beyond that, bit by bit.
+  pfn mod_int(v : U64, n : { Int | _ > 0 }) : Int needs () do
+    if n <= 1048576 do
+      (v.hi % n * 4294967296 + v.lo) % n
+    else
+      divide_word(divide_word(0, v.hi, 31, n), v.lo, 31, n)
+    end
+  end
+
+  doc """Uniform in 0..<n. Modulo bias is negligible for the tiny n the game uses."""
+  fn next_int_below(r : Rng, n : { Int | _ > 0 }) : (Int, Rng) needs () do
+    let (v, after) = next(r)
+    (mod_int(v, n), after)
+  end
+
+  doc """Gaussian sample (Box-Muller). Used only by bots, never by the game."""
+  fn next_gaussian(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
+    let (first, r1) = next_unit(k, r)
+    let u1 = Skee.Maths.max_float(first, k.floor_u1)
+    let (u2, r2) = next_unit(k, r1)
+    (Math.sqrt(-2.0 *. Math.log(u1)) *. Math.cos(k.tau *. u2), r2)
+  end
+
+  pfn replace_at(xs : List(a), i : Int, x : a) : List(a) needs () do
+    List.append(List.take(xs, i), Cons(x, List.drop(xs, i + 1)))
+  end
+
+  pfn swap_at(xs : List(a), i : Int, j : Int) : List(a) needs () do
+    match (List.nth_opt(xs, i), List.nth_opt(xs, j)) do
+    (Some(at_i), Some(at_j)) -> replace_at(replace_at(xs, i, at_j), j, at_i)
+    (None, _) -> xs
+    (_, None) -> xs
+    end
+  end
+
+  pfn shuffle_down(r : Rng, xs : List(a), i : Int) : (List(a), Rng) needs () do
+    if i <= 0 do
+      (xs, r)
+    else
+      do
+        let (j, after) = next_int_below(r, i + 1)
+        shuffle_down(after, swap_at(xs, i, j), i - 1)
+      end
+    end
+  end
+
+  doc """Fisher-Yates, drawing from the top index down, as Swift's shuffled does."""
+  fn shuffled(r : Rng, xs : List(a)) : (List(a), Rng) needs () do
+    shuffle_down(r, xs, List.length(xs) - 1)
+  end
+
+  doc """One element of a non-empty list. Always one draw, even from a singleton."""
+  fn pick(r : Rng, xs : { List(a) | len(_) > 0 }) : (a, Rng) needs () do
+    let (i, after) = next_int_below(r, List.length(xs))
+    (List.nth(xs, i), after)
+  end
+
+end

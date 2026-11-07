@@ -1,0 +1,486 @@
+mod Skee.Bots do
+
+  -- Bots/AimBook.swift and Bots/BotPlayer.swift. A simple, honest player: aims for
+  -- the hole that best completes the current payline, buys charms it can afford in
+  -- a fixed preference order, stamps sevens onto the 40, and fires power-ups on the
+  -- third ball. Not clever. It is a yardstick for balance, not an opponent.
+  cap pure
+
+  -- ---- The aim book ----
+  -- The most forgiving launch for a hole: the centre of its widest contiguous
+  -- power window. `width` is that window as a fraction of the full power range.
+  type Window = { launch : Launch, width : Float }
+
+  -- For one table, the most forgiving launch for each hole, at any of a set of
+  -- aims. `grid` is indexed [aim][power].
+  type AimBook = {
+    grid : List(List(Hole)),
+    aims : List(Float),
+    powers : List(Float),
+    best : PerHole(Option(Window))
+  }
+
+  doc """-1 to 1 by eighths: AimBook.defaultAims."""
+  fn default_aims() : List(Float) needs () do
+    List.map(List.range(0, 17), fn i -> -1.0 +. int_to_float(i) *. 0.125)
+  end
+
+  pfn hole_of(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, fold : Float, ball : BallKind) : Hole needs () do
+    let l = Skee.Physics.launch_of_power(k, power, aim, 0.0, fold, 0.0, 0.0)
+    let r = Skee.Physics.simulate_shot(k, l, t, ball, Skee.U64.of_int(1))
+    r.hole
+  end
+
+  -- What a scan of one aim's row carries.
+  type Scan = {
+    powers : List(Float),
+    steps : Int,
+    aim : Float,
+    fold : Float,
+    k : Skee.Consts.Consts
+  }
+
+  pfn run_length(row : List(Hole), hole : Hole, n : Int) : Int needs () do
+    match row do
+    Cons(next, rest) -> if next == hole do run_length(rest, hole, n + 1) else n end
+    Nil -> n
+    end
+  end
+
+  pfn width_of(best : PerHole(Option(Window)), hole : Hole) : Float needs () do
+    match Skee.HoleMap.at(best, hole) do
+    Some(w) -> w.width
+    None -> 0.0
+    end
+  end
+
+  -- Best windows after the run of `length` holes that starts at `i`.
+  pfn note_run(c : Scan, best : PerHole(Option(Window)), hole : Hole, i : Int, length : Int) : PerHole(Option(Window)) needs () do
+    let width = int_to_float(length) /. int_to_float(c.steps)
+    if width > width_of(best, hole) do
+      do
+        let mid = (List.nth(c.powers, i) +. List.nth(c.powers, i + length - 1)) /. 2.0
+        let launch = Skee.Physics.launch_of_power(c.k, mid, c.aim, 0.0, c.fold, 0.0, 0.0)
+        Skee.HoleMap.put(best, hole, Some({ launch: launch, width: width }))
+      end
+    else
+      best
+    end
+  end
+
+  pfn scan_row(c : Scan, best : PerHole(Option(Window)), row : List(Hole), i : Int) : PerHole(Option(Window)) needs () do
+    match row do
+    Nil -> best
+    Cons(hole, rest) -> do
+      let length = run_length(rest, hole, 1)
+      scan_row(c, note_run(c, best, hole, i, length), List.drop(row, length), i + length)
+    end
+    end
+  end
+
+  doc """
+  The aim book for a table. Swift's defaults are 240 power steps, `default_aims()`,
+  no fold and the classic ball.
+  """
+  fn aim_book(k : Skee.Consts.Consts, t : Table, power_steps : Int, aims : List(Float), fold : Float, ball : BallKind) : AimBook needs () do
+    let powers =
+      List.map(List.range(0, power_steps + 1), fn i -> int_to_float(i) /. int_to_float(power_steps))
+    let grid =
+      List.map(aims, fn aim -> List.map(powers, fn p -> hole_of(k, t, p, aim, fold, ball)))
+    let rows = List.zip(aims, grid)
+    let best =
+      List.fold_left(rows, Skee.HoleMap.fill(None), fn (held, pair) -> scan_row({ powers: powers, steps: power_steps, aim: Tuple.first(pair), fold: fold, k: k }, held, Tuple.second(pair), 0))
+    { grid: grid, aims: aims, powers: powers, best: best }
+  end
+
+  -- ---- Skill ----
+  fn perfect() : Skill needs () do
+    { skill_name: "perfect", power_sigma: 0.0, aim_sigma: 0.0 }
+  end
+
+  fn expert() : Skill needs () do
+    { skill_name: "expert", power_sigma: 0.012, aim_sigma: 0.04 }
+  end
+
+  fn regular() : Skill needs () do
+    { skill_name: "regular", power_sigma: 0.025, aim_sigma: 0.08 }
+  end
+
+  fn novice() : Skill needs () do
+    { skill_name: "novice", power_sigma: 0.05, aim_sigma: 0.15 }
+  end
+
+  doc """Skill.all."""
+  fn all_skills() : List(Skill) needs () do
+    [perfect(), expert(), regular(), novice()]
+  end
+
+  doc """A shaky hand on a launch: Gaussian noise on power, then on aim."""
+  fn perturb(k : Skee.Consts.Consts, skill : Skill, l : Launch, rng : Skee.Rng.Rng) : (Launch, Skee.Rng.Rng) needs () do
+    let (g1, r1) = Skee.Rng.next_gaussian(k, rng)
+    let (g2, r2) = Skee.Rng.next_gaussian(k, r1)
+    let shaken =
+      Skee.Physics.launch_of_power(k, l.power +. g1 *. skill.power_sigma, l.aim +. g2 *. skill.aim_sigma, l.start, l.fold, 0.0, 0.0)
+    (shaken, r2)
+  end
+
+  -- ---- Landing rates ----
+  -- One hole's shots: where they landed, as a share per landing hole.
+  pfn spread_of(k : Skee.Consts.Consts, w : Window, table : Table, skill : Skill, ball : BallKind, rng : Skee.Rng.Rng) : (PerHole(Float), Skee.Rng.Rng) needs () do
+    let samples = 64
+    let share = 1.0 /. int_to_float(samples)
+    List.fold_left(List.range(0, samples), (Skee.HoleMap.fill(0.0), rng), fn (held, i) ->
+      let (spread, r) = held
+      let (l, next) = perturb(k, skill, w.launch, r)
+      let shot = Skee.Physics.simulate_shot(k, l, table, ball, Skee.U64.of_int(i))
+      (Skee.HoleMap.put(spread, shot.hole, Skee.HoleMap.at(spread, shot.hole) +. share), next)
+    )
+  end
+
+  doc """
+  Monte Carlo: where this hand's balls really land when it aims at the centre of
+  each hole's best window. Seeded, so bots stay deterministic. Holes go in a fixed
+  order because the rng is shared.
+  """
+  fn landings(k : Skee.Consts.Consts, book : AimBook, table : Table, skill : Skill, ball : BallKind) : PerHole(Option(PerHole(Float))) needs () do
+    let start = Skee.Rng.seed(Skee.U64.of_int(24301))
+    let (rates, _) =
+      List.fold_left(Skee.HoleMap.reel_holes(), (Skee.HoleMap.fill(None), start), fn (held, hole) ->
+        let (rates, rng) = held
+        match Skee.HoleMap.at(book.best, hole) do
+        None -> held
+        Some(w) -> do
+          let (spread, next) = spread_of(k, w, table, skill, ball, rng)
+          (Skee.HoleMap.put(rates, hole, Some(spread)), next)
+        end
+        end
+      )
+    rates
+  end
+
+  -- ---- Books by table ----
+  -- Swift's [Table: AimBook]. Tables are records, so they do not derive Eq.
+  type BookEntry = { book_table : Table, book : AimBook }
+
+  type Books = { entries : List(BookEntry) }
+
+  doc """An empty cache. Pass the result of each run to the next to share books."""
+  fn no_books() : Books needs () do
+    { entries: [] }
+  end
+
+  pfn same_lane(a : LaneSpec, b : LaneSpec) : Bool needs () do
+    a.length == b.length && a.width == b.width && a.incline == b.incline && a.rolling_friction == b.rolling_friction && a.rail_restitution == b.rail_restitution && a.min_speed == b.min_speed && a.scoring_speed == b.scoring_speed && a.max_speed == b.max_speed && a.knee == b.knee && a.max_aim_angle == b.max_aim_angle && a.hook == b.hook && a.skid_loss == b.skid_loss
+  end
+
+  pfn same_pocket(a : Pocket, b : Pocket) : Bool needs () do
+    a.pocket_hole == b.pocket_hole && Skee.Maths.equal(a.center, b.center) && a.radius == b.radius
+  end
+
+  pfn same_walls(a : RingWalls, b : RingWalls) : Bool needs () do
+    a.wall40 == b.wall40 && a.wall30 == b.wall30 && a.wall20 == b.wall20 && a.wall10 == b.wall10
+  end
+
+  pfn same_board(a : BoardSpec, b : BoardSpec) : Bool needs () do
+    a.board_width == b.board_width && a.board_height == b.board_height && a.tilt == b.tilt && Skee.Maths.equal(a.ring_center, b.ring_center) && Skee.Maths.equal(a.center_hole_offset, b.center_hole_offset) && a.center_hole_radius == b.center_hole_radius && a.capture_speed == b.capture_speed && a.pockets_need_flight == b.pockets_need_flight && a.lip_min_fall == b.lip_min_fall && same_walls(a.ring_walls, b.ring_walls) && same_pocket(a.pockets.left, b.pockets.left) && same_pocket(a.pockets.right, b.pockets.right) && a.lip_height == b.lip_height && a.ball_radius == b.ball_radius && a.lip_band == b.lip_band && a.bounce == b.bounce && a.lip_bounce == b.lip_bounce && a.lip_kick == b.lip_kick && a.wall_restitution == b.wall_restitution && a.backwall_restitution == b.backwall_restitution && a.board_rolling_friction == b.board_rolling_friction && a.landing_grip == b.landing_grip && Skee.Maths.equal(a.wind, b.wind) && a.ring_hole_radius == b.ring_hole_radius
+  end
+
+  pfn same_table(a : Table, b : Table) : Bool needs () do
+    same_board(a.board, b.board) && same_lane(a.lane, b.lane) && a.hinge.base_angle == b.hinge.base_angle && a.hinge.fold_gain == b.hinge.fold_gain && a.hinge.carry == b.hinge.carry && a.gravity == b.gravity && a.dt == b.dt && a.max_duration == b.max_duration
+  end
+
+  pfn book_for(k : Skee.Consts.Consts, books : Books, t : Table, ball : BallKind) : (AimBook, Books) needs () do
+    match List.find(books.entries, fn e -> same_table(e.book_table, t)) do
+    Some(e) -> (e.book, books)
+    None -> do
+      let book = aim_book(k, t, 240, default_aims(), 0.0, ball)
+      (book, { entries: Cons({ book_table: t, book: book }, books.entries) })
+    end
+    end
+  end
+
+  -- ---- Choosing a hole ----
+  -- A run's landing rates by table. Swift's key also holds the skill, which is
+  -- the same for a whole run.
+  type RateEntry = { rate_table : Table, rates : PerHole(Option(PerHole(Float))) }
+
+  pfn rates_for(k : Skee.Consts.Consts, known : List(RateEntry), book : AimBook, t : Table, skill : Skill, ball : BallKind) : (PerHole(Option(PerHole(Float))), List(RateEntry)) needs () do
+    match List.find(known, fn e -> same_table(e.rate_table, t)) do
+    Some(e) -> (e.rates, known)
+    None -> do
+      let rates = landings(k, book, t, skill, ball)
+      (rates, Cons({ rate_table: t, rates: rates }, known))
+    end
+    end
+  end
+
+  -- What a next link of the combo would pay: a throw that matches no target
+  -- breaks the combo, and a gutter always does.
+  pfn streak_worth(s : RunState) : Float needs () do
+    40.0 *. Skee.Scoring.combo_mult(1, s.round.combo + 1)
+  end
+
+  pfn broken_combo(s : RunState) : Float needs () do
+    if s.round.combo > 0 do -streak_worth(s) else 0.0 end
+  end
+
+  pfn chips_at(s : RunState, hole : Hole) : Int needs () do
+    let face = Skee.Scoring.hole_chips(s.setup, hole)
+    let bossed =
+      match s.round.kind do
+      BossRound -> Skee.Items.boss_chips(s.boss, hole, face)
+      Warmup -> face
+      Feature -> face
+      end
+    let weight = if Some(hole) == s.round.round_hot do 2.0 else 1.0 end
+    float_to_int(int_to_float(Skee.Units.chips_int(bossed)) *. Skee.Items.pay(s.ball) *. weight)
+  end
+
+  pfn hole_value(s : RunState, have : List(Symbol), line_now : Float, hole : Hole) : Float needs () do
+    match hole do
+    Gutter -> broken_combo(s)
+    _ -> do
+      let symbol = Skee.Reducer.showing(s, hole)
+      let line = Skee.Scoring.evaluate(List.append(have, [symbol]))
+      let line_gain = Skee.Scoring.added_mult(line) -. line_now
+      let hits = Skee.Scoring.hits(s.top_slot, symbol)
+      let combo =
+        if hits > 0 do
+          40.0 *. Skee.Scoring.combo_mult(hits, s.round.combo + 1)
+        else
+          broken_combo(s)
+        end
+      int_to_float(chips_at(s, hole)) +. 40.0 *. line_gain +. combo
+    end
+    end
+  end
+
+  pfn expected_value(s : RunState, have : List(Symbol), line_now : Float, rates : PerHole(Option(PerHole(Float))), hole : Hole) : Float needs () do
+    match Skee.HoleMap.at(rates, hole) do
+    None -> 0.0
+    Some(spread) -> do
+      List.fold_left(Skee.HoleMap.all_holes(), 0.0, fn (sum, landed) -> sum +. Skee.HoleMap.at(spread, landed) *. hole_value(s, have, line_now, landed))
+    end
+    end
+  end
+
+  -- Expected-value aiming over everything a shot can do, not just the hole aimed
+  -- at. Hit rate times value is the obvious version and it is wrong: a missed
+  -- pocket is a gutter, a missed ring is usually another ring, and ignoring that
+  -- made a steady hand chase pockets into 39% gutters and lose to a shakier one
+  -- that could not be tempted.
+  pfn choose_hole(s : RunState, rates : PerHole(Option(PerHole(Float)))) : Hole needs () do
+    let have = List.map(s.round.current_balls, fn b -> b.record_symbol)
+    let line_now = Skee.Scoring.added_mult(Skee.Scoring.evaluate(have))
+    let (best, _) =
+      List.fold_left(Skee.HoleMap.reel_holes(), (Ring10, -1.0), fn (held, hole) ->
+        let (_, top) = held
+        let ev = expected_value(s, have, line_now, rates, hole)
+        if ev > top do (hole, ev) else held end
+      )
+    best
+  end
+
+  -- ---- Playing ----
+  -- Which of a run's offers the bot wants, best first.
+  pfn charm_preference() : List(Charm) needs () do
+    [
+      MultBall,
+      HotStreak,
+      HeavyHand,
+      Ladder,
+      SevenSeas,
+      ExtraBall,
+      NearMiss,
+      LuckyPenny,
+      BellRinger,
+      TicketMuncher
+    ]
+  end
+
+  -- `bot_events` and `bot_actions` are in order. `bot_final` is where it stopped.
+  type BotRun = {
+    bot_final : RunState,
+    bot_actions : List(Action),
+    bot_events : List(GameEvent)
+  }
+
+  -- A run in progress. The lists are newest first; `played` is their length.
+  type Play = {
+    k : Skee.Consts.Consts,
+    skill : Skill,
+    held_ball : BallKind,
+    now : RunState,
+    hand : Skee.Rng.Rng,
+    done_actions : List(Action),
+    done_events : List(List(GameEvent)),
+    played : Int,
+    books : Books,
+    known_rates : List(RateEntry)
+  }
+
+  -- An action that is refused changes nothing, as in Swift's `act`.
+  pfn act(p : Play, a : Action) : (Play, Bool) needs () do
+    match Skee.Reducer.apply(p.k, a, p.now) do
+    Err(_) -> (p, false)
+    Ok(step) -> do
+      ({ p with now: step.run, done_actions: Cons(a, p.done_actions), done_events: Cons(step.step_events, p.done_events), played: p.played + 1 }, true)
+    end
+    end
+  end
+
+  -- Max bet when it can keep a cushion for the counter.
+  pfn bet_for(s : RunState) : Bet needs () do
+    if Skee.Units.tickets_at_least(s.tickets, Tickets(8)) do
+      BetFive
+    else
+      if Skee.Units.tickets_at_least(s.tickets, Tickets(4)) do
+        BetThree
+      else
+        BetOne
+      end
+    end
+  end
+
+  pfn arm_on_third_ball(p : Play) : Play needs () do
+    let s = p.now
+    if List.length(s.round.current_balls) == 2 && !List.is_empty(s.power_ups) do
+      do
+        let (armed, _) = act(p, Arm(0))
+        armed
+      end
+    else
+      p
+    end
+  end
+
+  pfn throw_one(p0 : Play) : Play needs () do
+    let p = arm_on_third_ball(p0)
+    let k = p.k
+    let t = Skee.Reducer.table_for(k, p.now)
+    let (book, books) = book_for(k, p.books, t, p.held_ball)
+    let (rates, known) = rates_for(k, p.known_rates, book, t, p.skill, p.held_ball)
+    let want = choose_hole(p.now, rates)
+    let ideal =
+      match Skee.HoleMap.at(book.best, want) do
+      Some(w) -> w.launch
+      None -> Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+      end
+    let (shaken, hand) = perturb(k, p.skill, ideal, p.hand)
+    let (thrown, _) =
+      act({ p with books: books, known_rates: known, hand: hand }, ThrowBall(shaken))
+    thrown
+  end
+
+  -- What the bot does about one offer, if it wants it at all.
+  pfn try_offer(p : Play, i : Int, item : Offer) : (Play, Bool) needs () do
+    let cost = Skee.Items.offer_cost(item)
+    let s = p.now
+    match item do
+    OfferCharm(c) -> do
+      if List.member(charm_preference(), c) do
+        act(p, Buy(i, None))
+      else
+        (p, false)
+      end
+    end
+    OfferStamp(Seven) -> act(p, Buy(i, Some(Ring40)))
+    OfferStamp(Clover) -> act(p, Buy(i, Some(Ring40)))
+    OfferStamp(_) -> (p, false)
+    OfferGild -> act(p, Buy(i, Some(Ring50)))
+    OfferPurge -> (p, false)
+    OfferPowerUp(_) -> do
+      if Skee.Units.tickets_int(s.tickets) - Skee.Units.tickets_int(cost) >= 5 do
+        act(p, Buy(i, None))
+      else
+        (p, false)
+      end
+    end
+    end
+  end
+
+  pfn shop_from(p : Play, slots : List((Int, Option(Offer)))) : (Play, Bool) needs () do
+    match slots do
+    Nil -> (p, false)
+    Cons((_, None), rest) -> shop_from(p, rest)
+    Cons((i, Some(item)), rest) -> do
+      if Skee.Units.tickets_at_least(p.now.tickets, Skee.Items.offer_cost(item)) do
+        do
+          let (tried, bought) = try_offer(p, i, item)
+          if bought do (tried, true) else shop_from(tried, rest) end
+        end
+      else
+        shop_from(p, rest)
+      end
+    end
+    end
+  end
+
+  pfn shop(p : Play, c : PrizeCounter) : Play needs () do
+    let (shopped, bought) = shop_from(p, List.enumerate(c.offers))
+    if bought do
+      shopped
+    else
+      do
+        let (left, _) = act(shopped, LeaveCounter)
+        left
+      end
+    end
+  end
+
+  pfn on_the_lane(p : Play) : Play needs () do
+    match p.now.round.round_pull do
+    None -> do
+      let (pulled, _) = act(p, PullLever(bet_for(p.now)))
+      pulled
+    end
+    Some(_) -> throw_one(p)
+    end
+  end
+
+  pfn finished(p : Play) : (BotRun, Books) needs () do
+    ({ bot_final: p.now, bot_actions: List.reverse(p.done_actions), bot_events: List.concat(List.reverse(p.done_events)) }, p.books)
+  end
+
+  pfn play(p : Play) : (BotRun, Books) needs () do
+    if p.played >= 5000 do
+      finished(p)
+    else
+      match p.now.phase do
+      Won -> finished(p)
+      Lost -> finished(p)
+      Throwing -> play(on_the_lane(p))
+      AtCounter(c) -> play(shop(p, c))
+      end
+    end
+  end
+
+  doc """
+  A whole run, played from a seed. Swift's defaults are the standard config, the
+  Boardwalk and the classic ball. Books are returned to be passed to the next run,
+  which only saves time: the same table always gets the same book.
+  """
+  fn play_bot_run(k : Skee.Consts.Consts, seed : Skee.U64.U64, skill : Skill, config : RunConfig, room : Room, ball : BallKind, books : Books) : (BotRun, Books) needs () do
+    let start =
+      {
+        k: k,
+        skill: skill,
+        held_ball: ball,
+        now: Skee.Reducer.new_run(k, seed, config, room, Tickets(0)),
+        hand: Skee.Rng.seed(Skee.U64.xor(seed, Skee.U64.of_int(2823))),
+        done_actions: [],
+        done_events: [],
+        played: 0,
+        books: books,
+        known_rates: []
+      }
+    match ball do
+    ClassicBall -> play(start)
+    _ -> do
+      let (chosen, _) = act(start, ChooseBall(ball))
+      play(chosen)
+    end
+    end
+  end
+
+end

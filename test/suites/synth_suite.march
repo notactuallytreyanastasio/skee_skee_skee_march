@@ -397,21 +397,64 @@ mod SynthSuite do
     end
   end
 
-  fn run_scenario(s : SynthScenario) : Outcome do
+  -- ---- Measurement: how far all the buffers are from Swift ----
+  type SynthGap = { seen : Int, off : Int, worst_abs : Float, worst_ulps : Int }
+
+  fn no_gap() : SynthGap do
+    { seen: 0, off: 0, worst_abs: 0.0, worst_ulps: 0 }
+  end
+
+  fn gap_join(a : SynthGap, b : SynthGap) : SynthGap do
+    {
+      seen: a.seen + b.seen,
+      off: a.off + b.off,
+      worst_abs: Skee.Maths.max_float(a.worst_abs, b.worst_abs),
+      worst_ulps: Math.max_int(a.worst_ulps, b.worst_ulps)
+    }
+  end
+
+  -- One scenario replayed once: its outcome, and its samples' gap from Swift.
+  type SynthResult = { name : String, outcome : Outcome, gap : SynthGap }
+
+  fn run_scenario(s : SynthScenario) : SynthResult do
     let start = { synth: Skee.Synth.new(), chunks: [], counts: [] }
     let r =
       List.fold_left(s.steps, start, fn (acc, step) -> replay_step(s.name, acc, step))
     let samples = List.concat(List.reverse(r.chunks))
     let compared = walk(samples, 0, s.kept, s.name, [])
-    all(List.concat([r.counts, compared, [Harness.expect_int(List.length(samples), s.total, s.name ++ " length"), close(sum_squares(samples), s.sumsq, s.name ++ " sum of squares"), close(peak_of(samples), s.peak, s.name ++ " peak")]]))
+    let outcome =
+      all(List.concat([r.counts, compared, [Harness.expect_int(List.length(samples), s.total, s.name ++ " length"), close(sum_squares(samples), s.sumsq, s.name ++ " sum of squares"), close(peak_of(samples), s.peak, s.name ++ " peak")]]))
+    {
+      name: s.name,
+      outcome: outcome,
+      gap: gap_walk(samples, 0, s.kept, no_gap())
+    }
   end
 
-  fn scenario_case(s : SynthScenario) : Case do
-    case("swift buffer: " ++ s.name, fn () -> run_scenario(s))
+  fn scenario_case(r : SynthResult) : Case do
+    case("swift buffer: " ++ r.name, fn () -> r.outcome)
   end
 
-  -- ---- Measurement, for tools/synth_bench ----
-  type SynthGap = { seen : Int, off : Int, worst_abs : Float, worst_ulps : Int }
+  -- The per-sample tolerance lets a sample drift by four ulps at full scale,
+  -- which on its own would let the synth slip back to double arithmetic, drop
+  -- the Float.pi or -0.0 fixes, or skip a rounding: each of those still passes
+  -- sample by sample. So the total is pinned to what was measured (docs/PORT.md,
+  -- "Skee.Synth"): every kept sample compared, at most drift_ceiling() of them
+  -- off (a +0/-0 difference counts), none by more than 2^-24. Lower it when
+  -- parity improves; never raise it without finding the cause.
+  fn drift_ceiling() : Int do
+    1457
+  end
+
+  fn kept_samples() : Int do
+    96450
+  end
+
+  fn drift_is_pinned(results : List(SynthResult)) : Outcome do
+    let g = List.fold_left(results, no_gap(), fn (acc, r) -> gap_join(acc, r.gap))
+    let worst = GoldenIo.pow2(-24, 1.0)
+    all([Harness.expect_int(g.seen, kept_samples(), "kept Swift samples compared"), expect(g.off <= drift_ceiling(), int_to_string(g.off) ++ " samples differ from Swift; the ceiling is " ++ int_to_string(drift_ceiling())), expect(g.worst_abs <= worst, "worst |error| " ++ float_to_string(g.worst_abs) ++ " is past 2^-24")])
+  end
 
   fn gap_add(g : SynthGap, x : Float, want : Float) : SynthGap do
     if same(x, want) do
@@ -444,17 +487,14 @@ mod SynthSuite do
     end
   end
 
-  fn scenario_gap(s : SynthScenario, g : SynthGap) : SynthGap do
-    let start = { synth: Skee.Synth.new(), chunks: [], counts: [] }
-    let r =
-      List.fold_left(s.steps, start, fn (acc, step) -> replay_step(s.name, acc, step))
-    gap_walk(List.concat(List.reverse(r.chunks)), 0, s.kept, g)
+  fn gap_of(r : SynthResult) : SynthGap do
+    r.gap
   end
 
-  doc """Every kept Swift sample against March's: how many differ, and by how much."""
+  doc """Every kept Swift sample against March's: how many differ, and by how much. For tools/synth_bench."""
   fn measure() : String do
     let g =
-      List.fold_left(scenarios(golden()), { seen: 0, off: 0, worst_abs: 0.0, worst_ulps: 0 }, fn (acc, s) -> scenario_gap(s, acc))
+      List.fold_left(scenarios(golden()), no_gap(), fn (acc, s) -> gap_join(acc, gap_of(run_scenario(s))))
     "parity: " ++ int_to_string(g.off) ++ " of " ++ int_to_string(g.seen) ++ " Swift samples differ; worst |error| " ++ float_to_string(g.worst_abs) ++ ", worst " ++ int_to_string(g.worst_ulps) ++ " Float ulps; tolerance " ++ float_to_string(tolerance())
   end
 
@@ -525,7 +565,8 @@ mod SynthSuite do
   fn cases() : List(Case) do
     let rows = golden()
     let c = Skee.Synth.consts()
-    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r))))], List.map(scenarios(rows), scenario_case)])
+    let results = List.map(scenarios(rows), run_scenario)
+    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
   end
 
 end

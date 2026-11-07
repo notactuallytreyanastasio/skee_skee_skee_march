@@ -1,0 +1,1130 @@
+mod Skee.Scene do
+
+  -- The alley as a list of 2D drawing operations (SkeeScene: Cabinet.swift,
+  -- Toon.swift, Shapes.swift, Textures.swift and the placement half of
+  -- ScenePresenter.swift). SceneKit draws the Swift game with a depth buffer
+  -- and shader modifiers; the browser has Canvas 2D. So this is a pure
+  -- pipeline in three steps:
+  --
+  --   1. `model`: the cabinet as SceneKit builds it, part for part, in the
+  --      same node order with the same transforms (checked against a dump of
+  --      the real Cabinet's node tree).
+  --   2. Lighting: Toon.swift's cel ramp, hemisphere fill and rim band, worked
+  --      out once per flat face in linear light, as SceneKit renders.
+  --   3. `draw`: every part projected through the camera and painted back to
+  --      front as flat fills with dark ink outlines. The shell only paints.
+  --
+  -- What cannot be drawn this way is listed in docs/PORT.md under the scene
+  -- piece (no per-pixel depth, no cast shadows, no particles yet).
+  cap pure
+
+  import Skee.Maths
+  import Skee.World
+
+  -- ===================================================================
+  -- Drawing operations: all the shell ever sees. Pixels, y down.
+  -- ===================================================================
+
+  -- A colour as the canvas takes it: 0-255 channels and an alpha 0...1.
+  type Rgba = { red : Int, green : Int, blue : Int, alpha : Float }
+
+  derive Show for Rgba
+
+  type LineEnd = ButtEnd | RoundEnd
+
+  derive Show for LineEnd
+
+  type Corner = MitreCorner | RoundCorner
+
+  derive Show for Corner
+
+  -- Canvas globalCompositeOperation: source-over, or "lighter" for glows.
+  type Blend = Over | Lighter
+
+  derive Show for Blend
+
+  type PathStep =
+    MoveTo(Vec2)
+    | LineTo(Vec2)
+    | QuadTo(Vec2, Vec2)
+    | CubicTo(Vec2, Vec2, Vec2)
+    | ClosePath
+
+  derive Show for PathStep
+
+  -- Holed fills its outer ring minus the inner one (even-odd). Polys is a
+  -- union of rings wound the same way (non-zero).
+  type Shape =
+    Poly(List(Vec2))
+    | Holed(List(Vec2), List(Vec2))
+    | Polys(List(List(Vec2)))
+    | Disc(Vec2, Float)
+    | Trace(List(PathStep))
+
+  derive Show for Shape
+
+  -- Canvas setTransform(a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
+  type Affine = { a : Float, b : Float, c : Float, d : Float, e : Float, f : Float }
+
+  derive Show for Affine
+
+  type GradientStop = { offset : Float, colour : Rgba }
+
+  derive Show for GradientStop
+
+  -- createRadialGradient in the coordinates of `frame`. The shell builds the
+  -- path in pixels, then sets `frame` before filling.
+  type Radial = {
+    inner : Vec2,
+    inner_radius : Float,
+    outer : Vec2,
+    outer_radius : Float,
+    stops : List(GradientStop),
+    frame : Affine
+  }
+
+  derive Show for Radial
+
+  type Paint = Flat(Rgba) | RadialPaint(Radial)
+
+  derive Show for Paint
+
+  type Pen = { ink : Rgba, width : Float, ends : LineEnd, corners : Corner }
+
+  derive Show for Pen
+
+  -- Text centred on `middle` (textAlign center, textBaseline middle) in the
+  -- coordinates of `frame`. `edge` is stroked first, under the fill.
+  type Lettering = {
+    words : String,
+    font : String,
+    middle : Vec2,
+    fill : Rgba,
+    edge : Option(Pen),
+    frame : Affine
+  }
+
+  derive Show for Lettering
+
+  type DrawOp =
+    ClearTo(Rgba)
+    | FillShape(Shape, Paint, Blend)
+    | StrokeShape(Shape, Pen, Blend)
+    | DrawText(Lettering)
+    | PushClip(Shape)
+    | PopClip
+
+  derive Show for DrawOp
+
+  -- ===================================================================
+  -- The cabinet as parts (Cabinet.build)
+  -- ===================================================================
+
+  -- An affine transform as its three axis columns and translation.
+  type Frame = { ax : Vec3, ay : Vec3, az : Vec3, at : Vec3 }
+
+  -- SceneKit's stock geometries, in geometry units before the node's scale.
+  type Solid =
+    Slab(Float, Float, Float, Float)
+    | Drum(Float, Float)
+    | Orb(Float)
+    | Hoop(Float, Float)
+    | Card(Float, Float)
+    | Band(Float, Float)
+    | LipArc(Float, Float, Float, Float, Float)
+
+  -- What is painted on a part besides its flat colour.
+  type Skin =
+    Painted
+    | LaneWood
+    | BallSkin(BallKind)
+    | PitSkin
+    | BadgeSkin(Int, Bool)
+    | CoinSkin(Symbol)
+    | BlobSkin
+    | HaloSkin
+
+  -- Which part of the cabinet: decides the painting order.
+  type Role =
+    FloorPart
+    | LaneSlab
+    | RailPart
+    | RailCap
+    | BodyPart
+    | HumpPart
+    | PanelPart
+    | ZonePart
+    | LipPart
+    | PitPart
+    | RimPart
+    | BadgePart
+    | CoinPart(Hole)
+    | HaloPart(Hole)
+    | SideWall
+    | BackCap
+    | BulbPart
+    | TroughPart
+    | WaitingBall
+    | ShadowPart
+    | BallPart
+
+  derive Eq, Show for Role
+
+  -- Added light (material.emission), sRGB channels 0...1.
+  type Emit = { glow_r : Float, glow_g : Float, glow_b : Float }
+
+  -- One SceneKit node with geometry. `colour` is its first material's flat
+  -- colour (None when that material is a texture); `emission` is added light.
+  type Part = {
+    solid : Solid,
+    frame : Frame,
+    role : Role,
+    colour : Option(Rgba),
+    skin : Skin,
+    outline : Float,
+    hidden : Bool,
+    opacity : Float,
+    emission : Emit
+  }
+
+  -- ===================================================================
+  -- What the screen shows this frame
+  -- ===================================================================
+
+  -- A rotation, for the rolling ball.
+  type Quat = { qw : Float, qx : Float, qy : Float, qz : Float }
+
+  -- Where the presenter put the ball (ScenePresenter.update's first half).
+  type BallPlace = {
+    centre : Vec3,
+    scale : Float,
+    normal : Vec3,
+    airborne : Bool,
+    visible : Bool,
+    sink : Float,
+    over_board : Bool
+  }
+
+  -- The soft shadow under the ball.
+  type ShadowPlace = { spot : Vec3, facing : Vec3, size : Float, fade : Float, shown : Bool }
+
+  -- What the presenter knows about the ball this frame. `beat_is_roll` is
+  -- true while the current beat is a roll; `resting` is the last landing and
+  -- the clock time it stays until.
+  type BallCue = {
+    sample : Option(PathSample),
+    busy : Bool,
+    beat_is_roll : Bool,
+    resting : Option((PathSample, Float)),
+    clock : Float,
+    throwing : Bool,
+    held : Option(Vec3)
+  }
+
+  -- What rolling remembers between frames: orientation, last centre, the
+  -- spin carried through flight, and the bounce swell (1 down to 0).
+  type Motion = { orientation : Quat, last : Option(Vec3), spin : Vec3, pop : Float }
+
+  -- Moments that make the ball swell or send out a ring of light. The
+  -- presentation maps its cues onto these.
+  type Spark =
+    SparkHump
+    | SparkLip
+    | SparkHop
+    | SparkLanded
+    | SparkBackwall
+    | SparkRail
+    | SparkDrop(Hole)
+
+  -- A ring of light racing outward (ScenePresenter.shock).
+  type Wave = { spot : Vec3, facing : Vec3, age : Float, size : Float }
+
+  -- A hole's reel on the board (Cabinet.setReel's arguments).
+  type ReelLook = { symbol : Symbol, turn : Float, glow : Float, slot_match : Bool, pulse : Float }
+
+  -- What the presenter knows about the reels this frame: the board's reels,
+  -- where each is on screen (fractional while spinning), the symbols this
+  -- frame's balls have shown so far (empty while busy or tallying), and the
+  -- top slot unless busy.
+  type ReelCue = {
+    setup : BoardSetup,
+    positions : PerReel(Float),
+    have : List(Symbol),
+    slot : Option(TopSlot)
+  }
+
+  -- Everything ScenePresenter.update reads from the Presentation in a frame.
+  -- `excited` is flash > 0.05, fever, a banner, anticipation or celebration.
+  type FrameCue = {
+    ball_cue : BallCue,
+    sparks : List(Spark),
+    kind : BallKind,
+    anticipation : Float,
+    shake : Float,
+    balls_left : Int,
+    excited : Bool,
+    reel_cue : ReelCue
+  }
+
+  -- What ScenePresenter keeps between frames.
+  type Keep = { motion : Motion, lean : Float, waves : List(Wave), flash_age : PerReel(Option(Float)) }
+
+  -- Marquee bulbs: which step of the chase, and how bright, 0...1.
+  type BulbLight = { chase : Int, level : Float }
+
+  type BallView = { place : BallPlace, motion : Motion, kind : BallKind, shadow : ShadowPlace }
+
+  -- Everything one frame of the alley needs.
+  type Scenery = {
+    world : World,
+    palette : Skee.Rooms.CabinetPalette,
+    viewport : Skee.Camera.Viewport,
+    camera : Skee.Camera.Rig,
+    ball : BallView,
+    waiting : Int,
+    reels : PerReel(ReelLook),
+    bulbs : BulbLight,
+    waves : List(Wave)
+  }
+
+  -- ===================================================================
+  -- Colours
+  -- ===================================================================
+
+  doc """A 0xRRGGBB colour, opaque."""
+  fn hex(packed : Int) : Rgba needs () do
+    { red: packed / 65536 % 256, green: packed / 256 % 256, blue: packed % 256, alpha: 1.0 }
+  end
+
+  fn with_alpha(c : Rgba, a : Float) : Rgba needs () do
+    { c with alpha: a }
+  end
+
+  fn of_rgb(c : Skee.Rooms.Rgb) : Rgba needs () do
+    hex(c.packed)
+  end
+
+  doc """Toon.ink: the colour of every outline."""
+  fn ink() : Rgba needs () do
+    hex(3810118)
+  end
+
+  pfn channel(x : Float) : Int needs () do
+    Math.clamp_int(float_round(x), 0, 255)
+  end
+
+  doc """RGB.mix: straight sRGB blend toward another colour."""
+  fn mix(c : Rgba, o : Rgba, t : Float) : Rgba needs () do
+    let r = int_to_float(c.red) +. (int_to_float(o.red) -. int_to_float(c.red)) *. t
+    let g = int_to_float(c.green) +. (int_to_float(o.green) -. int_to_float(c.green)) *. t
+    let b = int_to_float(c.blue) +. (int_to_float(o.blue) -. int_to_float(c.blue)) *. t
+    { red: channel(r), green: channel(g), blue: channel(b), alpha: c.alpha }
+  end
+
+  doc """RGB.lighter."""
+  fn lighter(c : Rgba, t : Float) : Rgba needs () do
+    mix(c, hex(16777215), t)
+  end
+
+  -- ===================================================================
+  -- Light (Toon.swift's shader modifiers, per flat face)
+  -- ===================================================================
+
+  -- Linear multipliers per channel, the rim band's strength, and added light.
+  type Light = { lr : Float, lg : Float, lb : Float, rim : Float, er : Float, eg : Float, eb : Float }
+
+  pfn to_linear(x : Float) : Float needs () do
+    if x <= 0.04045 do x /. 12.92 else Math.pow((x +. 0.055) /. 1.055, 2.4) end
+  end
+
+  pfn to_srgb(x : Float) : Float needs () do
+    let c = clamp(x, 0.0, 1.0)
+    if c <= 0.0031308 do c *. 12.92 else 1.055 *. Math.pow(c, 1.0 /. 2.4) -. 0.055 end
+  end
+
+  doc """The direction toward makeSun's light: normalize(-0.45, 1, 0.25)."""
+  fn sun() : Vec3 needs () do
+    unit(v3(-0.45, 1.0, 0.25))
+  end
+
+  pfn smoothstep(e0 : Float, e1 : Float, x : Float) : Float needs () do
+    let t = clamp((x -. e0) /. (e1 -. e0), 0.0, 1.0)
+    t *. t *. (3.0 -. 2.0 *. t)
+  end
+
+  doc """
+  The cel ramp for a surface normal seen from `to_eye`: three bands of sun
+  (150, 205, 255 of 255), hemisphere fill from ground (d9c8ff) to sky (fff4fb)
+  and the hard rim band. three.js folds 1/pi into its lights; so does this.
+  """
+  fn light(normal : Vec3, to_eye : Vec3) : Light needs () do
+    let n = unit(normal)
+    let u = dot3(n, sun()) *. 0.5 +. 0.5
+    let band = if u < 1.0 /. 3.0 do 150.0 /. 255.0 else if u < 2.0 /. 3.0 do 205.0 /. 255.0 else 1.0 end end
+    let s = band *. 2.2 *. 0.31831
+    let t = n.y *. 0.5 +. 0.5
+    let h = 1.6 *. 0.31831
+    let ground = v3(217.0 /. 255.0, 200.0 /. 255.0, 1.0)
+    let sky = v3(1.0, 244.0 /. 255.0, 251.0 /. 255.0)
+    let hemi = mix3(ground, sky, t)
+    let facing = Math.max_float(dot3(unit(to_eye), n), 0.0)
+    {
+      lr: s +. hemi.x *. h,
+      lg: s +. hemi.y *. h,
+      lb: s +. hemi.z *. h,
+      rim: smoothstep(0.62, 0.68, 1.0 -. facing) *. 0.28,
+      er: 0.0,
+      eg: 0.0,
+      eb: 0.0
+    }
+  end
+
+  doc """Unlit: SceneKit's constant lighting model, for glows and shadows."""
+  fn unlit() : Light needs () do
+    { lr: 1.0, lg: 1.0, lb: 1.0, rim: 0.0, er: 0.0, eg: 0.0, eb: 0.0 }
+  end
+
+  fn dark() : Emit needs () do
+    { glow_r: 0.0, glow_g: 0.0, glow_b: 0.0 }
+  end
+
+  doc """Add an emission colour (sRGB, as SceneKit's material.emission)."""
+  fn glowing(l : Light, e : Emit) : Light needs () do
+    { l with er: to_linear(e.glow_r), eg: to_linear(e.glow_g), eb: to_linear(e.glow_b) }
+  end
+
+  pfn lit_channel(x : Int, m : Float, rim : Float, e : Float) : Int needs () do
+    channel(to_srgb(to_linear(int_to_float(x) /. 255.0) *. m +. rim +. e) *. 255.0)
+  end
+
+  doc """A material colour under a light, as the shader writes it out."""
+  fn shade(c : Rgba, l : Light) : Rgba needs () do
+    { red: lit_channel(c.red, l.lr, l.rim, l.er), green: lit_channel(c.green, l.lg, l.rim *. 0.96, l.eg), blue: lit_channel(c.blue, l.lb, l.rim, l.eb), alpha: c.alpha }
+  end
+
+  -- ===================================================================
+  -- Frames
+  -- ===================================================================
+
+  fn identity() : Frame needs () do
+    { ax: v3(1.0, 0.0, 0.0), ay: v3(0.0, 1.0, 0.0), az: v3(0.0, 0.0, 1.0), at: origin() }
+  end
+
+  fn apply(f : Frame, p : Vec3) : Vec3 needs () do
+    plus(plus(plus(times(f.ax, p.x), times(f.ay, p.y)), times(f.az, p.z)), f.at)
+  end
+
+  fn turn(f : Frame, d : Vec3) : Vec3 needs () do
+    plus(plus(times(f.ax, d.x), times(f.ay, d.y)), times(f.az, d.z))
+  end
+
+  doc """Parent then child: a child node's world transform."""
+  fn compose(parent : Frame, child : Frame) : Frame needs () do
+    { ax: turn(parent, child.ax), ay: turn(parent, child.ay), az: turn(parent, child.az), at: apply(parent, child.at) }
+  end
+
+  pfn rot_x(a : Float, v : Vec3) : Vec3 needs () do
+    let c = Math.cos(a)
+    let s = Math.sin(a)
+    v3(v.x, v.y *. c -. v.z *. s, v.y *. s +. v.z *. c)
+  end
+
+  pfn rot_y(a : Float, v : Vec3) : Vec3 needs () do
+    let c = Math.cos(a)
+    let s = Math.sin(a)
+    v3(v.x *. c +. v.z *. s, v.y, v.z *. c -. v.x *. s)
+  end
+
+  pfn rot_z(a : Float, v : Vec3) : Vec3 needs () do
+    let c = Math.cos(a)
+    let s = Math.sin(a)
+    v3(v.x *. c -. v.y *. s, v.x *. s +. v.y *. c, v.z)
+  end
+
+  pfn euler(e : Vec3, v : Vec3) : Vec3 needs () do
+    rot_y(e.y, rot_x(e.x, rot_z(e.z, v)))
+  end
+
+  doc """
+  An SCNNode's local transform: position, eulerAngles (SceneKit applies roll,
+  then pitch, then yaw: R = Ry Rx Rz) and scale.
+  """
+  fn node(pos : Vec3, angles : Vec3, scale : Vec3) : Frame needs () do
+    {
+      ax: times(euler(angles, v3(1.0, 0.0, 0.0)), scale.x),
+      ay: times(euler(angles, v3(0.0, 1.0, 0.0)), scale.y),
+      az: times(euler(angles, v3(0.0, 0.0, 1.0)), scale.z),
+      at: pos
+    }
+  end
+
+  fn at_point(pos : Vec3) : Frame needs () do
+    { identity() with at: pos }
+  end
+
+  pfn ones() : Vec3 needs () do
+    v3(1.0, 1.0, 1.0)
+  end
+
+  pfn no_turn() : Vec3 needs () do
+    origin()
+  end
+
+  -- ===================================================================
+  -- Quaternions (the ball's roll)
+  -- ===================================================================
+
+  fn quat_identity() : Quat needs () do
+    { qw: 1.0, qx: 0.0, qy: 0.0, qz: 0.0 }
+  end
+
+  doc """simd_quatf(angle:axis:)."""
+  fn quat_axis(angle : Float, axis : Vec3) : Quat needs () do
+    let a = unit(axis)
+    let s = Math.sin(angle /. 2.0)
+    { qw: Math.cos(angle /. 2.0), qx: a.x *. s, qy: a.y *. s, qz: a.z *. s }
+  end
+
+  doc """p * q: rotate by q, then by p."""
+  fn quat_mul(p : Quat, q : Quat) : Quat needs () do
+    {
+      qw: p.qw *. q.qw -. p.qx *. q.qx -. p.qy *. q.qy -. p.qz *. q.qz,
+      qx: p.qw *. q.qx +. p.qx *. q.qw +. p.qy *. q.qz -. p.qz *. q.qy,
+      qy: p.qw *. q.qy -. p.qx *. q.qz +. p.qy *. q.qw +. p.qz *. q.qx,
+      qz: p.qw *. q.qz +. p.qx *. q.qy -. p.qy *. q.qx +. p.qz *. q.qw
+    }
+  end
+
+  fn quat_rotate(q : Quat, v : Vec3) : Vec3 needs () do
+    let u = v3(q.qx, q.qy, q.qz)
+    let t = times(cross(u, v), 2.0)
+    plus(plus(v, times(t, q.qw)), cross(u, t))
+  end
+
+  doc """simd_quatf(from:to:) for unit vectors."""
+  fn quat_between(a : Vec3, b : Vec3) : Quat needs () do
+    let c = cross(a, b)
+    let d = dot3(a, b)
+    if d < -0.999999 do
+      do
+        let perp = unit(if Math.abs(a.x) < 0.9 do cross(a, v3(1.0, 0.0, 0.0)) else cross(a, v3(0.0, 1.0, 0.0)) end)
+        { qw: 0.0, qx: perp.x, qy: perp.y, qz: perp.z }
+      end
+    else
+      do
+        let q = { qw: 1.0 +. d, qx: c.x, qy: c.y, qz: c.z }
+        let l = Math.sqrt(q.qw *. q.qw +. q.qx *. q.qx +. q.qy *. q.qy +. q.qz *. q.qz)
+        { qw: q.qw /. l, qx: q.qx /. l, qy: q.qy /. l, qz: q.qz /. l }
+      end
+    end
+  end
+
+  fn quat_frame(q : Quat, pos : Vec3, scale : Float) : Frame needs () do
+    {
+      ax: times(quat_rotate(q, v3(1.0, 0.0, 0.0)), scale),
+      ay: times(quat_rotate(q, v3(0.0, 1.0, 0.0)), scale),
+      az: times(quat_rotate(q, v3(0.0, 0.0, 1.0)), scale),
+      at: pos
+    }
+  end
+
+  -- ===================================================================
+  -- Building the cabinet
+  -- ===================================================================
+
+  pfn part(solid : Solid, frame : Frame, role : Role, colour : Option(Rgba), skin : Skin, outline : Float) : Part needs () do
+    {
+      solid: solid,
+      frame: frame,
+      role: role,
+      colour: colour,
+      skin: skin,
+      outline: outline,
+      hidden: false,
+      opacity: 1.0,
+      emission: dark()
+    }
+  end
+
+  -- ToonKit.part over the shared rounded unit box.
+  pfn box_part(parent : Frame, colour : Skee.Rooms.Rgb, scale : Vec3, pos : Vec3, role : Role) : Part needs () do
+    part(Slab(1.0, 1.0, 1.0, 0.12), compose(parent, node(pos, no_turn(), scale)), role, Some(of_rgb(colour)), Painted, 0.03)
+  end
+
+  fn lane_frame(w : World) : Frame needs () do
+    let pos = minus(lane(w, 0.0, w.table.lane.length /. 2.0), times(lane_normal(w), 0.025))
+    node(pos, v3(w.table.lane.incline, 0.0, 0.0), ones())
+  end
+
+  fn board_frame(k : Skee.Consts.Consts, w : World) : Frame needs () do
+    let s = w.board_scale
+    node(board_origin(w), v3(w.board_tilt -. k.pi /. 2.0, 0.0, 0.0), v3(s, s, s))
+  end
+
+  pfn lane_parts(w : World, p : Skee.Rooms.CabinetPalette) : List(Part) needs () do
+    let lw = w.table.lane.width
+    let ll = lane_length(w)
+    let lf = lane_frame(w)
+    let slab = part(Slab(lw, 0.05, ll, 0.012), lf, LaneSlab, Some(hex(15185274)), LaneWood, 0.02)
+    let rails = List.flat_map([-1.0, 1.0], fn sx -> [box_part(lf, p.rail, v3(0.07, 0.11, ll +. 0.1), v3(sx *. (lw /. 2.0 +. 0.035), 0.04, 0.0), RailPart), box_part(lf, p.rail_dark, v3(0.08, 0.025, ll +. 0.12), v3(sx *. (lw /. 2.0 +. 0.035), 0.1, 0.0), RailCap)])
+    let body = box_part(lf, p.cabinet_body, v3(lw +. 0.2, 0.42, ll +. 0.1), v3(0.0, -0.24, 0.0), BodyPart)
+    List.concat([[slab], rails, [body]])
+  end
+
+  pfn hump_part(k : Skee.Consts.Consts, w : World) : Part needs () do
+    let pos = plus(lane(w, 0.0, w.table.lane.length), times(lane_normal(w), w.hump_height -. 0.045))
+    let f = node(pos, v3(0.0, 0.0, k.pi /. 2.0), v3(0.09, w.table.lane.width, 0.09))
+    part(Drum(0.5, 1.0), f, HumpPart, Some(hex(16765562)), Painted, 0.03)
+  end
+
+  -- Ring walls, smallest first, with their zone colours.
+  pfn walls(b : BoardSpec) : List(Float) needs () do
+    [b.ring_walls.wall40, b.ring_walls.wall30, b.ring_walls.wall20, b.ring_walls.wall10]
+  end
+
+  pfn zone_colours(p : Skee.Rooms.CabinetPalette) : List(Skee.Rooms.Rgb) needs () do
+    [p.zones.zone40, p.zones.zone30, p.zones.zone20, p.zones.zone10]
+  end
+
+  pfn flat_disc(k : Skee.Consts.Consts, bf : Frame, pos : Vec3) : Frame needs () do
+    compose(bf, node(pos, v3(k.pi /. 2.0, 0.0, 0.0), ones()))
+  end
+
+  pfn zone_parts(k : Skee.Consts.Consts, w : World, p : Skee.Rooms.CabinetPalette, bf : Frame) : List(Part) needs () do
+    let b = w.table.board
+    let c = b.ring_center
+    let zs = List.reverse(List.zip(List.range(0, 4), List.zip(walls(b), zone_colours(p))))
+    List.map(zs, fn z -> zone_part(k, bf, c, z))
+  end
+
+  pfn zone_part(k : Skee.Consts.Consts, bf : Frame, c : Vec2, z : (Int, (Float, Skee.Rooms.Rgb))) : Part needs () do
+    match z do
+    (i, (wall, colour)) -> do
+      let f = flat_disc(k, bf, v3(c.x, c.y, 0.001 +. int_to_float(3 - i) *. 0.0004))
+      part(Drum(wall, 0.002), f, ZonePart, Some(of_rgb(colour)), Painted, 0.0)
+    end
+    end
+  end
+
+  pfn lip_parts(k : Skee.Consts.Consts, w : World, p : Skee.Rooms.CabinetPalette, bf : Frame) : List(Part) needs () do
+    let b = w.table.board
+    let c = b.ring_center
+    List.map(walls(b), fn wall -> part(LipArc(wall, 0.0085, b.lip_height, -k.pi /. 2.0, Math.asin(min_float(0.95, (ring_hole_visual() +. 0.006) /. wall))), compose(bf, at_point(v3(c.x, c.y, 0.0))), LipPart, Some(of_rgb(p.lip)), Painted, 0.022))
+  end
+
+  doc """Hole.isPocket || hole == .ring50: gold rims and badges."""
+  fn is_special(h : Hole) : Bool needs () do
+    match h do
+    Ring50 -> true
+    PocketLeft -> true
+    PocketRight -> true
+    Gutter -> false
+    Ring10 -> false
+    Ring20 -> false
+    Ring30 -> false
+    Ring40 -> false
+    end
+  end
+
+  doc """Drawn pit radius of a hole."""
+  fn pit_radius(b : BoardSpec, h : Hole) : Float needs () do
+    if Skee.Physics.is_pocket(h) do
+      b.pockets.left.radius +. 0.004
+    else
+      if h == Ring50 do b.center_hole_radius +. 0.004 else ring_hole_visual() end
+    end
+  end
+
+  pfn trim_colour(special : Bool) : Rgba needs () do
+    if special do hex(16763213) else hex(16775404) end
+  end
+
+  pfn hole_parts(k : Skee.Consts.Consts, w : World, p : Skee.Rooms.CabinetPalette, bf : Frame, h : Hole) : List(Part) needs () do
+    let b = w.table.board
+    let c = Skee.Physics.hole_center(b, h)
+    let special = is_special(h)
+    let radius = pit_radius(b, h)
+    let side = if h == PocketRight do 1.0 else -1.0 end
+    let pit = part(Drum(radius, 0.002), flat_disc(k, bf, v3(c.x, c.y, 0.004)), PitPart, Some(of_rgb(p.hole_colour)), PitSkin, 0.0)
+    let rim = part(Hoop(radius +. 0.003, 0.0055), flat_disc(k, bf, v3(c.x, c.y, 0.006)), RimPart, Some(trim_colour(special)), Painted, 0.02)
+    let badge = part(Slab(0.062, 0.034, 0.01, 0.012), compose(bf, at_point(v3(c.x +. side *. (radius +. 0.042), c.y, 0.008))), BadgePart, None, BadgeSkin(Skee.Physics.face_value(h), special), 0.016)
+    [pit, rim, badge]
+  end
+
+  -- Cabinet.buildRingReels' layout for one hole: centre on the board, orbit
+  -- radius, coin count, coin size, first coin's angle, and the halo band.
+  type ReelLayout = {
+    reel_hole : Hole,
+    centre : Vec2,
+    radius : Float,
+    count : Int,
+    size : Float,
+    phase : Float,
+    band_in : Float,
+    band_out : Float
+  }
+
+  fn reel_layout(k : Skee.Consts.Consts, b : BoardSpec, h : Hole) : ReelLayout needs () do
+    let c = b.ring_center
+    let w = b.ring_walls
+    match h do
+    Ring10 -> ring_layout(k, h, c, 7, 0.074, w.wall20, w.wall10)
+    Ring20 -> ring_layout(k, h, c, 6, 0.07, w.wall30, w.wall20)
+    Ring30 -> ring_layout(k, h, c, 4, 0.066, w.wall40, w.wall30)
+    Ring40 -> { reel_hole: h, centre: c, radius: w.wall40 *. 0.62, count: 2, size: 0.056, phase: 0.0, band_in: 0.0, band_out: w.wall40 -. 0.008 }
+    Ring50 -> { reel_hole: h, centre: Skee.Physics.hole_center(b, Ring50), radius: 0.0, count: 1, size: 0.066, phase: k.pi /. 2.0, band_in: b.center_hole_radius +. 0.008, band_out: b.center_hole_radius +. 0.02 }
+    PocketLeft -> pocket_layout(k, b, h)
+    PocketRight -> pocket_layout(k, b, h)
+    Gutter -> { reel_hole: h, centre: c, radius: 0.0, count: 0, size: 0.0, phase: 0.0, band_in: 0.0, band_out: 0.0 }
+    end
+  end
+
+  -- Named functions, not let-bound lambdas: see tools/repros/lambda_tagged_int.
+  pfn ring_layout(k : Skee.Consts.Consts, h : Hole, c : Vec2, count : Int, size : Float, inner : Float, outer : Float) : ReelLayout needs () do
+    { reel_hole: h, centre: c, radius: (inner +. outer) /. 2.0, count: count, size: size, phase: k.pi /. 2.0, band_in: inner +. 0.008, band_out: outer -. 0.008 }
+  end
+
+  pfn pocket_layout(k : Skee.Consts.Consts, b : BoardSpec, h : Hole) : ReelLayout needs () do
+    let pc = Skee.Physics.hole_center(b, h)
+    { reel_hole: h, centre: vec2(pc.x, pc.y +. 0.07), radius: 0.0, count: 1, size: 0.08, phase: k.pi /. 2.0, band_in: b.pockets.left.radius +. 0.008, band_out: b.pockets.left.radius +. 0.022 }
+  end
+
+  -- One coin of a reel as Cabinet.setReel leaves it: pivot-local position,
+  -- hidden in the hole channel, and its glow swell.
+  type Coin = { local : Vec3, coin_hidden : Bool, swell : Float }
+
+  doc """Cabinet.setReel's placement of coin `i` of a reel."""
+  fn coin(k : Skee.Consts.Consts, r : ReelLayout, look : ReelLook, i : Int) : Coin needs () do
+    let n = int_to_float(r.count)
+    let spin = look.turn *. 2.0 *. k.pi /. int_to_float(Math.max_int(r.count, 3))
+    let a = int_to_float(i) /. n *. 2.0 *. k.pi +. r.phase +. spin
+    let bottom = Math.abs(Math.atan2(Math.sin(a +. k.pi /. 2.0), Math.cos(a +. k.pi /. 2.0))) < 0.75
+    if r.radius == 0.0 do
+      { local: v3(r.radius *. Math.cos(a), 0.0, 0.0), coin_hidden: false, swell: 1.0 +. 0.25 *. look.glow *. look.pulse }
+    else
+      { local: v3(r.radius *. Math.cos(a), r.radius *. Math.sin(a), 0.0), coin_hidden: bottom, swell: 1.0 +. 0.18 *. look.glow *. look.pulse }
+    end
+  end
+
+  doc """The coins' glow: Cabinet.setReel's emission colour."""
+  fn coin_emission(look : ReelLook) : Emit needs () do
+    if look.glow > 0.0 do
+      do
+        let p = look.pulse
+        let g = if look.glow > 1.0 do 0.45 else 0.3 end
+        let b = if look.glow > 1.0 do 0.0 else 0.25 *. p end
+        { glow_r: 0.55 *. p, glow_g: g *. p, glow_b: b }
+      end
+    else
+      dark()
+    end
+  end
+
+  doc """The halo under a reel: opacity and colour."""
+  fn halo(look : ReelLook) : (Float, Rgba) needs () do
+    let opacity = if look.glow > 0.0 do (if look.glow > 1.0 do 0.75 else 0.45 end) *. look.pulse else if look.slot_match do 0.4 *. look.pulse else 0.0 end end
+    let colour = if look.glow > 1.0 do hex(16767053) else if look.glow > 0.0 do hex(16774832) else hex(7336191) end end
+    (opacity, colour)
+  end
+
+  pfn reel_parts(k : Skee.Consts.Consts, w : World, bf : Frame, look : ReelLook, h : Hole) : List(Part) needs () do
+    let r = reel_layout(k, w.table.board, h)
+    let pivot = compose(bf, at_point(v3(r.centre.x, r.centre.y, 0.02)))
+    let halo_y = if Skee.Physics.is_pocket(h) do r.centre.y -. 0.07 else r.centre.y end
+    let (opacity, halo_colour) = halo(look)
+    let glow_part = { part(Band(r.band_in, r.band_out), flat_disc(k, bf, v3(r.centre.x, halo_y, 0.0035)), HaloPart(h), Some(halo_colour), HaloSkin, 0.0) with opacity: opacity }
+    let coins = List.map(List.range(0, r.count), fn i -> coin_part(k, r, look, pivot, h, i))
+    List.append(coins, [glow_part])
+  end
+
+  pfn coin_part(k : Skee.Consts.Consts, r : ReelLayout, look : ReelLook, pivot : Frame, h : Hole, i : Int) : Part needs () do
+    let c = coin(k, r, look, i)
+    let f = compose(pivot, node(c.local, no_turn(), v3(c.swell, c.swell, c.swell)))
+    { part(Card(r.size, r.size), f, CoinPart(h), None, CoinSkin(look.symbol), 0.0) with hidden: c.coin_hidden, emission: coin_emission(look) }
+  end
+
+  pfn wall_parts(w : World, p : Skee.Rooms.CabinetPalette, bf : Frame) : List(Part) needs () do
+    let bw = w.table.board.board_width
+    let bh = w.table.board.board_height
+    [side_wall(bf, p, bw, bh, -1.0), side_wall(bf, p, bw, bh, 1.0), box_part(bf, p.rail_dark, v3(bw +. 0.08, 0.05, 0.18), v3(0.0, bh +. 0.02, 0.07), BackCap)]
+  end
+
+  pfn side_wall(bf : Frame, p : Skee.Rooms.CabinetPalette, bw : Float, bh : Float, sx : Float) : Part needs () do
+    box_part(bf, p.rail, v3(0.04, bh +. 0.04, 0.16), v3(sx *. (bw /. 2.0 +. 0.02), bh /. 2.0, 0.06), SideWall)
+  end
+
+  doc """Cabinet.buildBulbs: the bulb spots on the board, in order."""
+  fn bulb_spots(w : World) : List(Vec3) needs () do
+    let bw = w.table.board.board_width
+    let bh = w.table.board.board_height
+    let top = List.map(List.range(0, 9), fn i -> v3(-bw /. 2.0 +. bw *. int_to_float(i) /. 8.0, bh +. 0.05, 0.14))
+    let sides = List.flat_map(List.range(0, 7), fn i -> [v3(-bw /. 2.0 -. 0.02, bh *. int_to_float(i) /. 6.0, 0.15), v3(bw /. 2.0 +. 0.02, bh *. int_to_float(i) /. 6.0, 0.15)])
+    List.append(top, sides)
+  end
+
+  doc """Cabinet.lightBulbs: bulb `i` is lit on every third step of the chase."""
+  fn bulb_lit(light_ : BulbLight, i : Int) : Bool needs () do
+    (i + light_.chase) % 3 == 0 && light_.level > 0.0
+  end
+
+  pfn bulb_parts(w : World, bf : Frame, bulbs : BulbLight) : List(Part) needs () do
+    List.map(List.enumerate(bulb_spots(w)), fn e -> bulb_part(bf, bulbs, e))
+  end
+
+  pfn bulb_part(bf : Frame, bulbs : BulbLight, e : (Int, Vec3)) : Part needs () do
+    match e do
+    (i, spot) -> do
+      let colour = if i % 2 == 0 do hex(16773544) else hex(16752324) end
+      let level = if bulb_lit(bulbs, i) do bulbs.level else 0.0 end
+      { part(Orb(0.012), compose(bf, at_point(spot)), BulbPart, Some(colour), Painted, 0.02) with emission: { glow_r: level, glow_g: level, glow_b: level } }
+    end
+    end
+  end
+
+  fn trough_spot(w : World) : Vec3 needs () do
+    plus(lane(w, 0.0, -0.2), v3(0.0, -0.06, 0.02))
+  end
+
+  pfn trough_parts(w : World, p : Skee.Rooms.CabinetPalette, kind : BallKind, waiting : Int) : List(Part) needs () do
+    let lw = w.table.lane.width
+    let t = trough_spot(w)
+    let trough = box_part(identity(), p.rail_dark, v3(lw +. 0.12, 0.035, 0.09), t, TroughPart)
+    Cons(trough, List.map(List.range(0, 12), fn i -> waiting_ball(w, kind, waiting, i)))
+  end
+
+  doc """Ball `i` in the return trough, nearest first; hidden past `waiting`."""
+  fn waiting_ball(w : World, kind : BallKind, waiting : Int, i : Int) : Part needs () do
+    let lw = w.table.lane.width
+    let n = int_to_float(i)
+    let f = node(plus(trough_spot(w), v3(lw /. 2.0 +. 0.02 -. n *. 0.062, 0.045, 0.0)), v3(n *. 0.7, n *. 1.3, 0.0), ones())
+    { part(Orb(ball_radius(w)), f, WaitingBall, None, BallSkin(kind), 0.03) with hidden: i >= waiting }
+  end
+
+  doc """The ball and its shadow, as ScenePresenter places them."""
+  fn ball_parts(k : Skee.Consts.Consts, w : World, v : BallView) : List(Part) needs () do
+    let r = ball_radius(w)
+    let s = v.shadow
+    let blob_frame = quat_frame(quat_between(v3(0.0, 0.0, 1.0), s.facing), s.spot, s.size)
+    let blob = { part(Card(r *. 2.6, r *. 2.6), blob_frame, ShadowPart, None, BlobSkin, 0.0) with hidden: s.shown == false, opacity: s.fade }
+    let size = v.place.scale *. Skee.Items.drawn_size(k, v.kind) *. (1.0 +. 0.35 *. v.motion.pop)
+    let ball = { part(Orb(r), quat_frame(v.motion.orientation, v.place.centre, size), BallPart, None, BallSkin(v.kind), 0.03) with hidden: v.place.visible == false }
+    [blob, ball]
+  end
+
+  pfn floor_part(k : Skee.Consts.Consts, p : Skee.Rooms.CabinetPalette) : Part needs () do
+    part(Card(30.0, 30.0), node(v3(0.0, -0.45, 0.0), v3(-k.pi /. 2.0, 0.0, 0.0), ones()), FloorPart, Some(of_rgb(p.floor)), Painted, 0.0)
+  end
+
+  doc """
+  The whole cabinet as SceneKit's node tree holds it, depth first: floor,
+  lane, hump, board (panel, zones, lips, holes, reels, walls, bulbs),
+  trough, waiting balls, shadow, ball.
+  """
+  fn model(k : Skee.Consts.Consts, s : Scenery) : List(Part) needs () do
+    let w = s.world
+    let p = s.palette
+    let bf = board_frame(k, w)
+    let holes = List.filter(Skee.HoleMap.all_holes(), fn h -> h != Gutter)
+    let board_parts = List.concat([[box_part(bf, p.felt, v3(w.table.board.board_width +. 0.02, w.table.board.board_height +. 0.02, 0.05), v3(0.0, w.table.board.board_height /. 2.0, -0.026), PanelPart)], zone_parts(k, w, p, bf), lip_parts(k, w, p, bf), List.flat_map(holes, fn h -> hole_parts(k, w, p, bf, h)), List.flat_map(Skee.HoleMap.reel_holes(), fn h -> reel_parts(k, w, bf, reel_look_at(s.reels, h), h)), wall_parts(w, p, bf), bulb_parts(w, bf, s.bulbs)])
+    List.concat([[floor_part(k, p)], lane_parts(w, p), [hump_part(k, w)], board_parts, trough_parts(w, p, s.ball.kind, s.waiting), ball_parts(k, w, s.ball)])
+  end
+
+  doc """A reel's look, by hole (the gutter has none: a blank at rest)."""
+  fn reel_look_at(m : PerReel(ReelLook), h : Hole) : ReelLook needs () do
+    match Skee.HoleMap.reel_at(m, h) do
+    Some(l) -> l
+    None -> { symbol: Blank, turn: 0.0, glow: 0.0, slot_match: false, pulse: 1.0 }
+    end
+  end
+
+  -- ===================================================================
+  -- ScenePresenter.update: placing things from the presentation
+  -- ===================================================================
+
+  doc """
+  Where the ball is drawn: on its recorded path, sinking through the hole it
+  landed in, waiting under the thumb, or hidden.
+  """
+  fn place_ball(w : World, c : BallCue) : BallPlace needs () do
+    let r = ball_radius(w)
+    let rest_spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), r))
+    match c.sample do
+    Some(s) -> do
+      let centre = ball_center(w, s)
+      let scale = ball_scale(w, s)
+      let base = { centre: centre, scale: scale, normal: surface_normal(w, s), airborne: s.phase == InAir && s.height > 0.005, visible: true, sink: 0.0, over_board: s.along > w.table.lane.length }
+      if c.busy == false || c.beat_is_roll == false do
+        match c.resting do
+        Some((_, until)) -> sunk(w, base, s, 0.6 -. (until -. c.clock))
+        None -> base
+        end
+      else
+        base
+      end
+    end
+    None -> do
+      if c.throwing && c.busy == false do
+        { centre: held_or(c.held, rest_spot), scale: 1.0, normal: lane_normal(w), airborne: false, visible: true, sink: 0.0, over_board: false }
+      else
+        { centre: rest_spot, scale: 1.0, normal: lane_normal(w), airborne: false, visible: false, sink: 0.0, over_board: false }
+      end
+    end
+    end
+  end
+
+  pfn held_or(h : Option(Vec3), fallback : Vec3) : Vec3 needs () do
+    match h do
+    Some(p) -> p
+    None -> fallback
+    end
+  end
+
+  -- Just landed: drop through the hole; in the gutter, vanish half way.
+  pfn sunk(w : World, b : BallPlace, s : PathSample, age : Float) : BallPlace needs () do
+    let sink = min_float(1.0, max_float(0.0, age /. 0.35))
+    let centre = minus(b.centre, times(board_normal(w), sink *. 2.2 *. ball_radius(w) *. b.scale))
+    let visible = if s.along <= w.table.lane.length do sink < 0.5 else true end
+    { b with centre: centre, scale: b.scale *. (1.0 -. 0.4 *. sink), visible: visible, sink: sink }
+  end
+
+  doc """
+  Roll the ball by the distance it moved over its radius, about the axis in
+  the surface across the motion. In the air it keeps the spin it had. The
+  swell from the last bounce fades at 4 per second.
+  """
+  fn roll_on(w : World, m : Motion, b : BallPlace, dt : Float) : Motion needs () do
+    let turned = match m.last do
+    Some(last) -> if b.visible do rolled(w, m, b, minus(b.centre, last), dt) else m end
+    None -> m
+    end
+    let last = if b.visible do Some(b.centre) else None end
+    { turned with last: last, pop: max_float(0.0, m.pop -. dt *. 4.0) }
+  end
+
+  pfn rolled(w : World, m : Motion, b : BallPlace, d : Vec3, dt : Float) : Motion needs () do
+    let dist = length3(d)
+    if b.airborne == false && dist > 0.00001 && dist < 0.5 do
+      do
+        let axis = unit(cross(b.normal, d))
+        let angle = dist /. (ball_radius(w) *. b.scale)
+        let o = quat_mul(quat_axis(angle, axis), m.orientation)
+        let spin = if dt > 1.0 /. 400.0 do plus(times(m.spin, 0.6), times(axis, angle /. dt *. 0.4)) else m.spin end
+        { m with orientation: o, spin: spin }
+      end
+    else
+      do
+        let rate = length3(m.spin)
+        if b.airborne && rate > 0.0 do
+          { m with orientation: quat_mul(quat_axis(rate *. dt, times(m.spin, 1.0 /. rate)), m.orientation) }
+        else
+          m
+        end
+      end
+    end
+  end
+
+  doc """The shadow on the surface under the ball: smaller and fainter the higher it flies."""
+  fn shadow_place(w : World, c : BallCue, b : BallPlace) : ShadowPlace needs () do
+    let r = ball_radius(w)
+    let l = w.table.lane.length
+    let (ground, height) = match c.sample do
+    Some(s) -> if s.along > l do (board(w, vec2(s.px, s.along -. l), 0.0), s.height) else (minus(b.centre, times(b.normal, r *. b.scale)), 0.0) end
+    None -> (minus(b.centre, times(b.normal, r *. b.scale)), 0.0)
+    end
+    let fade = max_float(0.25, 1.0 -. height *. 3.0)
+    { spot: plus(ground, times(b.normal, 0.004)), facing: b.normal, size: b.scale *. (0.7 +. 0.3 *. fade), fade: fade, shown: b.visible }
+  end
+
+  doc """The bounce swell a spark gives the ball."""
+  fn popped(pop : Float, s : Spark) : Float needs () do
+    match s do
+    SparkHump -> 1.0
+    SparkLip -> max_float(pop, 0.6)
+    SparkHop -> 1.0
+    SparkLanded -> max_float(pop, 0.8)
+    SparkBackwall -> pop
+    SparkRail -> pop
+    SparkDrop(_) -> pop
+    end
+  end
+
+  doc """The rings of light a spark sends out (ScenePresenter.shock)."""
+  fn shocks(w : World, s : Spark, centre : Vec3, kind : BallKind) : List(Wave) needs () do
+    let comet = kind == Comet
+    match s do
+    SparkHump -> [{ spot: centre, facing: lane_normal(w), age: 0.0, size: if comet do 0.9 else 0.5 end }]
+    SparkHop -> [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.25 }]
+    SparkBackwall -> if comet do [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.4 }] else [] end
+    SparkRail -> if comet do [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.4 }] else [] end
+    SparkDrop(h) -> [{ spot: board(w, Skee.Physics.hole_center(w.table.board, h), 0.02), facing: board_normal(w), age: 0.0, size: if Skee.Physics.face_value(h) >= 50 do 1.1 else 0.55 end }]
+    SparkLip -> []
+    SparkLanded -> []
+    end
+  end
+
+  doc """Rings of light grow and fade over 0.55 s."""
+  fn age_waves(waves : List(Wave), dt : Float) : List(Wave) needs () do
+    List.filter(List.map(waves, fn x -> { x with age: x.age +. dt }), fn x -> x.age /. 0.55 < 1.0)
+  end
+
+  doc """Cabinet.lightBulbs' arguments: an idle twinkle, a fast chase when excited."""
+  fn bulb_light(excited : Bool, clock : Float) : BulbLight needs () do
+    let rate = if excited do 14.0 else 2.0 end
+    { chase: float_truncate(clock *. rate), level: if excited do 0.9 else 0.35 end }
+  end
+
+  doc """Balls waiting in the tray: all that are left but the one in hand."""
+  fn waiting_count(balls_left : Int, held : Bool, in_flight : Bool, busy : Bool, throwing : Bool) : Int needs () do
+    let in_hand = if held || in_flight || busy == false && throwing do 1 else 0 end
+    Math.max_int(0, balls_left - in_hand)
+  end
+
+  doc """
+  Each reel shows the symbol it is on, orbiting while it spins. Rings that
+  would pair (glow 1) or finish the line (glow 2) glow; a hole that just took
+  a ball flashes; a symbol the top slot shows is ringed in cyan.
+  """
+  fn reel_looks(c : ReelCue, throwing : Bool, clock : Float, flash_age : PerReel(Option(Float))) : PerReel(ReelLook) needs () do
+    let pulse = 0.6 +. 0.4 *. Math.sin(clock *. 7.0)
+    let line_now = Skee.Scoring.added_mult(Skee.Scoring.evaluate(c.have))
+    {
+      reel10: reel_look(c, throwing, pulse, line_now, flash_age, Ring10),
+      reel20: reel_look(c, throwing, pulse, line_now, flash_age, Ring20),
+      reel30: reel_look(c, throwing, pulse, line_now, flash_age, Ring30),
+      reel40: reel_look(c, throwing, pulse, line_now, flash_age, Ring40),
+      reel50: reel_look(c, throwing, pulse, line_now, flash_age, Ring50),
+      reel_left: reel_look(c, throwing, pulse, line_now, flash_age, PocketLeft),
+      reel_right: reel_look(c, throwing, pulse, line_now, flash_age, PocketRight)
+    }
+  end
+
+  pfn reel_look(c : ReelCue, throwing : Bool, pulse : Float, line_now : Float, flash_age : PerReel(Option(Float)), h : Hole) : ReelLook needs () do
+    let reel = Skee.Scoring.reel(c.setup, h)
+    let n = List.length(reel)
+    let pos = match Skee.HoleMap.reel_at(c.positions, h) do
+    Some(x) -> x
+    None -> 0.0
+    end
+    let idx = (float_round(pos) % n + n) % n
+    let sym = match List.nth_opt(reel, idx) do
+    Some(x) -> x
+    None -> Blank
+    end
+    let held = List.length(c.have)
+    let line_glow = if held > 0 && held < 3 && throwing do (if Skee.Scoring.added_mult(Skee.Scoring.evaluate(List.append(c.have, [sym]))) -. line_now > 0.0 do (if held == 2 do 2.0 else 1.0 end) else 0.0 end) else 0.0 end
+    let age = match Skee.HoleMap.reel_at(flash_age, h) do
+    Some(a) -> a
+    None -> None
+    end
+    let glow = match age do
+    Some(a) -> if a < 0.6 do max_float(line_glow, 2.0) else line_glow end
+    None -> line_glow
+    end
+    let hits = match c.slot do
+    Some(t) -> Skee.Scoring.hits(t, sym)
+    None -> 0
+    end
+    let shown_pulse = match age do
+    Some(a) -> if a < 0.6 do 1.0 -. a /. 0.6 +. 0.3 else pulse end
+    None -> pulse
+    end
+    { symbol: sym, turn: pos, glow: glow, slot_match: throwing && hits > 0, pulse: shown_pulse }
+  end
+
+  pfn flash_drop(ages : PerReel(Option(Float)), s : Spark) : PerReel(Option(Float)) needs () do
+    match s do
+    SparkDrop(h) -> put_reel(ages, h, Some(0.0))
+    SparkHump -> ages
+    SparkLip -> ages
+    SparkHop -> ages
+    SparkLanded -> ages
+    SparkBackwall -> ages
+    SparkRail -> ages
+    end
+  end
+
+  pfn put_reel(m : PerReel(a), h : Hole, x : a) : PerReel(a) needs () do
+    match h do
+    Ring10 -> { m with reel10: x }
+    Ring20 -> { m with reel20: x }
+    Ring30 -> { m with reel30: x }
+    Ring40 -> { m with reel40: x }
+    Ring50 -> { m with reel50: x }
+    PocketLeft -> { m with reel_left: x }
+    PocketRight -> { m with reel_right: x }
+    Gutter -> m
+    end
+  end
+
+  pfn age_flashes(m : PerReel(Option(Float)), dt : Float) : PerReel(Option(Float)) needs () do
+    {
+      reel10: age_flash(m.reel10, dt),
+      reel20: age_flash(m.reel20, dt),
+      reel30: age_flash(m.reel30, dt),
+      reel40: age_flash(m.reel40, dt),
+      reel50: age_flash(m.reel50, dt),
+      reel_left: age_flash(m.reel_left, dt),
+      reel_right: age_flash(m.reel_right, dt)
+    }
+  end
+
+  pfn age_flash(a : Option(Float), dt : Float) : Option(Float) needs () do
+    match a do
+    Some(x) -> Some(x +. dt)
+    None -> None
+    end
+  end
+
+  doc """Nothing remembered yet: a fresh ScenePresenter."""
+  fn keep_fresh() : Keep needs () do
+    {
+      motion: { orientation: quat_identity(), last: None, spin: origin(), pop: 0.0 },
+      lean: 0.0,
+      waves: [],
+      flash_age: Skee.HoleMap.fill_reels(None)
+    }
+  end
+
+  doc """
+  ScenePresenter.update: one frame. Returns the scene to draw and what to
+  keep for the next frame. `rig` is the fitted camera (Skee.Camera.fit_world).
+  """
+  fn present(w : World, palette : Skee.Rooms.CabinetPalette, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport, keep : Keep, c : FrameCue, dt : Float) : (Scenery, Keep) needs () do
+    let bc = c.ball_cue
+    let place = place_ball(w, bc)
+    let moved = roll_on(w, keep.motion, place, dt)
+    let shadow = shadow_place(w, bc, place)
+    let drawn = { place: place, motion: moved, kind: c.kind, shadow: shadow }
+    let popped_motion = { moved with pop: List.fold_left(c.sparks, moved.pop, popped) }
+    let fresh = List.flat_map(c.sparks, fn s -> shocks(w, s, place.centre, c.kind))
+    let waves = age_waves(List.append(keep.waves, fresh), dt)
+    let dropped = List.fold_left(c.sparks, keep.flash_age, flash_drop)
+    let ages = age_flashes(dropped, dt)
+    let throwing = bc.throwing
+    let in_flight = bc.busy && bc.beat_is_roll
+    let held = match bc.held do
+    Some(_) -> true
+    None -> false
+    end
+    let lean = Skee.Camera.lean_step(keep.lean, c.anticipation, dt)
+    let scene = {
+      world: w,
+      palette: palette,
+      viewport: v,
+      camera: Skee.Camera.framed(w, rig, lean, c.shake, bc.clock),
+      ball: drawn,
+      waiting: waiting_count(c.balls_left, held, in_flight, bc.busy, throwing),
+      reels: reel_looks(c.reel_cue, throwing, bc.clock, ages),
+      bulbs: bulb_light(c.excited, bc.clock),
+      waves: waves
+    }
+    let kept = { motion: popped_motion, lean: lean, waves: waves, flash_age: ages }
+    pair(scene, kept)
+  end
+
+  -- A tuple after a record literal would parse as a call of the record.
+  pfn pair(a : Scenery, b : Keep) : (Scenery, Keep) needs () do
+    (a, b)
+  end
+
+end

@@ -1,0 +1,111 @@
+mod Skee.Units do
+
+  -- Arithmetic and order for the types of Skee.Types. `derive Ord` gives wrong
+  -- answers on every backend (tools/repros/derive_ord.march), so order is
+  -- explicit here and nothing derives it.
+  cap pure
+
+  fn chips_int(c : Chips) : Int needs () do
+    match c do
+    Chips(n) -> n
+    end
+  end
+
+  fn points_int(p : Points) : Int needs () do
+    match p do
+    Points(n) -> n
+    end
+  end
+
+  fn tickets_int(t : Tickets) : Int needs () do
+    match t do
+    Tickets(n) -> n
+    end
+  end
+
+  fn winnings_int(w : Winnings) : Int needs () do
+    match w do
+    Winnings(n) -> n
+    end
+  end
+
+  fn add_chips(a : Chips, b : Chips) : Chips needs () do
+    Chips(chips_int(a) + chips_int(b))
+  end
+
+  fn add_points(a : Points, b : Points) : Points needs () do
+    Points(points_int(a) + points_int(b))
+  end
+
+  fn add_tickets(a : Tickets, b : Tickets) : Tickets needs () do
+    Tickets(tickets_int(a) + tickets_int(b))
+  end
+
+  fn sub_tickets(a : Tickets, b : Tickets) : Tickets needs () do
+    Tickets(tickets_int(a) - tickets_int(b))
+  end
+
+  fn add_winnings(a : Winnings, b : Winnings) : Winnings needs () do
+    Winnings(winnings_int(a) + winnings_int(b))
+  end
+
+  fn sub_winnings(a : Winnings, b : Winnings) : Winnings needs () do
+    Winnings(winnings_int(a) - winnings_int(b))
+  end
+
+  fn tickets_at_least(a : Tickets, b : Tickets) : Bool needs () do
+    tickets_int(a) >= tickets_int(b)
+  end
+
+  fn points_at_least(a : Points, b : Points) : Bool needs () do
+    points_int(a) >= points_int(b)
+  end
+
+  fn winnings_at_least(a : Winnings, b : Winnings) : Bool needs () do
+    winnings_int(a) >= winnings_int(b)
+  end
+
+  doc """Swift's Comparable order on Hole: face value, then name."""
+  fn hole_rank(h : Hole) : Int needs () do
+    match h do
+    Gutter -> 0
+    Ring10 -> 1
+    Ring20 -> 2
+    Ring30 -> 3
+    Ring40 -> 4
+    Ring50 -> 5
+    PocketLeft -> 6
+    PocketRight -> 7
+    end
+  end
+
+  doc """Swift's Comparable order on Bet."""
+  fn bet_rank(b : Bet) : Int needs () do
+    match b do
+    BetOne -> 1
+    BetThree -> 3
+    BetFive -> 5
+    end
+  end
+
+  doc """Swift's Comparable order on JackpotTier."""
+  fn tier_rank(t : JackpotTier) : Int needs () do
+    match t do
+    Mini -> 0
+    Minor -> 1
+    Major -> 2
+    Grand -> 3
+    end
+  end
+
+  doc """Swift's Comparable order on Room."""
+  fn room_rank(r : Room) : Int needs () do
+    match r do
+    Boardwalk -> 0
+    NeonLounge -> 1
+    HighRoller -> 2
+    Penthouse -> 3
+    end
+  end
+
+end

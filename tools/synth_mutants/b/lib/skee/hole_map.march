@@ -1,0 +1,98 @@
+mod Skee.HoleMap do
+
+  -- Reading and writing the per-hole records of Skee.Types. These replace Swift's
+  -- [Hole: T] dictionaries; because every key is a field, `at` is total.
+  cap pure
+
+  doc """Every hole, in Swift's allCases order."""
+  fn all_holes() : List(Hole) needs () do
+    [Gutter, Ring10, Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight]
+  end
+
+  doc """Holes that have reels, in BoardSetup.reelHoles order. RNG draws follow it."""
+  fn reel_holes() : List(Hole) needs () do
+    [Ring10, Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight]
+  end
+
+  doc """The same value for every hole."""
+  fn fill(v : a) : PerHole(a) needs () do
+    {
+      gutter: v,
+      ring10: v,
+      ring20: v,
+      ring30: v,
+      ring40: v,
+      ring50: v,
+      pocket_left: v,
+      pocket_right: v
+    }
+  end
+
+  doc """The same value for every reel."""
+  fn fill_reels(v : a) : PerReel(a) needs () do
+    {
+      reel10: v,
+      reel20: v,
+      reel30: v,
+      reel40: v,
+      reel50: v,
+      reel_left: v,
+      reel_right: v
+    }
+  end
+
+  fn at(m : PerHole(a), h : Hole) : a needs () do
+    match h do
+    Gutter -> m.gutter
+    Ring10 -> m.ring10
+    Ring20 -> m.ring20
+    Ring30 -> m.ring30
+    Ring40 -> m.ring40
+    Ring50 -> m.ring50
+    PocketLeft -> m.pocket_left
+    PocketRight -> m.pocket_right
+    end
+  end
+
+  fn put(m : PerHole(a), h : Hole, v : a) : PerHole(a) needs () do
+    match h do
+    Gutter -> { m with gutter: v }
+    Ring10 -> { m with ring10: v }
+    Ring20 -> { m with ring20: v }
+    Ring30 -> { m with ring30: v }
+    Ring40 -> { m with ring40: v }
+    Ring50 -> { m with ring50: v }
+    PocketLeft -> { m with pocket_left: v }
+    PocketRight -> { m with pocket_right: v }
+    end
+  end
+
+  doc """None for the gutter, which has no reel."""
+  fn reel_at(m : PerReel(a), h : Hole) : Option(a) needs () do
+    match h do
+    Gutter -> None
+    Ring10 -> Some(m.reel10)
+    Ring20 -> Some(m.reel20)
+    Ring30 -> Some(m.reel30)
+    Ring40 -> Some(m.reel40)
+    Ring50 -> Some(m.reel50)
+    PocketLeft -> Some(m.reel_left)
+    PocketRight -> Some(m.reel_right)
+    end
+  end
+
+  doc """Writing the gutter's reel changes nothing: it has none."""
+  fn reel_put(m : PerReel(a), h : Hole, v : a) : PerReel(a) needs () do
+    match h do
+    Gutter -> m
+    Ring10 -> { m with reel10: v }
+    Ring20 -> { m with reel20: v }
+    Ring30 -> { m with reel30: v }
+    Ring40 -> { m with reel40: v }
+    Ring50 -> { m with reel50: v }
+    PocketLeft -> { m with reel_left: v }
+    PocketRight -> { m with reel_right: v }
+    end
+  end
+
+end

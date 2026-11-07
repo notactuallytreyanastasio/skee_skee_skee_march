@@ -1,0 +1,1047 @@
+mod Skee.Save do
+
+  -- What the shell keeps in localStorage, as plain strings: the Wallet
+  -- (WalletStore), the run as its seed and actions (RunStore), the tips seen
+  -- (TipStore) and the done flags (WalkthroughStore, ArrivalStore). The text is
+  -- JSON in the shape Swift's JSONEncoder writes with sorted keys, so a wallet
+  -- or run saved by the iPhone app reads here. Decoding is total: anything
+  -- corrupt, truncated or from a newer build is a SaveError, never a crash, and
+  -- the load_* functions turn that error into what GameModel falls back to.
+  --
+  -- Two deliberate differences from Swift's files, both on the write side:
+  --   * A Float is written as its IEEE bits, a string of 16 hex digits, because
+  --     March has no shortest round-trip float printer. Reading accepts both
+  --     that and a JSON number, so Swift's own run files still load.
+  --   * A seed of 2^53 or more is written as 16 hex digits too. A JSON number
+  --     that large cannot be read exactly here, so it is SaveOutOfRange.
+  cap pure
+
+  import Skee.Units
+
+  -- Why a saved string did not decode. The String is the path of the field,
+  -- like `owned[2]` or `actions[4].throwBall._0.power`.
+  type SaveError =
+    SaveNotJson(String)
+    | SaveTooDeep
+    | SaveMissing(String)
+    | SaveWrongType(String)
+    | SaveUnknownName(String, String)
+    | SaveOutOfRange(String)
+
+  derive Eq, Show for SaveError
+
+  -- RunStore.File: room and comped tickets are optional so that saves from
+  -- before rooms still load, as Boardwalk runs.
+  type RunFile = {
+    file_seed : Skee.U64.U64,
+    file_room : Option(Room),
+    file_extra : Option(Tickets),
+    file_actions : List(Action)
+  }
+
+  derive Show for RunFile
+
+  -- A saved run rebuilt: the actions the rules still accepted, in order.
+  type Replayed = {
+    replayed_run : RunState,
+    replayed_seed : Skee.U64.U64,
+    replayed_extra : Tickets,
+    replayed_actions : List(Action)
+  }
+
+  derive Show for Replayed
+
+  -- A new game: the run, the file to save for it, and the wallet after the
+  -- comped night it may have used.
+  type StartedRun = {
+    started_run : RunState,
+    started_file : RunFile,
+    started_wallet : Wallet
+  }
+
+  derive Show for StartedRun
+
+  doc """A sentence for the console, when a save is thrown away."""
+  fn describe(e : SaveError) : String needs () do
+    match e do
+    SaveNotJson(why) -> "not JSON: " ++ why
+    SaveTooDeep -> "nested too deeply"
+    SaveMissing(path) -> "missing " ++ path
+    SaveWrongType(path) -> "wrong type at " ++ path
+    SaveUnknownName(path, name) -> "unknown name " ++ name ++ " at " ++ path
+    SaveOutOfRange(path) -> "out of range at " ++ path
+    end
+  end
+
+  -- ---- Raw names, as Swift's String raw values ----
+  fn room_name(r : Room) : String needs () do
+    match r do
+    Boardwalk -> "boardwalk"
+    NeonLounge -> "neonLounge"
+    HighRoller -> "highRoller"
+    Penthouse -> "penthouse"
+    end
+  end
+
+  fn tip_name(t : Tip) : String needs () do
+    match t do
+    TipCombo -> "combo"
+    TipHotSpot -> "hotSpot"
+    TipCharm -> "charm"
+    TipSpecialty -> "specialty"
+    TipBoardEdit -> "boardEdit"
+    TipBoss -> "boss"
+    TipBets -> "bets"
+    TipBalls -> "balls"
+    TipFever -> "fever"
+    TipFreeGames -> "freeGames"
+    TipJackpot -> "jackpot"
+    TipGameOver -> "gameOver"
+    end
+  end
+
+  fn prize_name(p : Prize) : String needs () do
+    match p do
+    Sticker -> "sticker"
+    RubberDuck -> "rubberDuck"
+    Kazoo -> "kazoo"
+    Yoyo -> "yoyo"
+    Slinky -> "slinky"
+    PlushFrog -> "plushFrog"
+    LavaLamp -> "lavaLamp"
+    Robot -> "robot"
+    GiantBear -> "giantBear"
+    Trophy -> "trophy"
+    GlowSticks -> "glowSticks"
+    RollerSkates -> "rollerSkates"
+    DiscoBall -> "discoBall"
+    NeonSign -> "neonSign"
+    Jukebox -> "jukebox"
+    ArcadeCabinet -> "arcadeCabinet"
+    Cufflinks -> "cufflinks"
+    Champagne -> "champagne"
+    PearlNecklace -> "pearlNecklace"
+    GoldWatch -> "goldWatch"
+    Chandelier -> "chandelier"
+    SportsCar -> "sportsCar"
+    GoldenFlamingo -> "goldenFlamingo"
+    HotTub -> "hotTub"
+    GrandPiano -> "grandPiano"
+    Yacht -> "yacht"
+    PrivateJet -> "privateJet"
+    DiamondCrown -> "diamondCrown"
+    end
+  end
+
+  fn tier_name(t : JackpotTier) : String needs () do
+    match t do
+    Mini -> "mini"
+    Minor -> "minor"
+    Major -> "major"
+    Grand -> "grand"
+    end
+  end
+
+  fn all_tiers() : List(JackpotTier) needs () do
+    [Mini, Minor, Major, Grand]
+  end
+
+  fn hole_name(h : Hole) : String needs () do
+    match h do
+    Gutter -> "gutter"
+    Ring10 -> "ring10"
+    Ring20 -> "ring20"
+    Ring30 -> "ring30"
+    Ring40 -> "ring40"
+    Ring50 -> "ring50"
+    PocketLeft -> "pocketLeft"
+    PocketRight -> "pocketRight"
+    end
+  end
+
+  fn ball_name(b : BallKind) : String needs () do
+    match b do
+    Marshmallow -> "marshmallow"
+    ClassicBall -> "classic"
+    JumpingBean -> "jumpingBean"
+    Wobbler -> "wobbler"
+    Comet -> "comet"
+    end
+  end
+
+  doc """Bet's Int raw value."""
+  fn bet_raw(b : Bet) : Int needs () do
+    match b do
+    BetOne -> 1
+    BetThree -> 3
+    BetFive -> 5
+    end
+  end
+
+  pfn named(all : List(a), name : a -> String, wanted : String) : Option(a) needs () do
+    List.find(all, fn x -> name(x) == wanted)
+  end
+
+  doc """Tip(rawValue:)."""
+  fn tip_of_name(s : String) : Option(Tip) needs () do
+    named(Skee.Walkthrough.all_tips(), tip_name, s)
+  end
+
+  doc """Room(rawValue:)."""
+  fn room_of_name(s : String) : Option(Room) needs () do
+    named(Skee.Rooms.all_rooms(), room_name, s)
+  end
+
+  -- ---- Floats and seeds as hex ----
+  pfn two32() : Int needs () do
+    65536 * 65536
+  end
+
+  pfn two52() : Int needs () do
+    4503599627370496
+  end
+
+  pfn hex_char(d : Int) : String needs () do
+    String.slice("0123456789abcdef", d, 1)
+  end
+
+  pfn hex_digits(x : Int, count : Int, acc : String) : String needs () do
+    if count == 0 do
+      acc
+    else
+      hex_digits(x / 16, count - 1, hex_char(x % 16) ++ acc)
+    end
+  end
+
+  doc """16 lowercase hex digits."""
+  fn u64_hex(v : Skee.U64.U64) : String needs () do
+    hex_digits(v.hi, 8, "") ++ hex_digits(v.lo, 8, "")
+  end
+
+  pfn pow2(e : Int, acc : Float) : Float needs () do
+    if e > 0 do
+      pow2(e - 1, acc *. 2.0)
+    else
+      if e < 0 do pow2(e + 1, acc *. 0.5) else acc end
+    end
+  end
+
+  -- atan2 is the one portable way to see the sign of a zero.
+  pfn is_negative(x : Float) : Bool needs () do
+    if x == 0.0 do Math.atan2(x, 0.0 -. 1.0) < 0.0 else x < 0.0 end
+  end
+
+  pfn is_finite(x : Float) : Bool needs () do
+    x == x && (x == 0.0 || x != x +. x)
+  end
+
+  -- Scale a positive finite x into [2^52, 2^53), exactly. x == scaled * 2^e.
+  pfn normalise(x : Float, e : Int) : (Float, Int) needs () do
+    let low = int_to_float(two52())
+    if x < low do
+      normalise(x *. 2.0, e - 1)
+    else
+      if x >= low *. 2.0 do normalise(x *. 0.5, e + 1) else (x, e) end
+    end
+  end
+
+  doc """The IEEE-754 bits of a finite Float. Non-finite values never reach a save: a Launch is clamped."""
+  fn float_bits(x : Float) : Skee.U64.U64 needs () do
+    let sign = if is_negative(x) do 2147483648 else 0 end
+    if x == 0.0 || !is_finite(x) do
+      Skee.U64.make(sign, 0)
+    else
+      do
+        let (scaled, e) = normalise(if x < 0.0 do 0.0 -. x else x end, 0)
+        let m = float_to_int(scaled)
+        let biased = e + 1075
+        let (exponent, fraction) =
+          if biased >= 1 do
+            (biased, m - two52())
+          else
+            (0, int_shr(m, 1 - biased))
+          end
+        Skee.U64.make(sign + exponent * 1048576 + fraction / two32(), fraction % two32())
+      end
+    end
+  end
+
+  doc """The finite Float with these bits, or None for an infinity or NaN."""
+  fn float_of_bits(v : Skee.U64.U64) : Option(Float) needs () do
+    let negative = v.hi >= 2147483648
+    let rest = if negative do v.hi - 2147483648 else v.hi end
+    let biased = rest / 1048576
+    let fraction = rest % 1048576 * two32() + v.lo
+    if biased == 2047 do
+      None
+    else
+      do
+        let magnitude =
+          if biased == 0 do
+            pow2(0 - 1074, int_to_float(fraction))
+          else
+            pow2(biased - 1075, int_to_float(fraction + two52()))
+          end
+        Some(if negative do magnitude *. -1.0 else magnitude end)
+      end
+    end
+  end
+
+  pfn float_json(x : Float) : JsonValue needs () do
+    Json.Str(u64_hex(float_bits(x)))
+  end
+
+  -- ---- Decoding helpers ----
+  pfn bind(r : Result(a, SaveError), f : a -> Result(b, SaveError)) : Result(b, SaveError) needs () do
+    match r do
+    Ok(x) -> f(x)
+    Err(e) -> Err(e)
+    end
+  end
+
+  pfn ok_map(r : Result(a, SaveError), f : a -> b) : Result(b, SaveError) needs () do
+    match r do
+    Ok(x) -> Ok(f(x))
+    Err(e) -> Err(e)
+    end
+  end
+
+  doc """How deep Swift's JSONDecoder still reads: 512 levels, the 513th is refused (golden rows deepArrays512, deepArrays513)."""
+  pfn deepest() : Int needs () do
+    512
+  end
+
+  -- Json.parse recurses once per level and overflows the stack on a few
+  -- thousand (tools/repros/json_deep_nesting.march), so depth is checked first.
+  pfn depth_ok(s : String, i : Int, depth : Int, in_string : Bool) : Bool needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      true
+    else
+      if in_string do
+        if c == 92 do
+          depth_ok(s, i + 2, depth, true)
+        else
+          depth_ok(s, i + 1, depth, c != 34)
+        end
+      else
+        if c == 34 do
+          depth_ok(s, i + 1, depth, true)
+        else
+          if c == 91 || c == 123 do
+            if depth + 1 > deepest() do
+              false
+            else
+              depth_ok(s, i + 1, depth + 1, false)
+            end
+          else
+            if c == 93 || c == 125 do
+              depth_ok(s, i + 1, depth - 1, false)
+            else
+              depth_ok(s, i + 1, depth, false)
+            end
+          end
+        end
+      end
+    end
+  end
+
+  pfn is_space(c : Int) : Bool needs () do
+    c == 32 || c == 9 || c == 10 || c == 13
+  end
+
+  -- A comma can be dropped when a value comes before it: not an opening
+  -- bracket, another comma, a colon, or the start of the text.
+  pfn ends_a_value(c : Int) : Bool needs () do
+    c >= 0 && c != 91 && c != 123 && c != 44 && c != 58
+  end
+
+  -- The byte offsets of trailing commas, highest first. `prev` is the last
+  -- byte outside a string before `comma`, the pending comma's offset (or -1).
+  pfn trailing_go(s : String, i : Int, in_string : Bool, prev : Int, comma : Int, drops : List(Int)) : List(Int) needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      drops
+    else
+      if in_string do
+        if c == 92 do
+          trailing_go(s, i + 2, true, prev, comma, drops)
+        else
+          if c == 34 do trailing_go(s, i + 1, false, 34, -1, drops) else trailing_go(s, i + 1, true, prev, comma, drops) end
+        end
+      else
+        if is_space(c) do
+          trailing_go(s, i + 1, false, prev, comma, drops)
+        else
+          let closes = c == 93 || c == 125
+          let dropped =
+            if comma >= 0 && closes && ends_a_value(prev) do Cons(comma, drops) else drops end
+          if c == 44 do
+            trailing_go(s, i + 1, false, prev, i, dropped)
+          else
+            trailing_go(s, i + 1, c == 34, c, -1, dropped)
+          end
+        end
+      end
+    end
+  end
+
+  pfn without_go(s : String, drops : List(Int), from : Int, acc : List(String)) : String needs () do
+    match drops do
+    Nil -> String.join(List.reverse(Cons(String.slice_bytes(s, from, string_byte_length(s) - from), acc)), "")
+    Cons(d, rest) -> without_go(s, rest, d + 1, Cons(String.slice_bytes(s, from, d - from), acc))
+    end
+  end
+
+  doc """Swift's JSONDecoder reads `[1,]` and `{"a":1,}`; Json.parse does not. Drop each comma that closes a list or object right after a value, so both read the same text."""
+  fn without_trailing_commas(s : String) : String needs () do
+    match trailing_go(s, 0, false, -1, -1, []) do
+    Nil -> s
+    Cons(d, rest) -> without_go(s, List.reverse(Cons(d, rest)), 0, [])
+    end
+  end
+
+  doc """Parse JSON text as Swift's JSONDecoder reads it, refusing anything nested deeper than it reads."""
+  fn parse(text : String) : Result(JsonValue, SaveError) needs () do
+    if !depth_ok(text, 0, 0, false) do
+      Err(SaveTooDeep)
+    else
+      match Json.parse(without_trailing_commas(text)) do
+      Ok(v) -> Ok(v)
+      Err(why) -> Err(SaveNotJson(why))
+      end
+    end
+  end
+
+  pfn object_of(v : JsonValue, path : String) : Result(List((String, JsonValue)), SaveError) needs () do
+    match v do
+    Json.Object(fields) -> Ok(fields)
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Number(_) -> Err(SaveWrongType(path))
+    Json.Str(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn array_of(v : JsonValue, path : String) : Result(List(JsonValue), SaveError) needs () do
+    match v do
+    Json.Array(xs) -> Ok(xs)
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Number(_) -> Err(SaveWrongType(path))
+    Json.Str(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn string_of(v : JsonValue, path : String) : Result(String, SaveError) needs () do
+    match v do
+    Json.Str(s) -> Ok(s)
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Number(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn bool_of(v : JsonValue, path : String) : Result(Bool, SaveError) needs () do
+    match v do
+    Json.Bool(b) -> Ok(b)
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Str(_) -> Err(SaveWrongType(path))
+    Json.Number(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn safe_limit() : Float needs () do
+    int_to_float(9007199254740991)
+  end
+
+  doc """A JSON number holding a whole number the JS target can hold exactly."""
+  fn int_of(v : JsonValue, path : String) : Result(Int, SaveError) needs () do
+    match v do
+    Json.Number(f) -> do
+      if !is_finite(f) || f > safe_limit() || f < 0.0 -. safe_limit() do
+        Err(SaveOutOfRange(path))
+      else
+        do
+          let n = float_to_int(f)
+          if int_to_float(n) == f do Ok(n) else Err(SaveWrongType(path)) end
+        end
+      end
+    end
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Str(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  doc """A finite Float: a JSON number as Swift writes it, or 16 hex digits of IEEE bits as this port writes it."""
+  fn float_of(v : JsonValue, path : String) : Result(Float, SaveError) needs () do
+    match v do
+    Json.Number(f) -> if is_finite(f) do Ok(f) else Err(SaveOutOfRange(path)) end
+    Json.Str(s) -> do
+      if string_byte_length(s) != 16 do
+        Err(SaveWrongType(path))
+      else
+        match Skee.U64.of_hex(s) do
+        Some(bits) -> do
+          match float_of_bits(bits) do
+          Some(f) -> Ok(f)
+          None -> Err(SaveOutOfRange(path))
+          end
+        end
+        None -> Err(SaveWrongType(path))
+        end
+      end
+    end
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn name_of(all : List(a), name : a -> String, v : JsonValue, path : String) : Result(a, SaveError) needs () do
+    bind(string_of(v, path), fn s ->
+      match named(all, name, s) do
+      Some(x) -> Ok(x)
+      None -> Err(SaveUnknownName(path, s))
+      end
+    )
+  end
+
+  pfn lookup(fields : List((String, JsonValue)), key : String) : Option(JsonValue) needs () do
+    match fields do
+    Nil -> None
+    Cons((k, v), rest) -> if k == key do Some(v) else lookup(rest, key) end
+    end
+  end
+
+  pfn at(path : String, key : String) : String needs () do
+    if path == "" do key else path ++ "." ++ key end
+  end
+
+  doc """decode(_:forKey:): missing or null is an error."""
+  fn required(fields : List((String, JsonValue)), path : String, key : String, decode : JsonValue -> String -> Result(a, SaveError)) : Result(a, SaveError) needs () do
+    match lookup(fields, key) do
+    Some(Json.Null) -> Err(SaveMissing(at(path, key)))
+    Some(v) -> decode(v, at(path, key))
+    None -> Err(SaveMissing(at(path, key)))
+    end
+  end
+
+  doc """decodeIfPresent(_:forKey:): missing or null is None; anything else must decode."""
+  fn optional(fields : List((String, JsonValue)), path : String, key : String, decode : JsonValue -> String -> Result(a, SaveError)) : Result(Option(a), SaveError) needs () do
+    match lookup(fields, key) do
+    Some(Json.Null) -> Ok(None)
+    Some(v) -> ok_map(decode(v, at(path, key)), fn x -> Some(x))
+    None -> Ok(None)
+    end
+  end
+
+  pfn or_else(r : Result(Option(a), SaveError), fallback : a) : Result(a, SaveError) needs () do
+    ok_map(r, fn o ->
+      match o do
+      Some(x) -> x
+      None -> fallback
+      end
+    )
+  end
+
+  pfn index(path : String, i : Int) : String needs () do
+    path ++ "[" ++ int_to_string(i) ++ "]"
+  end
+
+  pfn each_go(xs : List(JsonValue), path : String, decode : JsonValue -> String -> Result(a, SaveError), i : Int, acc : List(a)) : Result(List(a), SaveError) needs () do
+    match xs do
+    Nil -> Ok(List.reverse(acc))
+    Cons(x, rest) -> do
+      match decode(x, index(path, i)) do
+      Ok(v) -> each_go(rest, path, decode, i + 1, Cons(v, acc))
+      Err(e) -> Err(e)
+      end
+    end
+    end
+  end
+
+  doc """An array, every element decoded."""
+  fn list_of(decode : JsonValue -> String -> Result(a, SaveError)) : JsonValue -> String -> Result(List(a), SaveError) needs () do
+    fn (v, path) -> bind(array_of(v, path), fn xs -> each_go(xs, path, decode, 0, []))
+  end
+
+  pfn pairs_go(xs : List(JsonValue), path : String, key : JsonValue -> String -> Result(k, SaveError), value : JsonValue -> String -> Result(v, SaveError), i : Int, acc : List((k, v))) : Result(List((k, v)), SaveError) needs () do
+    match xs do
+    Nil -> Ok(List.reverse(acc))
+    Cons(_, Nil) -> Err(SaveWrongType(index(path, i)))
+    Cons(a, Cons(b, rest)) -> do
+      match (key(a, index(path, i)), value(b, index(path, i + 1))) do
+      (Ok(k), Ok(v)) -> pairs_go(rest, path, key, value, i + 2, Cons((k, v), acc))
+      (Err(e), _) -> Err(e)
+      (_, Err(e)) -> Err(e)
+      end
+    end
+    end
+  end
+
+  doc """A Swift dictionary whose key is not a String: one array, key then value, repeated."""
+  fn pairs_of(key : JsonValue -> String -> Result(k, SaveError), value : JsonValue -> String -> Result(v, SaveError)) : JsonValue -> String -> Result(List((k, v)), SaveError) needs () do
+    fn (v, path) -> bind(array_of(v, path), fn xs -> pairs_go(xs, path, key, value, 0, []))
+  end
+
+  pfn room_of(v : JsonValue, path : String) : Result(Room, SaveError) needs () do
+    name_of(Skee.Rooms.all_rooms(), room_name, v, path)
+  end
+
+  pfn prize_of(v : JsonValue, path : String) : Result(Prize, SaveError) needs () do
+    name_of(Skee.Rooms.all_prizes(), prize_name, v, path)
+  end
+
+  pfn tier_of(v : JsonValue, path : String) : Result(JackpotTier, SaveError) needs () do
+    name_of(all_tiers(), tier_name, v, path)
+  end
+
+  pfn hole_of(v : JsonValue, path : String) : Result(Hole, SaveError) needs () do
+    name_of(Skee.HoleMap.all_holes(), hole_name, v, path)
+  end
+
+  pfn ball_of(v : JsonValue, path : String) : Result(BallKind, SaveError) needs () do
+    name_of(Skee.Items.all_balls(), ball_name, v, path)
+  end
+
+  pfn bet_of(v : JsonValue, path : String) : Result(Bet, SaveError) needs () do
+    bind(int_of(v, path), fn n ->
+      match List.find([BetOne, BetThree, BetFive], fn b -> bet_raw(b) == n) do
+      Some(b) -> Ok(b)
+      None -> Err(SaveUnknownName(path, int_to_string(n)))
+      end
+    )
+  end
+
+  -- ---- The Wallet (WalletStore) ----
+  pfn winnings_json(w : Winnings) : JsonValue needs () do
+    Json.encode_int(winnings_int(w))
+  end
+
+  pfn comp_json(c : Comp) : JsonValue needs () do
+    Json.Object([("credit", winnings_json(c.credit)), ("nights", Json.encode_int(c.nights)), ("room", Json.Str(room_name(c.comp_room))), ("tickets", Json.encode_int(tickets_int(c.comp_tickets)))])
+  end
+
+  pfn comps_json(w : Wallet) : JsonValue needs () do
+    Json.Array(List.flat_map(Skee.Rooms.all_rooms(), fn r ->
+      match Skee.Rooms.room_at(w.comps, r) do
+      Some(c) -> [Json.Str(room_name(r)), comp_json(c)]
+      None -> []
+      end
+    ))
+  end
+
+  pfn meters_json(p : Progressive) : JsonValue needs () do
+    Json.Object([("meters", Json.Array(List.flat_map(all_tiers(), fn t -> [Json.Str(tier_name(t)), winnings_json(Skee.Scoring.amount(p, t))])))])
+  end
+
+  doc """WalletStore.save: Swift's JSONEncoder output with sorted keys. Rooms and comps are listed in Room order."""
+  fn encode_wallet(w : Wallet) : String needs () do
+    let rooms =
+      List.filter(Skee.Rooms.all_rooms(), fn r -> Skee.Rooms.room_at(w.rooms, r))
+    Json.to_string(Json.Object([("balance", winnings_json(w.balance)), ("comps", comps_json(w)), ("gamesSinceHost", Json.encode_int(w.games_since_host)), ("hostVisits", Json.encode_int(w.host_visits)), ("lifetime", winnings_json(w.lifetime)), ("owned", Json.Array(List.map(w.owned, fn p -> Json.Str(prize_name(p))))), ("progressive", meters_json(w.progressive)), ("room", Json.Str(room_name(w.wallet_room))), ("rooms", Json.Array(List.map(rooms, fn r -> Json.Str(room_name(r)))))]))
+  end
+
+  pfn winnings_of(v : JsonValue, path : String) : Result(Winnings, SaveError) needs () do
+    ok_map(int_of(v, path), fn n -> Winnings(n))
+  end
+
+  pfn comp_of(v : JsonValue, path : String) : Result(Comp, SaveError) needs () do
+    bind(object_of(v, path), fn f -> bind(required(f, path, "room", room_of), fn room -> bind(required(f, path, "nights", int_of), fn nights -> bind(required(f, path, "tickets", int_of), fn tickets -> ok_map(required(f, path, "credit", winnings_of), fn credit -> { comp_room: room, nights: nights, comp_tickets: Tickets(tickets), credit: credit })))))
+  end
+
+  pfn set_meter(p : Progressive, entry : (JackpotTier, Winnings)) : Progressive needs () do
+    let (t, amount) = entry
+    let m = p.meters
+    match t do
+    Mini -> { meters: { m with mini: amount } }
+    Minor -> { meters: { m with minor: amount } }
+    Major -> { meters: { m with major: amount } }
+    Grand -> { meters: { m with grand: amount } }
+    end
+  end
+
+  -- A Progressive's meters, starting from the seeds: a tier the save lacks reads
+  -- as its seed, as Progressive.amount does. A later entry overwrites an earlier.
+  pfn progressive_of(v : JsonValue, path : String) : Result(Progressive, SaveError) needs () do
+    bind(object_of(v, path), fn f -> ok_map(required(f, path, "meters", pairs_of(tier_of, winnings_of)), fn entries -> List.fold_left(entries, Skee.Scoring.new_progressive(), set_meter)))
+  end
+
+  pfn rooms_of(rs : List(Room)) : PerRoom(Bool) needs () do
+    {
+      boardwalk: List.any(rs, fn r -> r == Boardwalk),
+      neon_lounge: List.any(rs, fn r -> r == NeonLounge),
+      high_roller: List.any(rs, fn r -> r == HighRoller),
+      penthouse: List.any(rs, fn r -> r == Penthouse)
+    }
+  end
+
+  pfn comps_of(entries : List((Room, Comp))) : PerRoom(Option(Comp)) needs () do
+    let none = { boardwalk: None, neon_lounge: None, high_roller: None, penthouse: None }
+    List.fold_left(entries, none, fn (m, entry) -> Skee.Rooms.room_put(m, Tuple.first(entry), Some(Tuple.second(entry))))
+  end
+
+  doc """Wallet.init(from:): balance, lifetime and owned are required; every later field defaults when missing or null. Anything present must be well formed."""
+  fn decode_wallet(text : String) : Result(Wallet, SaveError) needs () do
+    let base = Skee.Rooms.empty_wallet()
+    bind(parse(text), fn v -> bind(object_of(v, ""), fn f -> bind(required(f, "", "balance", winnings_of), fn balance -> bind(required(f, "", "lifetime", winnings_of), fn lifetime -> bind(required(f, "", "owned", list_of(prize_of)), fn owned -> bind(or_else(optional(f, "", "progressive", progressive_of), base.progressive), fn progressive -> bind(or_else(ok_map(optional(f, "", "rooms", list_of(room_of)), fn o -> Option.map(o, rooms_of)), base.rooms), fn rooms -> bind(or_else(optional(f, "", "room", room_of), base.wallet_room), fn room -> bind(or_else(ok_map(optional(f, "", "comps", pairs_of(room_of, comp_of)), fn o -> Option.map(o, comps_of)), base.comps), fn comps -> bind(or_else(optional(f, "", "gamesSinceHost", int_of), base.games_since_host), fn since -> ok_map(or_else(optional(f, "", "hostVisits", int_of), base.host_visits), fn visits -> { balance: balance, lifetime: lifetime, owned: owned, progressive: progressive, rooms: rooms, wallet_room: room, comps: comps, games_since_host: since, host_visits: visits })))))))))))
+  end
+
+  doc """WalletStore.load: nothing saved, or anything that does not decode, is a fresh Wallet()."""
+  fn load_wallet(saved : Option(String)) : Wallet needs () do
+    match saved do
+    None -> Skee.Rooms.empty_wallet()
+    Some(text) -> do
+      match decode_wallet(text) do
+      Ok(w) -> w
+      Err(_) -> Skee.Rooms.empty_wallet()
+      end
+    end
+    end
+  end
+
+  -- ---- The run (RunStore) ----
+  doc """RunStore.save's File: a new save always names its room and comped tickets."""
+  fn run_file(seed : Skee.U64.U64, room : Room, extra : Tickets, actions : List(Action)) : RunFile needs () do
+    {
+      file_seed: seed,
+      file_room: Some(room),
+      file_extra: Some(extra),
+      file_actions: actions
+    }
+  end
+
+  pfn launch_json(l : Launch) : JsonValue needs () do
+    Json.Object([("aim", float_json(l.aim)), ("fold", float_json(l.fold)), ("from", float_json(l.from)), ("power", float_json(l.power)), ("skid", float_json(l.skid)), ("speed", float_json(l.speed)), ("spin", float_json(l.spin)), ("start", float_json(l.start))])
+  end
+
+  pfn one(v : JsonValue) : JsonValue needs () do
+    Json.Object([("_0", v)])
+  end
+
+  pfn case_json(name : String, payload : JsonValue) : JsonValue needs () do
+    Json.Object([(name, payload)])
+  end
+
+  pfn target_fields(target : Option(Hole)) : List((String, JsonValue)) needs () do
+    match target do
+    Some(h) -> [("target", Json.Str(hole_name(h)))]
+    None -> []
+    end
+  end
+
+  doc """One Action in the shape of Swift's synthesised enum coding."""
+  fn action_json(a : Action) : JsonValue needs () do
+    match a do
+    PullLever(b) -> case_json("pull", one(Json.encode_int(bet_raw(b))))
+    ThrowBall(l) -> case_json("throwBall", one(launch_json(l)))
+    CommitFoul -> case_json("foul", Json.Object([]))
+    ChooseBall(b) -> case_json("chooseBall", one(Json.Str(ball_name(b))))
+    Arm(i) -> case_json("arm", one(Json.encode_int(i)))
+    Buy(i, target) -> do
+      case_json("buy", Json.Object(Cons(("_0", Json.encode_int(i)), target_fields(target))))
+    end
+    Reroll -> case_json("reroll", Json.Object([]))
+    Sell(i) -> case_json("sell", one(Json.encode_int(i)))
+    LeaveCounter -> case_json("leaveCounter", Json.Object([]))
+    end
+  end
+
+  pfn seed_json(seed : Skee.U64.U64) : JsonValue needs () do
+    if seed.hi < 2097152 do
+      Json.encode_int(seed.hi * two32() + seed.lo)
+    else
+      Json.Str(u64_hex(seed))
+    end
+  end
+
+  pfn optional_field(key : String, v : Option(a), encode : a -> JsonValue) : List((String, JsonValue)) needs () do
+    match v do
+    Some(x) -> [(key, encode(x))]
+    None -> []
+    end
+  end
+
+  doc """RunStore.save: the seed and every accepted action, sorted keys."""
+  fn encode_run(f : RunFile) : String needs () do
+    let fields =
+      List.concat([[("actions", Json.Array(List.map(f.file_actions, action_json)))], optional_field("extraTickets", f.file_extra, fn t -> Json.encode_int(tickets_int(t))), optional_field("room", f.file_room, fn r -> Json.Str(room_name(r))), [("seed", seed_json(f.file_seed))]])
+    Json.to_string(Json.Object(fields))
+  end
+
+  pfn seed_of(v : JsonValue, path : String) : Result(Skee.U64.U64, SaveError) needs () do
+    match v do
+    Json.Str(s) -> do
+      match Skee.U64.of_hex(s) do
+      Some(seed) -> do
+        if string_byte_length(s) == 16 do
+          Ok(seed)
+        else
+          Err(SaveWrongType(path))
+        end
+      end
+      None -> Err(SaveWrongType(path))
+      end
+    end
+    Json.Number(_) -> do
+      bind(int_of(v, path), fn n -> if n < 0 do Err(SaveOutOfRange(path)) else Ok(Skee.U64.of_int(n)) end)
+    end
+    Json.Null -> Err(SaveWrongType(path))
+    Json.Bool(_) -> Err(SaveWrongType(path))
+    Json.Array(_) -> Err(SaveWrongType(path))
+    Json.Object(_) -> Err(SaveWrongType(path))
+    end
+  end
+
+  pfn opt_float(f : List((String, JsonValue)), path : String, key : String) : Result(Option(Float), SaveError) needs () do
+    optional(f, path, key, float_of)
+  end
+
+  doc """Launch.init(from:): power and aim are required; a save with no speed is a power from the line."""
+  fn launch_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Launch, SaveError) needs () do
+    bind(object_of(v, path), fn f -> bind(required(f, path, "power", float_of), fn power -> bind(required(f, path, "aim", float_of), fn aim -> bind(opt_float(f, path, "start"), fn start -> bind(opt_float(f, path, "fold"), fn fold -> bind(opt_float(f, path, "spin"), fn spin -> bind(opt_float(f, path, "skid"), fn skid -> bind(opt_float(f, path, "speed"), fn speed -> ok_map(opt_float(f, path, "from"), fn from -> Skee.Physics.launch_of_saved(k, { saved_power: power, saved_aim: aim, saved_start: start, saved_fold: fold, saved_spin: spin, saved_skid: skid, saved_speed: speed, saved_from: from }))))))))))
+  end
+
+  pfn payload(v : JsonValue, path : String, decode : List((String, JsonValue)) -> String -> Result(Action, SaveError)) : Result(Action, SaveError) needs () do
+    bind(object_of(v, path), fn f -> decode(f, path))
+  end
+
+  pfn first(decode : JsonValue -> String -> Result(a, SaveError), make : a -> Action) : List((String, JsonValue)) -> String -> Result(Action, SaveError) needs () do
+    fn (f, path) -> ok_map(required(f, path, "_0", decode), make)
+  end
+
+  pfn bare(a : Action) : List((String, JsonValue)) -> String -> Result(Action, SaveError) needs () do
+    fn (_f, _path) -> Ok(a)
+  end
+
+  pfn buy_of(f : List((String, JsonValue)), path : String) : Result(Action, SaveError) needs () do
+    bind(required(f, path, "_0", int_of), fn i -> ok_map(optional(f, path, "target", hole_of), fn target -> Buy(i, target)))
+  end
+
+  pfn case_of(k : Skee.Consts.Consts, name : String, v : JsonValue, path : String) : Result(Action, SaveError) needs () do
+    let p = at(path, name)
+    if name == "pull" do
+      payload(v, p, first(bet_of, fn b -> PullLever(b)))
+    else
+      if name == "throwBall" do
+        payload(v, p, first(fn (x, q) -> launch_of(k, x, q), fn l -> ThrowBall(l)))
+      else
+        if name == "foul" do
+          payload(v, p, bare(CommitFoul))
+        else
+          if name == "chooseBall" do
+            payload(v, p, first(ball_of, fn b -> ChooseBall(b)))
+          else
+            if name == "arm" do
+              payload(v, p, first(int_of, fn i -> Arm(i)))
+            else
+              if name == "buy" do
+                payload(v, p, buy_of)
+              else
+                if name == "reroll" do
+                  payload(v, p, bare(Reroll))
+                else
+                  if name == "sell" do
+                    payload(v, p, first(int_of, fn i -> Sell(i)))
+                  else
+                    if name == "leaveCounter" do
+                      payload(v, p, bare(LeaveCounter))
+                    else
+                      Err(SaveUnknownName(path, name))
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+
+  pfn is_case_name(name : String) : Bool needs () do
+    List.any(["pull", "throwBall", "foul", "chooseBall", "arm", "buy", "reroll", "sell", "leaveCounter"], fn n -> n == name)
+  end
+
+  pfn unknown_case(f : List((String, JsonValue)), path : String) : Result(Action, SaveError) needs () do
+    match f do
+    Cons((name, _), Nil) -> Err(SaveUnknownName(path, name))
+    Nil -> Err(SaveWrongType(path))
+    Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))
+    end
+  end
+
+  doc """One Action: an object with exactly one key that names a case. As in Swift's synthesized decoding, keys that name no case are not counted."""
+  fn action_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Action, SaveError) needs () do
+    bind(object_of(v, path), fn f ->
+      match List.filter(f, fn kv -> is_case_name(Tuple.first(kv))) do
+      Cons((name, payload_value), Nil) -> case_of(k, name, payload_value, path)
+      Nil -> unknown_case(f, path)
+      Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))
+      end
+    )
+  end
+
+  doc """RunStore.load: the seed and actions are required, room and comped tickets optional."""
+  fn decode_run(k : Skee.Consts.Consts, text : String) : Result(RunFile, SaveError) needs () do
+    bind(parse(text), fn v -> bind(object_of(v, ""), fn f -> bind(required(f, "", "seed", seed_of), fn seed -> bind(optional(f, "", "room", room_of), fn room -> bind(optional(f, "", "extraTickets", int_of), fn extra -> ok_map(required(f, "", "actions", list_of(fn (x, p) -> action_of(k, x, p))), fn actions -> { file_seed: seed, file_room: room, file_extra: Option.map(extra, fn n -> Tickets(n)), file_actions: actions }))))))
+  end
+
+  pfn replay_go(k : Skee.Consts.Consts, actions : List(Action), s : RunState, kept : List(Action)) : (RunState, List(Action)) needs () do
+    match actions do
+    Nil -> (s, List.reverse(kept))
+    Cons(a, rest) -> do
+      match Skee.Reducer.apply(k, a, s) do
+      Ok(step) -> replay_go(k, rest, step.run, Cons(a, kept))
+      Err(_) -> (s, List.reverse(kept))
+      end
+    end
+    end
+  end
+
+  pfn file_room(f : RunFile) : Room needs () do
+    match f.file_room do
+    Some(r) -> r
+    None -> Boardwalk
+    end
+  end
+
+  doc """Rebuild a saved run as GameModel.init does: a fresh run from the seed, then each action until the first the rules refuse."""
+  fn replay(k : Skee.Consts.Consts, f : RunFile) : Replayed needs () do
+    let extra =
+      match f.file_extra do
+      Some(t) -> t
+      None -> Tickets(0)
+      end
+    let start =
+      Skee.Reducer.new_run(k, f.file_seed, Skee.Types.standard_config(), file_room(f), extra)
+    let (s, kept) = replay_go(k, f.file_actions, start, [])
+    {
+      replayed_run: s,
+      replayed_seed: f.file_seed,
+      replayed_extra: extra,
+      replayed_actions: kept
+    }
+  end
+
+  doc """GameModel.init: carry on the saved run if there is one, it decodes, and it was played in the wallet's room. None: start a new game."""
+  fn resume(k : Skee.Consts.Consts, saved : Option(String), room : Room) : Option(Replayed) needs () do
+    match saved do
+    None -> None
+    Some(text) -> do
+      match decode_run(k, text) do
+      Ok(f) -> if file_room(f) == room do Some(replay(k, f)) else None end
+      Err(_) -> None
+      end
+    end
+    end
+  end
+
+  doc """GameModel.newGame: use a comped night if one is left, and start the run the shell saves at once."""
+  fn start_run(k : Skee.Consts.Consts, w : Wallet, seed : Skee.U64.U64) : StartedRun needs () do
+    let (extra, checked) = Skee.Rooms.check_in(w)
+    let room = checked.wallet_room
+    {
+      started_run: Skee.Reducer.new_run(k, seed, Skee.Types.standard_config(), room, extra),
+      started_file: run_file(seed, room, extra, []),
+      started_wallet: checked
+    }
+  end
+
+  pfn bank_event(s : RunState, w : Wallet, e : GameEvent) : Wallet needs () do
+    match e do
+    Pulled(p) -> Tuple.second(Skee.Reducer.wallet_pulled(w, p))
+    RoundFailed(_, _) -> do
+      Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, false)))
+    end
+    RunWon -> do
+      Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, true)))
+    end
+    FreeGamesWon(_) -> w
+    JackpotHit(_) -> w
+    Shot(_, _) -> w
+    Fouled -> w
+    FrameScored(_) -> w
+    FeverLit -> w
+    RoundCleared(_, _, _) -> w
+    CounterOpened -> w
+    Bought(_) -> w
+    Sold(_) -> w
+    Rerolled -> w
+    Armed(_) -> w
+    BallChosen(_) -> w
+    RoundStarted(_, _) -> w
+    AnteStarted(_, _) -> w
+    end
+  end
+
+  doc """GameModel.send, in a real game: pulls feed the meters and pay jackpots, and a finished run pays its winnings to the shelf, once."""
+  fn bank_step(w : Wallet, step : Step) : Wallet needs () do
+    List.fold_left(step.step_events, w, fn (acc, e) -> bank_event(step.run, acc, e))
+  end
+
+  -- ---- Tips seen (TipStore) and the done flags ----
+  doc """TipStore.mark: the raw names, in Tip order."""
+  fn encode_tips(seen : List(Tip)) : String needs () do
+    Json.to_string(Json.Array(List.map(Skee.Walkthrough.tip_set(seen), fn t -> Json.Str(tip_name(t)))))
+  end
+
+  pfn tip_entry(v : JsonValue, path : String) : Result(Option(Tip), SaveError) needs () do
+    ok_map(string_of(v, path), tip_of_name)
+  end
+
+  doc """TipStore.seen: an array of strings. A name this build does not know is dropped, as Tip.init(rawValue:) drops it."""
+  fn decode_tips(text : String) : Result(List(Tip), SaveError) needs () do
+    bind(parse(text), fn v ->
+      let decode = list_of(tip_entry)
+      ok_map(decode(v, ""), fn found -> Skee.Walkthrough.tip_set(List.filter_map(found, fn o -> o)))
+    )
+  end
+
+  doc """TipStore.seen with its fallback: nothing seen."""
+  fn load_tips(saved : Option(String)) : List(Tip) needs () do
+    match saved do
+    None -> []
+    Some(text) -> do
+      match decode_tips(text) do
+      Ok(seen) -> seen
+      Err(_) -> []
+      end
+    end
+    end
+  end
+
+  doc """A done flag (WalkthroughStore.done, ArrivalStore.done)."""
+  fn encode_flag(b : Bool) : String needs () do
+    if b do "true" else "false" end
+  end
+
+  fn decode_flag(text : String) : Result(Bool, SaveError) needs () do
+    bind(parse(text), fn v -> bool_of(v, ""))
+  end
+
+  doc """UserDefaults.bool: false unless saved as true."""
+  fn load_flag(saved : Option(String)) : Bool needs () do
+    match saved do
+    None -> false
+    Some(text) -> do
+      match decode_flag(text) do
+      Ok(b) -> b
+      Err(_) -> false
+      end
+    end
+    end
+  end
+
+end

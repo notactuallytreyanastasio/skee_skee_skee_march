@@ -1,0 +1,20 @@
+march-keyrecord v1
+target	native
+compiler	4974042838601f64da9bf17e9527be06c43b7fed931e7c6b69195d315ed0b6d0
+runtime_dir	/Users/bobdawg/.march/versions/main-b7c963d74/runtime
+runtime	221a139aba7c042e68ebb450e931f383776e77b219a97b3f83f0083da59eb17e
+stdlib	b916f7d2be10cac077e098629c859bab
+entry	/private/tmp/claude-501/-Users-bobdawg-code-skee-skee-skee-march/edb79dc7-9899-4c73-93c8-d29e5367704d/scratchpad/p400.march
+mode	depend
+source_key	ed3aa30378c28b981b75f0ef85bed168e55232de345b80186ca7d49f37bd650b
+tir_hash	392819844148b387f31dedd3e7cd2e3a6ee018863f81131edc80e65a6fda0663
+post_key	a8be2b6a1fb3fa5899b499c0a328d1109c46fc5cf8c987349eb18d7465c8071f
+flag	O0
+flag	pmt1024
+flag	rtcflags2
+flag	mimalloc
+flag	capstrip
+flag	capstrict
+flag	z3:4.16.0/rl-3000000-50000/darwin-arm64
+flag	libprobe:9e7db9bffeead495
+file	/private/tmp/claude-501/-Users-bobdawg-code-skee-skee-skee-march/edb79dc7-9899-4c73-93c8-d29e5367704d/scratchpad/p400.march	1702004cda833daa0872ff550503d28a
