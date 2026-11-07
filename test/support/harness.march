@@ -1,7 +1,8 @@
--- The test harness shared by forge test (native) and the plain-main runners
--- (native and JS). `test` blocks do not run on the JS target, so a suite is
--- data: a list of named cases that both entry points execute.
 mod Harness do
+
+  -- The test harness shared by forge test (native) and the plain-main runners
+  -- (native and JS). `test` blocks do not run on the JS target, so a suite is
+  -- data: a list of named cases that both entry points execute.
   needs IO.Console
 
   -- How a case went. Passed counts the values that matched exactly. Drifted
@@ -17,8 +18,8 @@ mod Harness do
   -- True on the JS target. string_to_int refuses what a double cannot hold.
   fn on_js() : Bool do
     match string_to_int("9007199254740993") do
-      Some(_) -> false
-      None -> true
+    Some(_) -> false
+    None -> true
     end
   end
 
@@ -39,37 +40,54 @@ mod Harness do
   end
 
   fn expect_string(actual : String, expected : String, what : String) : Outcome do
-    if actual == expected do Passed(1) else Mismatch(what ++ ": got " ++ actual ++ ", want " ++ expected) end
+    if actual == expected do
+      Passed(1)
+    else
+      Mismatch(what ++ ": got " ++ actual ++ ", want " ++ expected)
+    end
   end
 
-  type Tally = { values : Int, differing : Int, max_ulps : Int, bad : Int, shown : List(String) }
+  type Tally = {
+    values : Int,
+    differing : Int,
+    max_ulps : Int,
+    bad : Int,
+    shown : List(String)
+  }
 
   fn tally(acc : Tally, o : Outcome) : Tally do
     match o do
-      Passed(n) -> { acc with values: acc.values + n }
-      Drifted(n, d, u) ->
-        {
-          acc with
-          values: acc.values + n,
-          differing: acc.differing + d,
-          max_ulps: Math.max_int(acc.max_ulps, u)
-        }
-      Mismatch(m) ->
-        let keep = if acc.bad < 5 do Cons(m, acc.shown) else acc.shown end
-        { acc with bad: acc.bad + 1, shown: keep }
+    Passed(n) -> { acc with values: acc.values + n }
+    Drifted(n, d, u) -> do
+      { acc with values: acc.values + n, differing: acc.differing + d, max_ulps: Math.max_int(acc.max_ulps, u) }
+    end
+    Mismatch(m) -> do
+      let keep = if acc.bad < 5 do Cons(m, acc.shown) else acc.shown end
+      { acc with bad: acc.bad + 1, shown: keep }
+    end
     end
   end
 
   -- Fold outcomes into one, keeping the totals and at most five messages.
   fn all(outcomes : List(Outcome)) : Outcome do
-    let t = List.fold_left(outcomes, { values: 0, differing: 0, max_ulps: 0, bad: 0, shown: [] }, tally)
-    match do
-      t.bad > 0 ->
-        let head = int_to_string(t.bad) ++ " of " ++ int_to_string(t.values + t.bad) ++ " mismatched: "
+    let t =
+      List.fold_left(outcomes, { values: 0, differing: 0, max_ulps: 0, bad: 0, shown: [] }, tally)
+    if t.bad > 0 do
+      do
+        let head =
+          int_to_string(t.bad) ++ " of " ++ int_to_string(t.values + t.bad) ++ " mismatched: "
         Mismatch(head ++ String.join(List.reverse(t.shown), " | "))
-      t.values == 0 -> Mismatch("compared nothing")
-      t.differing > 0 -> Drifted(t.values, t.differing, t.max_ulps)
-      true -> Passed(t.values)
+      end
+    else
+      if t.values == 0 do
+        Mismatch("compared nothing")
+      else
+        if t.differing > 0 do
+          Drifted(t.values, t.differing, t.max_ulps)
+        else
+          Passed(t.values)
+        end
+      end
     end
   end
 
@@ -80,45 +98,54 @@ mod Harness do
   fn failures_of(results : List((String, Outcome))) : List(String) do
     List.filter_map(results, fn r ->
       match r do
-        (name, Mismatch(m)) -> Some(name ++ ": " ++ m)
-        (_, Passed(_)) -> None
-        (_, Drifted(_, _, _)) -> None
-      end)
+      (name, Mismatch(m)) -> Some(name ++ ": " ++ m)
+      (_, Passed(_)) -> None
+      (_, Drifted(_, _, _)) -> None
+      end
+    )
   end
 
   -- For forge test: the failures, or one failure if the suite is empty.
   fn failures(cases : List(Case)) : List(String) do
     match cases do
-      Nil -> ["suite has no cases"]
-      Cons(_, _) -> failures_of(List.map(cases, run_case))
+    Nil -> ["suite has no cases"]
+    Cons(_, _) -> failures_of(List.map(cases, run_case))
     end
   end
 
   fn values_of(results : List((String, Outcome))) : Int do
     List.fold_left(results, 0, fn (acc, r) ->
       match r do
-        (_, Passed(n)) -> acc + n
-        (_, Drifted(n, _, _)) -> acc + n
-        (_, Mismatch(_)) -> acc
-      end)
+      (_, Passed(n)) -> acc + n
+      (_, Drifted(n, _, _)) -> acc + n
+      (_, Mismatch(_)) -> acc
+      end
+    )
   end
 
   fn drift_of(results : List((String, Outcome))) : Int do
     List.fold_left(results, 0, fn (acc, r) ->
       match r do
-        (_, Drifted(_, d, _)) -> acc + d
-        (_, Passed(_)) -> acc
-        (_, Mismatch(_)) -> acc
-      end)
+      (_, Drifted(_, d, _)) -> acc + d
+      (_, Passed(_)) -> acc
+      (_, Mismatch(_)) -> acc
+      end
+    )
   end
 
   fn print_result(r : (String, Outcome)) : () do
     match r do
-      (name, Passed(n)) -> println("ok   " ++ name ++ " (" ++ int_to_string(n) ++ " values)")
-      (name, Drifted(n, d, u)) ->
-        println("ok~  " ++ name ++ " (" ++ int_to_string(n) ++ " values, " ++ int_to_string(d) ++ " differ from Swift, worst " ++ int_to_string(u) ++ " ulp)")
-      (name, Mismatch(m)) -> println("FAIL " ++ name ++ ": " ++ m)
+    (name, Passed(n)) -> println("ok   " ++ name ++ " (" ++ int_to_string(n) ++ " values)")
+    (name, Drifted(n, d, u)) -> do
+      println("ok~  " ++ name ++ " (" ++ int_to_string(n) ++ " values, " ++ int_to_string(d) ++ " differ from Swift, worst " ++ int_to_string(u) ++ " ulp)")
     end
+    (name, Mismatch(m)) -> println("FAIL " ++ name ++ ": " ++ m)
+    end
+  end
+
+  -- A stub's runner. scripts/run-suite.sh reports it as PENDING: never green.
+  fn pending(suite : String) : () do
+    println("HARNESS PENDING " ++ suite)
   end
 
   -- For the plain-main runners. Prints every case, then one summary line that
@@ -131,12 +158,16 @@ mod Harness do
     let bad = List.length(failures_of(results))
     let total = List.length(results)
     let values = values_of(results)
-    let counts = "cases=" ++ int_to_string(total) ++ " failed=" ++ int_to_string(bad) ++ " drift=" ++ int_to_string(drift_of(results)) ++ " values=" ++ int_to_string(values)
+    let counts =
+      "cases=" ++ int_to_string(total) ++ " failed=" ++ int_to_string(bad) ++ " drift=" ++ int_to_string(drift_of(results)) ++ " values=" ++ int_to_string(values)
     if total == 0 || bad > 0 || values == 0 do
-      println("HARNESS FAIL " ++ suite ++ " " ++ counts)
-      panic("suite " ++ suite ++ " failed")
+      do
+        println("HARNESS FAIL " ++ suite ++ " " ++ counts)
+        panic("suite " ++ suite ++ " failed")
+      end
     else
       println("HARNESS PASS " ++ suite ++ " " ++ counts)
     end
   end
+
 end

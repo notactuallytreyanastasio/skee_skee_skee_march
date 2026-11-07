@@ -1,0 +1,11 @@
+mod PhysicsMain do
+
+  -- Replace Harness.pending with Harness.report("physics", PhysicsSuite.cases()) when
+  -- the first case exists, and uncomment the test in test/physics_test.march.
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Harness.pending("physics")
+  end
+
+end

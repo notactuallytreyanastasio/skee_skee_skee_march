@@ -1,0 +1,9 @@
+mod BotsTest do
+
+  -- Pending. When the first case exists, add:
+  --   test "bots suite" do
+  --     assert (Harness.failures(BotsSuite.cases()) == [])
+  --   end
+  needs IO.Console
+
+end

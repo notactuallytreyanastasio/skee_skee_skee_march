@@ -1,0 +1,235 @@
+mod FoundationSuite do
+
+  -- The shared types: units, per-key records and the default spec values, the
+  -- latter pinned to the real Swift structs by the `spec*` rows of the golden.
+  import Harness
+  import Skee.Types
+
+  fn rows(k : String) : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Rng.chunks()), k)
+  end
+
+  fn pick_spec(k : Skee.Consts.Consts, name : String) : Option(Float) do
+    let t = standard_table(k)
+    let lane = t.lane
+    let hinge = t.hinge
+    let b = t.board
+    let c = standard_config()
+    let u = standard_tuning()
+    match name do
+    "gravity" -> Some(t.gravity)
+    "dt" -> Some(t.dt)
+    "max_duration" -> Some(t.max_duration)
+    "lane.length" -> Some(lane.length)
+    "lane.width" -> Some(lane.width)
+    "lane.incline" -> Some(lane.incline)
+    "lane.rolling_friction" -> Some(lane.rolling_friction)
+    "lane.rail_restitution" -> Some(lane.rail_restitution)
+    "lane.min_speed" -> Some(lane.min_speed)
+    "lane.scoring_speed" -> Some(lane.scoring_speed)
+    "lane.max_speed" -> Some(lane.max_speed)
+    "lane.knee" -> Some(lane.knee)
+    "lane.max_aim_angle" -> Some(lane.max_aim_angle)
+    "lane.hook" -> Some(lane.hook)
+    "lane.skid_loss" -> Some(lane.skid_loss)
+    "hinge.base_angle" -> Some(hinge.base_angle)
+    "hinge.fold_gain" -> Some(hinge.fold_gain)
+    "hinge.carry" -> Some(hinge.carry)
+    "board.width" -> Some(b.board_width)
+    "board.height" -> Some(b.board_height)
+    "board.tilt" -> Some(b.tilt)
+    "board.ring_center.x" -> Some(b.ring_center.x)
+    "board.ring_center.y" -> Some(b.ring_center.y)
+    "board.center_hole_offset.x" -> Some(b.center_hole_offset.x)
+    "board.center_hole_offset.y" -> Some(b.center_hole_offset.y)
+    "board.center_hole_radius" -> Some(b.center_hole_radius)
+    "board.capture_speed" -> Some(b.capture_speed)
+    "board.lip_min_fall" -> Some(b.lip_min_fall)
+    "board.wall40" -> Some(b.ring_walls.wall40)
+    "board.wall30" -> Some(b.ring_walls.wall30)
+    "board.wall20" -> Some(b.ring_walls.wall20)
+    "board.wall10" -> Some(b.ring_walls.wall10)
+    "board.left.x" -> Some(b.pockets.left.center.x)
+    "board.left.y" -> Some(b.pockets.left.center.y)
+    "board.left.radius" -> Some(b.pockets.left.radius)
+    "board.right.x" -> Some(b.pockets.right.center.x)
+    "board.right.y" -> Some(b.pockets.right.center.y)
+    "board.right.radius" -> Some(b.pockets.right.radius)
+    "board.lip_height" -> Some(b.lip_height)
+    "board.ball_radius" -> Some(b.ball_radius)
+    "board.lip_band" -> Some(b.lip_band)
+    "board.bounce" -> Some(b.bounce)
+    "board.lip_bounce" -> Some(b.lip_bounce)
+    "board.lip_kick" -> Some(b.lip_kick)
+    "board.wall_restitution" -> Some(b.wall_restitution)
+    "board.backwall_restitution" -> Some(b.backwall_restitution)
+    "board.rolling_friction" -> Some(b.board_rolling_friction)
+    "board.landing_grip" -> Some(b.landing_grip)
+    "board.wind.x" -> Some(b.wind.x)
+    "board.wind.y" -> Some(b.wind.y)
+    "board.ring_hole_radius" -> Some(b.ring_hole_radius)
+    "config.target_scale" -> Some(c.target_scale)
+    "config.kind_scale.warmup" -> Some(c.kind_scale.warmup)
+    "config.kind_scale.feature" -> Some(c.kind_scale.feature)
+    "config.kind_scale.boss" -> Some(c.kind_scale.boss_round)
+    "config.overkill_step" -> Some(c.overkill_step)
+    "tuning.slowest" -> Some(u.slowest)
+    "tuning.fastest" -> Some(u.fastest)
+    "tuning.release_weight" -> Some(u.release_weight)
+    "tuning.snap_gain" -> Some(u.snap_gain)
+    "tuning.full_aim_angle" -> Some(u.full_aim_angle)
+    "tuning.smooth_jerk" -> Some(u.smooth_jerk)
+    "tuning.skid_per_jerk" -> Some(u.skid_per_jerk)
+    "tuning.line_reach" -> Some(u.line_reach)
+    _ -> None
+    end
+  end
+
+  fn spec_row(row : List(String)) : Outcome do
+    match row do
+    Cons(name, Cons(bits, Nil)) -> do
+      match pick_spec(Skee.Consts.make(), name) do
+      Some(x) -> GoldenIo.expect_float(x, bits, name)
+      None -> Mismatch("no field for spec " ++ name)
+      end
+    end
+    _ -> Mismatch("bad spec row")
+    end
+  end
+
+  fn ticket_int(t : Tickets) : Int do
+    Skee.Units.tickets_int(t)
+  end
+
+  fn pick_int(name : String) : Option(Int) do
+    let c = standard_config()
+    match name do
+    "antes" -> Some(c.antes)
+    "frames_per_round" -> Some(c.frames_per_round)
+    "balls_per_frame" -> Some(c.balls_per_frame)
+    "start_tickets" -> Some(ticket_int(c.start_tickets))
+    "charm_slots" -> Some(c.charm_slots)
+    "power_up_slots" -> Some(c.power_up_slots)
+    "fever_heat" -> Some(c.fever_heat)
+    "overkill_cap" -> Some(c.overkill_cap)
+    "interest_per" -> Some(c.interest_per)
+    "interest_cap" -> Some(c.interest_cap)
+    "offer_count" -> Some(c.offer_count)
+    "round_tickets.warmup" -> Some(ticket_int(c.round_tickets.warmup))
+    "round_tickets.feature" -> Some(ticket_int(c.round_tickets.feature))
+    "round_tickets.boss" -> Some(ticket_int(c.round_tickets.boss_round))
+    _ -> None
+    end
+  end
+
+  fn spec_int_row(row : List(String)) : Outcome do
+    match row do
+    Cons(name, Cons(want, Nil)) -> do
+      match pick_int(name) do
+      Some(n) -> expect_int(n, GoldenIo.int(want), name)
+      None -> Mismatch("no field for spec " ++ name)
+      end
+    end
+    _ -> Mismatch("bad specint row")
+    end
+  end
+
+  fn ante_base() : Outcome do
+    match rows("anteBase") do
+    Cons(want, Nil) -> do
+      let c = standard_config()
+      let got = List.map(c.ante_base, Skee.Units.points_int)
+      expect(got == List.map(want, GoldenIo.int), "ante_base: got " ++ show(got))
+    end
+    _ -> Mismatch("expected one anteBase row")
+    end
+  end
+
+  fn symbol_name(s : Symbol) : String do
+    match s do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  fn hole_of(name : String) : Option(Hole) do
+    match name do
+    "ring10" -> Some(Ring10)
+    "ring20" -> Some(Ring20)
+    "ring30" -> Some(Ring30)
+    "ring40" -> Some(Ring40)
+    "ring50" -> Some(Ring50)
+    "pocketLeft" -> Some(PocketLeft)
+    "pocketRight" -> Some(PocketRight)
+    _ -> None
+    end
+  end
+
+  fn reel_row(row : List(String)) : Outcome do
+    match row do
+    Cons(name, want) -> do
+      let hole =
+        match hole_of(name) do
+        Some(h) -> h
+        None -> Gutter
+        end
+      let setup = standard_setup()
+      match Skee.HoleMap.reel_at(setup.reels, hole) do
+      Some(reel) -> do
+        let got = List.map(reel, symbol_name)
+        expect(got == want, "reel " ++ name ++ ": got " ++ show(got))
+      end
+      None -> Mismatch("no reel for " ++ name)
+      end
+    end
+    Nil -> Mismatch("bad reel row")
+    end
+  end
+
+  fn units() : Outcome do
+    all([expect(Skee.Units.add_tickets(Tickets(2), Tickets(3)) == Tickets(5), "add tickets"), expect(Skee.Units.sub_tickets(Tickets(5), Tickets(3)) == Tickets(2), "sub tickets"), expect(Skee.Units.add_chips(Chips(2), Chips(3)) == Chips(5), "add chips"), expect(Skee.Units.add_points(Points(2), Points(3)) == Points(5), "add points"), expect(Skee.Units.add_winnings(Winnings(2), Winnings(3)) == Winnings(5), "add winnings"), expect(Skee.Units.sub_winnings(Winnings(5), Winnings(3)) == Winnings(2), "sub winnings"), expect(Skee.Units.tickets_at_least(Tickets(2), Tickets(1)), "2 tickets are at least 1"), expect(!Skee.Units.tickets_at_least(Tickets(1), Tickets(2)), "1 ticket is not at least 2"), expect(Skee.Units.points_at_least(Points(3), Points(3)), "points tie"), expect(!Skee.Units.winnings_at_least(Winnings(3), Winnings(4)), "3 winnings are not at least 4")])
+  end
+
+  fn orders() : Outcome do
+    all([expect(Skee.Units.hole_rank(Gutter) < Skee.Units.hole_rank(Ring10), "gutter is the lowest hole"), expect(Skee.Units.hole_rank(Ring50) < Skee.Units.hole_rank(PocketLeft), "a pocket beats the 50"), expect(Skee.Units.hole_rank(PocketLeft) < Skee.Units.hole_rank(PocketRight), "pockets order by name"), expect(Skee.Units.bet_rank(BetOne) < Skee.Units.bet_rank(BetFive), "bets are ordered"), expect(Skee.Units.tier_rank(Mini) < Skee.Units.tier_rank(Grand), "tiers are ordered"), expect(Skee.Units.room_rank(Boardwalk) < Skee.Units.room_rank(Penthouse), "rooms are ordered")])
+  end
+
+  fn hole_map() : Outcome do
+    let m = Skee.HoleMap.fill(0)
+    let m2 = Skee.HoleMap.put(Skee.HoleMap.put(m, Gutter, 1), PocketRight, 2)
+    let r = Skee.HoleMap.fill_reels("x")
+    let r2 = Skee.HoleMap.reel_put(r, Ring30, "y")
+    all([expect_int(Skee.HoleMap.at(m2, Gutter), 1, "gutter slot"), expect_int(Skee.HoleMap.at(m2, PocketRight), 2, "pocket slot"), expect_int(Skee.HoleMap.at(m2, Ring10), 0, "untouched slot"), expect(Skee.HoleMap.reel_at(r2, Ring30) == Some("y"), "reel slot"), expect(Skee.HoleMap.reel_at(r2, Ring40) == Some("x"), "untouched reel"), expect(Skee.HoleMap.reel_at(r2, Gutter) == None, "the gutter has no reel"), expect(Skee.HoleMap.reel_put(r, Gutter, "y") == r, "writing the gutter's reel is a no-op"), expect(Skee.HoleMap.reel_holes() == [Ring10, Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight], "reel hole order")])
+  end
+
+  fn flag() : Outcome do
+    match rows("specflag") do
+    Cons(Cons(_, Cons(want, Nil)), Nil) -> do
+      let t = standard_table(Skee.Consts.make())
+      let b = t.board
+      expect(b.pockets_need_flight == (want == "1"), "pockets_need_flight")
+    end
+    _ -> Mismatch("expected one specflag row")
+    end
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("default float specs match Swift", fn () -> all(List.map(rows("spec"), spec_row))),
+      case("default int specs match Swift", fn () -> all(List.map(rows("specint"), spec_int_row))),
+      case("ante targets match Swift", fn () -> ante_base()),
+      case("default reels match Swift", fn () -> all(List.map(rows("reel"), reel_row))),
+      case("pockets need flight", fn () -> flag()),
+      case("units add and compare", fn () -> units()),
+      case("explicit orders match Swift", fn () -> orders()),
+      case("per-key records read and write", fn () -> hole_map())
+    ]
+  end
+
+end

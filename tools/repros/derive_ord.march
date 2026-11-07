@@ -1,0 +1,22 @@
+-- COMPILER BUG, silent, all backends: `derive Ord` compiles and `<` type-checks,
+-- but the answer is wrong. Expected true false true true false true -1.
+-- Interpreter prints true false true false false true 0; native and JS print
+-- false for every strict comparison and 0 for compare. Without `derive Ord`
+-- the `<` is a compile error, so the port does not derive Ord at all.
+mod O do
+  needs IO.Console
+  type Hole = Gutter | Ring10 | Ring20
+  derive Eq, Ord, Show for Hole
+  type T = T(Int)
+  derive Eq, Ord, Show for T
+  fn b(x : Bool) : String do if x do "true" else "false" end end
+  fn main(_c : Cap(IO.Console)) : () do
+    println(b(Gutter < Ring10))
+    println(b(Ring10 < Gutter))
+    println(b(Ring20 > Ring10))
+    println(b(T(1) < T(2)))
+    println(b(T(2) < T(1)))
+    println(b(T(3) >= T(3)))
+    println(int_to_string(compare(T(1), T(2))))
+  end
+end

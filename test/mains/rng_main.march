@@ -1,7 +1,9 @@
 mod RngMain do
+
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
     Harness.report("rng", RngSuite.cases())
   end
+
 end

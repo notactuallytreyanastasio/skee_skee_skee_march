@@ -1,24 +1,31 @@
--- Float constants that cannot be written as literals.
---
--- The JS emitter prints every Float literal with 12 significant digits, so a
--- constant needing more is built here from a string at run time. Parsing is
--- not free: call `make` once, keep the record, and pass it to whatever needs
--- it. Never call `make` in a loop.
 mod Skee.Consts do
+
+  -- Float constants that cannot be written as literals.
+  --
+  -- The JS emitter prints every Float literal with 12 significant digits, so a
+  -- constant needing more is built here from a string at run time. Parsing is
+  -- not free: call `make` once, keep the record, and pass it to whatever needs
+  -- it. Never call `make` in a loop.
   cap pure
 
-  type Consts = { pi : Float, tau : Float, dt : Float, unit53 : Float, floor_u1 : Float }
+  type Consts = {
+    pi : Float,
+    tau : Float,
+    dt : Float,
+    unit53 : Float,
+    floor_u1 : Float
+  }
 
   -- Only ever called on the fixed strings below, and the rng suite pins each
   -- result to Swift's bits, so the None arm cannot be reached.
   pfn parse(text : String) : Float needs () do
     match string_to_float(text) do
-      Some(x) -> x
-      None -> unreachable()
+    Some(x) -> x
+    None -> unreachable()
     end
   end
 
-  doc "All constants, each bit-identical to the Swift expression it replaces."
+  doc """All constants, each bit-identical to the Swift expression it replaces."""
   fn make() : Consts needs () do
     {
       pi: parse("3.141592653589793"),
@@ -28,4 +35,5 @@ mod Skee.Consts do
       floor_u1: 0.000000000001
     }
   end
+
 end

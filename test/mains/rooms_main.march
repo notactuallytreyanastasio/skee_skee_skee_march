@@ -1,0 +1,11 @@
+mod RoomsMain do
+
+  -- Replace Harness.pending with Harness.report("rooms", RoomsSuite.cases()) when
+  -- the first case exists, and uncomment the test in test/rooms_test.march.
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Harness.pending("rooms")
+  end
+
+end

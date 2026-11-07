@@ -126,4 +126,62 @@ for n in 0..<200 {
 let z = Vec2.zero.normalized
 g.line("veczero", f64(z.x), f64(z.y), f64(Vec2.zero.length))
 
+// The default spec values, read from the real structs: each row is a dotted
+// field name and its bits. Only the fields that are plain numbers are here;
+// Bool, list and Vec2 fields get their own rows below.
+let t = Table.standard
+let lane = t.lane, hinge = t.hinge, board = t.board
+let specs: [(String, Double)] = [
+    ("gravity", t.gravity), ("dt", t.dt), ("max_duration", t.maxDuration),
+    ("lane.length", lane.length), ("lane.width", lane.width), ("lane.incline", lane.incline),
+    ("lane.rolling_friction", lane.rollingFriction), ("lane.rail_restitution", lane.railRestitution),
+    ("lane.min_speed", lane.minSpeed), ("lane.scoring_speed", lane.scoringSpeed),
+    ("lane.max_speed", lane.maxSpeed), ("lane.knee", lane.knee),
+    ("lane.max_aim_angle", lane.maxAimAngle), ("lane.hook", lane.hook), ("lane.skid_loss", lane.skidLoss),
+    ("hinge.base_angle", hinge.baseAngle), ("hinge.fold_gain", hinge.foldGain), ("hinge.carry", hinge.carry),
+    ("board.width", board.width), ("board.height", board.height), ("board.tilt", board.tilt),
+    ("board.ring_center.x", board.ringCenter.x), ("board.ring_center.y", board.ringCenter.y),
+    ("board.center_hole_offset.x", board.centerHoleOffset.x), ("board.center_hole_offset.y", board.centerHoleOffset.y),
+    ("board.center_hole_radius", board.centerHoleRadius), ("board.capture_speed", board.captureSpeed),
+    ("board.lip_min_fall", board.lipMinFall),
+    ("board.wall40", board.ringWalls[0]), ("board.wall30", board.ringWalls[1]),
+    ("board.wall20", board.ringWalls[2]), ("board.wall10", board.ringWalls[3]),
+    ("board.left.x", board.pockets[0].center.x), ("board.left.y", board.pockets[0].center.y),
+    ("board.left.radius", board.pockets[0].radius),
+    ("board.right.x", board.pockets[1].center.x), ("board.right.y", board.pockets[1].center.y),
+    ("board.right.radius", board.pockets[1].radius),
+    ("board.lip_height", board.lipHeight), ("board.ball_radius", board.ballRadius),
+    ("board.lip_band", board.lipBand), ("board.bounce", board.bounce), ("board.lip_bounce", board.lipBounce),
+    ("board.lip_kick", board.lipKick), ("board.wall_restitution", board.wallRestitution),
+    ("board.backwall_restitution", board.backwallRestitution),
+    ("board.rolling_friction", board.rollingFriction), ("board.landing_grip", board.landingGrip),
+    ("board.wind.x", board.wind.x), ("board.wind.y", board.wind.y), ("board.ring_hole_radius", board.ringHoleRadius),
+    ("config.target_scale", RunConfig.standard.targetScale),
+    ("config.kind_scale.warmup", RunConfig.standard.kindScale[.warmup]!),
+    ("config.kind_scale.feature", RunConfig.standard.kindScale[.feature]!),
+    ("config.kind_scale.boss", RunConfig.standard.kindScale[.boss]!),
+    ("config.overkill_step", RunConfig.standard.overkillStep),
+    ("tuning.slowest", FlickTuning.standard.slowest), ("tuning.fastest", FlickTuning.standard.fastest),
+    ("tuning.release_weight", FlickTuning.standard.releaseWeight), ("tuning.snap_gain", FlickTuning.standard.snapGain),
+    ("tuning.full_aim_angle", FlickTuning.standard.fullAimAngle), ("tuning.smooth_jerk", FlickTuning.standard.smoothJerk),
+    ("tuning.skid_per_jerk", FlickTuning.standard.skidPerJerk), ("tuning.line_reach", FlickTuning.standard.lineReach),
+]
+for (name, value) in specs { g.line("spec", name, f64(value)) }
+g.line("specflag", "pockets_need_flight", b(board.pocketsNeedFlight))
+
+let c = RunConfig.standard
+let ints: [(String, Int)] = [
+    ("antes", c.antes), ("frames_per_round", c.framesPerRound), ("balls_per_frame", c.ballsPerFrame),
+    ("start_tickets", c.startTickets), ("charm_slots", c.charmSlots), ("power_up_slots", c.powerUpSlots),
+    ("fever_heat", c.feverHeat), ("overkill_cap", c.overkillCap), ("interest_per", c.interestPer),
+    ("interest_cap", c.interestCap), ("offer_count", c.offerCount),
+    ("round_tickets.warmup", c.roundTickets[.warmup]!), ("round_tickets.feature", c.roundTickets[.feature]!),
+    ("round_tickets.boss", c.roundTickets[.boss]!),
+]
+for (name, value) in ints { g.line("specint", name, i(value)) }
+g.line(["anteBase"] + c.anteBase.map(i))
+for hole in BoardSetup.reelHoles {
+    g.line(["reel", hole.rawValue] + BoardSetup.standard.reel(hole).map(\.rawValue))
+}
+
 try g.write()

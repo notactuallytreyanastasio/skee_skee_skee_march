@@ -1,0 +1,9 @@
+mod ScoringTest do
+
+  -- Pending. When the first case exists, add:
+  --   test "scoring suite" do
+  --     assert (Harness.failures(ScoringSuite.cases()) == [])
+  --   end
+  needs IO.Console
+
+end

@@ -1,0 +1,7 @@
+mod Skee.Bots do
+
+  -- The bots piece. See docs/PORT.md for what ports here, and for the rules every
+  -- module under lib/ follows. Replace this comment as the first behaviour lands.
+  cap pure
+
+end

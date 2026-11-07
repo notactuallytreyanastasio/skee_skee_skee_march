@@ -1,32 +1,34 @@
--- Plain 2D vectors and the small numeric helpers (Math/Vec.swift, Math/Trig.swift).
--- Named Maths so that `Math.sqrt` inside this file still means the stdlib.
 mod Skee.Maths do
+
+  -- Plain 2D vectors and the small numeric helpers (Math/Vec.swift, Math/Trig.swift).
+  -- Named Maths so that `Math.sqrt` inside this file still means the stdlib.
   cap pure
 
   type Vec2 = { x : Float, y : Float }
+
   derive Eq, Show for Vec2
 
-  doc "Swift's max(x, y): y on a tie, which decides the sign of a zero."
+  doc """Swift's max(x, y): y on a tie, which decides the sign of a zero."""
   fn max_float(x : Float, y : Float) : Float needs () do
     if y >= x do y else x end
   end
 
-  doc "Swift's min(x, y): x on a tie."
+  doc """Swift's min(x, y): x on a tie."""
   fn min_float(x : Float, y : Float) : Float needs () do
     if y < x do y else x end
   end
 
-  doc "Swift's min(max(x, lo), hi). NaN stays NaN."
+  doc """Swift's min(max(x, lo), hi). NaN stays NaN."""
   fn clamp(x : Float, lo : Float, hi : Float) : Float needs () do
     min_float(max_float(x, lo), hi)
   end
 
-  doc "min(max(x, lo), hi) on Ints."
+  doc """min(max(x, lo), hi) on Ints."""
   fn clamp_int(x : Int, lo : Int, hi : Int) : Int needs () do
     Math.clamp_int(x, lo, hi)
   end
 
-  doc "Degrees to radians, in Swift's order: d * pi / 180."
+  doc """Degrees to radians, in Swift's order: d * pi / 180."""
   fn degrees(k : Skee.Consts.Consts, d : Float) : Float needs () do
     d *. k.pi /. 180.0
   end
@@ -63,9 +65,10 @@ mod Skee.Maths do
     Math.sqrt(a.x *. a.x +. a.y *. a.y)
   end
 
-  doc "Unit vector; the zero vector stays zero rather than becoming NaN."
+  doc """Unit vector; the zero vector stays zero rather than becoming NaN."""
   fn normalized(a : Vec2) : Vec2 needs () do
     let l = length(a)
     if l == 0.0 do zero() else { x: a.x /. l, y: a.y /. l } end
   end
+
 end

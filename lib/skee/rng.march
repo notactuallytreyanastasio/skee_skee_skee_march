@@ -1,13 +1,15 @@
--- Seedable, platform-independent PRNG: SplitMix64 (Vigna 2015), ported from
--- Random/SplitMix64.swift. Purely functional: every draw returns the value and
--- the new generator. Every random choice in a run flows from one seed, so a
--- run is fully described by its seed and actions.
 mod Skee.Rng do
+
+  -- Seedable, platform-independent PRNG: SplitMix64 (Vigna 2015), ported from
+  -- Random/SplitMix64.swift. Purely functional: every draw returns the value and
+  -- the new generator. Every random choice in a run flows from one seed, so a
+  -- run is fully described by its seed and actions.
   cap pure
 
-  use Skee.U64.*
+  import Skee.U64
 
   type Rng = { word : U64 }
+
   derive Eq, Show for Rng
 
   fn seed(s : U64) : Rng needs () do
@@ -27,7 +29,7 @@ mod Skee.Rng do
     (xor(z2, shr(z2, 31)), { word: word })
   end
 
-  doc "Uniform in [0, 1) from the top 53 bits."
+  doc """Uniform in [0, 1) from the top 53 bits."""
   fn next_unit(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
     let (v, after) = next(r)
     let top53 = v.hi * 2097152 + int_shr(v.lo, 11)
@@ -38,10 +40,10 @@ mod Skee.Rng do
   -- by doubling keeps a bound near 2^53 exact on the JS target.
   pfn shift_in(r : Int, bit : Int, n : Int) : Int needs () do
     let doubled = if r >= n - r do r - (n - r) else r + r end
-    match do
-      bit == 0 -> doubled
-      doubled == n - 1 -> 0
-      true -> doubled + 1
+    if bit == 0 do
+      doubled
+    else
+      if doubled == n - 1 do 0 else doubled + 1 end
     end
   end
 
@@ -54,21 +56,21 @@ mod Skee.Rng do
   end
 
   -- v % n. With n <= 2^20 two exact steps do it; beyond that, bit by bit.
-  pfn mod_int(v : U64, n : {Int | _ > 0}) : Int needs () do
+  pfn mod_int(v : U64, n : { Int | _ > 0 }) : Int needs () do
     if n <= 1048576 do
-      ((v.hi % n) * 4294967296 + v.lo) % n
+      (v.hi % n * 4294967296 + v.lo) % n
     else
       divide_word(divide_word(0, v.hi, 31, n), v.lo, 31, n)
     end
   end
 
-  doc "Uniform in 0..<n. Modulo bias is negligible for the tiny n the game uses."
-  fn next_int_below(r : Rng, n : {Int | _ > 0}) : (Int, Rng) needs () do
+  doc """Uniform in 0..<n. Modulo bias is negligible for the tiny n the game uses."""
+  fn next_int_below(r : Rng, n : { Int | _ > 0 }) : (Int, Rng) needs () do
     let (v, after) = next(r)
     (mod_int(v, n), after)
   end
 
-  doc "Gaussian sample (Box-Muller). Used only by bots, never by the game."
+  doc """Gaussian sample (Box-Muller). Used only by bots, never by the game."""
   fn next_gaussian(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
     let (first, r1) = next_unit(k, r)
     let u1 = Skee.Maths.max_float(first, k.floor_u1)
@@ -81,28 +83,33 @@ mod Skee.Rng do
   end
 
   pfn swap_at(xs : List(a), i : Int, j : Int) : List(a) needs () do
-    let at_i = List.nth(xs, i)
-    let at_j = List.nth(xs, j)
-    replace_at(replace_at(xs, i, at_j), j, at_i)
+    match (List.nth_opt(xs, i), List.nth_opt(xs, j)) do
+    (Some(at_i), Some(at_j)) -> replace_at(replace_at(xs, i, at_j), j, at_i)
+    (None, _) -> xs
+    (_, None) -> xs
+    end
   end
 
   pfn shuffle_down(r : Rng, xs : List(a), i : Int) : (List(a), Rng) needs () do
     if i <= 0 do
       (xs, r)
     else
-      let (j, after) = next_int_below(r, i + 1)
-      shuffle_down(after, swap_at(xs, i, j), i - 1)
+      do
+        let (j, after) = next_int_below(r, i + 1)
+        shuffle_down(after, swap_at(xs, i, j), i - 1)
+      end
     end
   end
 
-  doc "Fisher-Yates, drawing from the top index down, as Swift's shuffled does."
+  doc """Fisher-Yates, drawing from the top index down, as Swift's shuffled does."""
   fn shuffled(r : Rng, xs : List(a)) : (List(a), Rng) needs () do
     shuffle_down(r, xs, List.length(xs) - 1)
   end
 
-  doc "One element of a non-empty list. Always one draw, even from a singleton."
-  fn pick(r : Rng, xs : {List(a) | len(_) > 0}) : (a, Rng) needs () do
+  doc """One element of a non-empty list. Always one draw, even from a singleton."""
+  fn pick(r : Rng, xs : { List(a) | len(_) > 0 }) : (a, Rng) needs () do
     let (i, after) = next_int_below(r, List.length(xs))
     (List.nth(xs, i), after)
   end
+
 end

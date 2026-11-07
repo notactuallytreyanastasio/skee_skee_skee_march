@@ -1,0 +1,14 @@
+mod Game do
+
+  -- The imperative shell: canvas, DOM, audio, storage and clock live here and
+  -- nowhere else. It only turns events into core actions and core state into
+  -- effects. This is the entry point of `forge build --target js`. Using
+  -- Js.Dom, Js.Canvas or Js.Audio needs `needs IO.Foreign` and a Cap(IO.Foreign)
+  -- parameter on main.
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    println("skee")
+  end
+
+end
