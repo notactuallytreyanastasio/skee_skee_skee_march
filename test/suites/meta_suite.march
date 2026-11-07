@@ -699,8 +699,8 @@ mod MetaSuite do
     end
   end
 
-  -- The one place this port reads differently: a seed of 2^53 or more as a
-  -- JSON number cannot be held exactly, so it is refused, not misread.
+  -- A seed of 2^53 or more as a JSON number cannot be held exactly, so it is
+  -- refused, not misread. The other deviations are the `wide` rows.
   fn run_row(row : List(String)) : Outcome do
     match row do
     Cons(label, Cons(json, Cons(status, want))) -> do
