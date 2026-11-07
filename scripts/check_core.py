@@ -8,6 +8,10 @@ needs lines, so this file is the only complete guard. Every rule below that
 says "lib/" exists because a March bug would otherwise silently change
 behaviour on the JS target, or because the formatter would destroy the code.
 See "March gotchas" in docs/PORT.md for each one.
+
+Engine (lib/arcade/** and arcade/**): the arcade engine knows nothing of the
+game that uses it. Its March files and .mjs/.js glue must not name a Skee. module or
+say "skee" anywhere, comments and strings included. See "Arcade engine" in docs/PORT.md.
 """
 import argparse
 import pathlib
@@ -23,6 +27,8 @@ FORBIDDEN_CALLS = re.compile(
 TYPE_DEF = re.compile(r"^\s*type\s+([A-Z][A-Za-z0-9_]*)")
 FN_DEF = re.compile(r"^\s*p?fn\s+([a-z_][A-Za-z0-9_]*)\s*\(")
 FLOAT_LITERAL = re.compile(r"(?<![\w.])(\d+)\.(\d+)(?![\w.])")
+SKEE_MODULE = re.compile(r"\bSkee\.")
+SKEE_WORD = re.compile(r"skee", re.I)
 
 
 def code_only(line: str) -> str:
@@ -106,6 +112,31 @@ def check_source(path: pathlib.Path, text: str, core: bool, report) -> None:
         report(str(path), "core module without `cap pure`")
 
 
+ENGINE_SUFFIXES = (".march", ".mjs", ".js")
+ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
+
+
+def engine_files(root: pathlib.Path) -> list:
+    """Source of the arcade engine (March and JS glue): lib/arcade, later arcade/."""
+    found = []
+    for base in (root / "lib" / "arcade", root / "arcade"):
+        for path in sorted(base.rglob("*")):
+            rel = path.relative_to(base).parts
+            if path.is_file() and path.suffix in ENGINE_SUFFIXES and not ENGINE_SKIP.intersection(rel):
+                found.append(path)
+    return found
+
+
+def check_engine(path: pathlib.Path, text: str, report) -> None:
+    """The engine names no game: no Skee. module and no "skee" in any form."""
+    for number, line in enumerate(text.split("\n"), 1):
+        where = f"{path}:{number}"
+        if SKEE_MODULE.search(line):
+            report(where, "Skee. in the arcade engine: the engine must not depend on the game")
+        elif SKEE_WORD.search(line):
+            report(where, "\"skee\" in the arcade engine: no game concepts in the engine, comments and strings included")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
@@ -126,6 +157,9 @@ def main() -> int:
     ]
     for path in others:
         check_source(path, path.read_text(), False, report)
+    engine = engine_files(root)
+    for path in engine:
+        check_engine(path, path.read_text(), report)
 
     # march#1183: a bare type name loads every module on the lib path that defines
     # a type of that name, so two suites sharing one tie their builds together.
@@ -144,7 +178,7 @@ def main() -> int:
     if problems:
         print(f"check-core: {len(problems)} violation(s)")
         return 1
-    print(f"check-core: {len(core_files)} core and {len(others)} other files clean")
+    print(f"check-core: {len(core_files)} core and {len(others)} other files clean ({len(engine)} engine)")
     return 0
 
 

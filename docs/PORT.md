@@ -8,6 +8,7 @@ file before you edit anything.
 
 ```
 lib/skee/      the pure core: every file `cap pure`, every fn `needs ()`
+lib/arcade/    the arcade engine while in-tree (see "Arcade engine"); no Skee.
 shell/         the imperative shell (`shell/game.march` is the JS entry point)
 test/suites/   <piece>_suite.march: the tests, as data
 test/mains/    <piece>_main.march: the plain-main runner, native and JS
@@ -728,6 +729,57 @@ whitespace, GB9c, GB11, GB12, the canonical singletons, the digit separators,
 the sweetener, a prompt word, the try count, truncation, the fence, the
 trickery deflection, the turn limit, the failure state, the push rule) each
 turn the suite red.
+
+## Arcade engine
+
+The game-agnostic parts of this port are being extracted into an engine named
+`arcade`, with skee as its first client and a mini-golf game, putt, as its
+second. One step per commit; the step list is the engine plan kept with the
+extraction branch (`engine-extraction`).
+
+**What moves.** The foundation (`Arcade.U64`, `Numerics`, `Num`, `Vec2`,
+`Vec3`, `Rng`), drawing (`Arcade.Draw`, `Canvas`, `Svg`), audio
+(`Arcade.Float32`, `Synth`, `SynthFeed`), the browser layer
+(`Arcade.Web.*` plus `arcade_*.mjs` glue) and the testkit (`Arcade.Test.*`).
+Physics is a package of its own (`Arcade.Physics.*`). The camera becomes a real
+abstraction, `Arcade.Camera`, that serves both a perspective 3D game and an
+orthographic 2D one. Game rules, the scene cabinet, HUD panes, the host, the
+cue table (`Skee.Cues`) and every Swift golden stay in skee.
+
+**Layout.** Engine modules start in-tree under `lib/arcade/` (module
+`Arcade.X` lives at `lib/arcade/x.march`), so every existing gate covers them
+unchanged. A later carve-out step moves them to their own packages:
+
+```
+arcade/lib/arcade/         forge name arcade: pure core, plus web/ (the JS shell)
+arcade/physics/            forge name arcade_physics: Arcade.Physics.*
+arcade/testkit/            forge name arcade_testkit (a dev-dep): Arcade.Test.*
+arcade/test/               the engine's own suites
+arcade/examples/putt/      the second game
+```
+
+**Rules.**
+- The engine names no game. No March file or `.mjs`/`.js` glue under
+  `lib/arcade/` or `arcade/` (build output and `node_modules` aside) may
+  reference a `Skee.` module or contain "skee" in any case, comments and
+  strings included (guard: `scripts/check_core.py`, proven by `make selftest`).
+  Dependencies point one way: skee uses arcade, never the reverse.
+- Moves are behaviour-preserving. Every Swift golden stays bit-exact: no float
+  operation is reordered and no RNG draw is added, dropped or moved.
+- A generalization takes a parameter whose default equals today's literal
+  (for example `SynthTuning`, `Numerics`), so skee's output does not change.
+- A moved type keeps its bare name and its skee copy is deleted in the same
+  commit (there are no type aliases, and a name defined twice will not build,
+  march#1183). New engine types get distinctive names that clash with neither
+  skee nor the stdlib (Stage, Trace, Failed, Bar, the Json constructors, Rng in
+  random.march).
+- Hooks in the pure core are plain fn parameters; extension points are type
+  parameters (`AudioCmd(cue)`), not closed ADTs; equality and order come in as
+  `eq` and `rank` fns.
+- Every rename or sed covers `lib`, `shell`, `test` and `tools`
+  (`tools/hudweb`, `tools/synth_bench` and `tools/synth_probe` name modules too).
+- The gate for every step is `make check-purity && make check && make test`,
+  plus the suites the step touches.
 
 ## Rules every core module follows
 

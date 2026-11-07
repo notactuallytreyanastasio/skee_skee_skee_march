@@ -128,6 +128,42 @@ printf 'mod Skee.Planted do\n  cap pure\n\n  type Tally = { n : Int }\nend\n' >"
 printf 'mod Skee.Planted2 do\n  cap pure\n\n  type Tally = { m : Int }\nend\n' >"$work/lib/skee/planted2.march"
 expect_red "core: a type name defined twice (march#1183)" core
 
+echo "== engine names no game"
+# plant_engine <label> <dir> <module body>: one module in the arcade engine.
+plant_engine() {
+  label="$1"
+  dir="$2"
+  body="$3"
+  reset
+  mkdir -p "$work/$dir"
+  printf 'mod Arcade.Planted do\n  cap pure\n\n%s\nend\n' "$body" >"$work/$dir/planted.march"
+  expect_red "engine: $label" core
+}
+reset
+mkdir -p "$work/lib/arcade"
+printf 'mod Arcade.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    1\n  end\nend\n' >"$work/lib/arcade/planted.march"
+expect_green "engine: a clean lib/arcade module passes" core
+plant_engine "Skee. in lib/arcade" lib/arcade '  fn f() : Float needs () do
+    Skee.Consts.consts().pi
+  end'
+plant_engine "Skee. in arcade/lib/arcade" arcade/lib/arcade '  fn f() : Float needs () do
+    Skee.Consts.consts().pi
+  end'
+plant_engine "Skee. in a comment" lib/arcade '  -- mirrors Skee.Physics
+  fn f() : Int needs () do
+    1
+  end'
+plant_engine "skee in a string" arcade/lib/arcade '  fn f() : String needs () do
+    "skee-ball"
+  end'
+reset
+mkdir -p "$work/arcade/web"
+printf '// glue for the skee shell\nexport const x = 1;\n' >"$work/arcade/web/arcade_glue.mjs"
+expect_red "engine: skee in arcade .mjs glue" core
+reset
+printf 'mod Skee.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    Skee.Maths.clamp_int(1, 0, 2)\n  end\nend\n' >"$work/lib/skee/planted.march"
+expect_green "engine: Skee. outside the engine is fine" core
+
 echo "== test runners"
 suite() { "$work/scripts/run-suite.sh" "$@"; }
 plant_suite() {
