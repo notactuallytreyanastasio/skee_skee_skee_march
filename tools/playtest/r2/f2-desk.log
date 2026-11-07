@@ -49,3 +49,9 @@ back from guide same state: false
 console(guide): clean
 === long (desktop)
 ROUND ANTE 1/8 WARM-UP target 400
+  card: A COMBO!
+  card: FEVER!
+GAME OVER: BAR 7 ANTE 1/8 WARM-UP 36 / 400 4 TARGETS · hit one = combo FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 24 JACKPOTS 0 · RATTLES 7 +1 WINNINGS NEW RUN PRIZES 1
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/desktop-011-long-gameover.png
+rounds seen: ["ANTE 1/8 WARM-UP"]
+console(long): clean

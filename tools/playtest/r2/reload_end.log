@@ -1,0 +1,11 @@
+at counter: PRIZE COUNTER 12 HH Heavy Hand +40 chips for each 50 4 TIX LP Lucky Penny +2 mult for each cherry in the frame 3 TIX +10 Gild +10 chips on a hole, for good 3 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+after reload (counter): layer=LayerBase live=["TapAskNewGame","TapOpenGuide","TapBuyOffer(0)","TapBuyOffer(1)","TapSelectOffer(Some(2))","TapBuyOffer(3)","TapReroll","TapLeaveCounter"] | BAR 7 ANTE 1/8 WARM-UP 5862 / 400 12 COMBO x4 · hit one to keep it NEW GAME GUIDE FEVER FRAME 6/6 · 0 BALLS PRIZE COUNTER 12 HH Heavy Hand +40 chips for each 50 4 TIX LP Lucky Penny +2 mult for each cherry in the frame 3 TIX +10 Gild +10 chips on a hole, for g
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/reload-counter.png
+counter survived: true
+game over wallet {"balance":313,"comps":[],"gamesSinceHost":1,"hostVisits":0,"lifetime":313,"owned":[],"progressive":{"meters":["mini",62,"minor",174,"major",648,"grand",2590]},"room":"boardwalk","rooms":["boardwalk"]}
+after reload (gameover): layer=LayerBase live=["TapNewRun","TapOpenShop"] | BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 12 TARGETS · hit one = combo FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 1800 JACKPOTS 0 · RATTLES 11 +313 WINNINGS NEW RUN PRIZES 313
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/reload-gameover.png
+after reload (gameover2): layer=LayerBase live=["TapNewRun","TapOpenShop"] | BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 12 TARGETS · hit one = combo FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 1800 JACKPOTS 0 · RATTLES 11 +313 WINNINGS NEW RUN PRIZES 313
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/reload-gameover2.png
+wallet after 2 reloads {"balance":313,"comps":[],"gamesSinceHost":1,"hostVisits":0,"lifetime":313,"owned":[],"progressive":{"meters":["mini",62,"minor",174,"major",648,"grand",2590]},"room":"boardwalk","rooms":["boardwalk"]} same=true
+errors []
