@@ -336,12 +336,15 @@ Parity, all against the real SkeeScene (32-bit Float there, 64-bit here):
   outline, visibility, opacity, world transform) matches part for part.
   `Cabinet.setReel` coins and halos, and `lightBulbs`, match.
 - `ScenePresenter.update` replayed over 984 frames of three real throws (replay
-  "a"): ball, shadow, trough count and camera position match to 1e-6; the roll
-  quaternion, checked one frame at a time, to 3e-6. On the 42 frames where the
-  ball sinks straight into a hole (`Skee.Scene.rolls_straight_down`) Swift's
-  roll axis is a normalised cross product of rounding noise, so the ball spins
-  at random; the port does not roll it there, and those frames' orientation is
-  not compared. Gutter sinks roll in both and are compared.
+  "a") and 311 frames of a marshmallow throw (replay "e"): ball, shadow, trough
+  count and camera position match to 1e-6; the roll quaternion, checked one
+  frame at a time, to 1e-4 (measured 1.8e-5). The ball's scale is read off the
+  `BallPart` the model draws (place scale, `drawnSize`, the 0.35 bounce
+  swell), so replay "e" checks the marshmallow's drawn size. On the 63 frames
+  (both replays) where the ball sinks straight into a hole
+  (`Skee.Scene.rolls_straight_down`) Swift's roll axis is a normalised cross
+  product of rounding noise, so the ball spins at random; the port does not
+  roll it there, and those frames' orientation is not compared. Gutter sinks roll in both and are compared.
 - Replay "b", 3168 frames of a whole nine-ball frame (seed 7, with pulls),
   feeds what replay "a" leaves fixed: `excited`, the symbols shown so far, the
   top slot and the reels' positions. Per frame it compares each reel's shown
@@ -351,6 +354,25 @@ Parity, all against the real SkeeScene (32-bit Float there, 64-bit here):
   reached each path (glow 1: 82, glow 2: 257, hole flash: 50, slot halo: 330,
   excited: 570, leaning: 2743, rings: 416), and the case fails if any is 0.
   Mutating the glow, flash age, chase rate, ring life or look lean turns it red.
+- Replays "c" (620 frames, three comet throws) and "d" (900 frames, three
+  jumping-bean throws) are recorded the same way, for the rings of light that
+  "b" never sends: a comet's at the hump (0.9), back wall and rails (0.4), a
+  bean's on every hop (0.25), and none when a bean hits a wall or rail. Each
+  fails if it never reaches its path (c: comet hump 3, back wall 3, rail 2
+  frames; d: hops 13, plain wall or rail 2). Mutating any of those sizes, or
+  giving a non-comet a wall ring, turns it red.
+- `Textures.lane`, `.ball(kind)` for all five balls and `.wave`, pixel for
+  pixel: rows of the real images (every 8th lane row, every 2nd ball row, every
+  4th wave row) against `Skee.Scene.texel` over the marks the draw paints
+  (`lane_marks`, `ball_marks`, `wave_marks`). Only pixels wholly inside or a
+  half-diagonal clear of every visible mark edge are compared (122425 lane,
+  about 60800 per ball, 15388 wave); worst 1.8 8-bit steps on the lane, 0 on
+  the wave, tolerance 2. Every drawn mark must be on top in some compared
+  pixel. A 16-step change to a seam, grain, arrow, stripe or ring colour, the
+  grain's alpha, the arrow's ink width or height, the gold ring's width or the
+  caps' rows turns it red; a 1-step change is inside CoreGraphics' rounding.
+  The lane slab's side colour is the node tree's. What is not pixel-checked:
+  how `paint_mark` and the ball's latitude bands put those marks on screen.
 - `Textures.lane`'s nine board tones, read off the real texture (each board's
   commonest 8-bit pixel), match `Skee.Scene.lane_plank_tones` within one step.
 - `Cabinet.fit`'s grids are Swift Float strides, whose lengths differ from a
@@ -367,13 +389,13 @@ Deviations, where Canvas 2D has no equivalent:
 - Outlines are silhouettes stroked under the fill at the inverted hull's screen
   width (`thick * height / (40 tan(fov/2))`), not hulls. Boxes are not chamfered.
 - Spheres are circles; the ball's gores are 30 lit patches. Gore seams are not
-  drawn.
+  drawn (`Undrawn` in `ball_marks`; `texel` leaves their pixels out).
 - Not drawn yet: particles (trail, sprays, drop bursts, Hot Spot glitter).
   Fonts fall back from Avenir Next Heavy to Nunito or sans-serif.
 
 Speed (`tools/scene_preview/bench.sh`, node 26, an idle machine): `Cabinet.fit`
-20 ms once; `present` plus `draw` 0.46 ms a frame over the 984 golden frames,
-at most 556 ops (budget 16 ms, 2000 ops). Under load from parallel builds a
+20 ms once; `present` plus `draw` 0.51 ms a frame over the 1295 golden frames
+of replays "a" and "e", at most 532 ops (budget 16 ms, 2000 ops). Under load from parallel builds a
 verifier measured 44 ms and 0.85 ms: still far inside the budget.
 `test/golden/scene.march` is not in `make golden`: regenerate it with
 `make golden-scene`. `tools/scene_preview/preview.sh <stage> <w> <h>
