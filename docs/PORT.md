@@ -47,8 +47,9 @@ foundation: ask before changing it.
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
 
-No stub exists yet for `Input/Stroke.swift` or for `Meta/Host`, `HostGuard`,
-`ScriptedHost`, `Walkthrough` and `Guide`. The Input types are in `Skee.Types`.
+`Input/Stroke.swift` is ported as `Skee.Stroke` (`lib/skee/stroke.march`), tested by
+the physics suite. Not ported yet: `Meta/Host`, `HostGuard`, `ScriptedHost`,
+`Walkthrough`, `Guide`, the rest of `Haggle`, and Wallet's decoder for old saves.
 
 ### The additive rule for `lib/skee/types.march`
 
@@ -119,8 +120,12 @@ takes `k : Skee.Consts.Consts` as its first argument.
 
 Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`.
 
-`make test-<piece>` compiles only what the suite reaches, so another agent's
-broken module cannot break it, even a parse error (`make selftest` proves this).
+`make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
+its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
+this). A broken module in `lib/` can: March loads every lib-path module that has
+a `derive`, a `test` block, or a type or constructor name shared with a module in
+use, even if nothing references it (march#1183). `scripts/check_core.py` rejects
+shared type names.
 `forge test` compiles every test module together: one broken test anywhere fails
 it for everyone, and `forge test <file>` still runs all of them. Use `forge test`
 as the final gate, not while working.

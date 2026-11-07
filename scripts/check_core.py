@@ -20,6 +20,7 @@ FORBIDDEN_MODULES = re.compile(
 FORBIDDEN_CALLS = re.compile(
     r"\b(println|print|eprintln|process_exit|process_argv|sys_uptime_ms|unix_time|unix_time_ms|file_read)\("
 )
+TYPE_DEF = re.compile(r"^\s*type\s+([A-Z][A-Za-z0-9_]*)")
 FN_DEF = re.compile(r"^\s*p?fn\s+([a-z_][A-Za-z0-9_]*)\s*\(")
 FLOAT_LITERAL = re.compile(r"(?<![\w.])(\d+)\.(\d+)(?![\w.])")
 
@@ -125,6 +126,18 @@ def main() -> int:
     ]
     for path in others:
         check_source(path, path.read_text(), False, report)
+
+    # march#1183: a bare type name loads every module on the lib path that defines
+    # a type of that name, so two suites sharing one tie their builds together.
+    owners = {}
+    for path in core_files + others:
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            found = TYPE_DEF.match(code_only(line))
+            if found:
+                owners.setdefault(found.group(1), []).append(f"{path}:{number}")
+    for name, places in sorted(owners.items()):
+        if len(places) > 1:
+            report(places[1], f"type {name} is also defined at {places[0]} (march#1183: rename one)")
 
     for line in problems:
         print(line)

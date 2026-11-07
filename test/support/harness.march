@@ -7,9 +7,10 @@ mod Harness do
 
   -- How a case went. Passed counts the values that matched exactly. Drifted
   -- is Passed plus a measured, declared tolerance: `differing` of `values`
-  -- were not bit-identical, the worst by `max_ulps`. It can only be produced
-  -- on the JS target, for values that went through libm, and it is always
-  -- printed. A case that compared nothing is a failure, so an empty golden
+  -- were not bit-identical, the worst by `max_ulps`. It is for values that
+  -- went through libm: mostly on JS (V8's libm), and rarely on native where
+  -- Swift's release build merged sin and cos into __sincos_stret (PORT.md,
+  -- "Measured divergence"). It is always printed. A case that compared nothing is a failure, so an empty golden
   -- table can never look green.
   type Outcome = Passed(Int) | Drifted(Int, Int, Int) | Mismatch(String)
 

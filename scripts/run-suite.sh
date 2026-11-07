@@ -11,7 +11,9 @@ target="$2"
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 export PATH="$HOME/.march/bin:$PATH"
-export MARCH_LIB_PATH="${SKEE_LIB_PATH:-lib:test}"
+# Not plain lib:test: a module holding a `test` block is always loaded (march#1183),
+# so test/*_test.march on the path would tie every suite to every other.
+export MARCH_LIB_PATH="${SKEE_LIB_PATH:-lib:test/support:test/suites:test/golden}"
 entry="test/mains/${suite}_main.march"
 [ -f "$entry" ] || { echo "no such suite: $entry"; exit 2; }
 

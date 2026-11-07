@@ -123,6 +123,10 @@ expect_red "core: module without cap pure" core
 reset
 rm "$work"/lib/skee/*.march
 expect_red "core: an empty lib/ refuses to pass" core
+reset
+printf 'mod Skee.Planted do\n  cap pure\n\n  type Tally = { n : Int }\nend\n' >"$work/lib/skee/planted.march"
+printf 'mod Skee.Planted2 do\n  cap pure\n\n  type Tally = { m : Int }\nend\n' >"$work/lib/skee/planted2.march"
+expect_red "core: a type name defined twice (march#1183)" core
 
 echo "== test runners"
 suite() { "$work/scripts/run-suite.sh" "$@"; }
@@ -175,7 +179,20 @@ EOF
 expect_red "a runner that exits 0 without a summary, native" suite silent native
 expect_red "a runner that exits 0 without a summary, js" suite silent js
 reset
-expect_code 3 "a pending stub is not green" suite physics js
+cat >"$work/test/suites/planted_suite.march" <<'EOF'
+mod PlantedSuite do
+end
+EOF
+cat >"$work/test/mains/planted_main.march" <<'EOF'
+mod PlantedMain do
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Harness.pending("planted")
+  end
+end
+EOF
+expect_code 3 "a pending stub is not green" suite planted js
 
 echo "== native record equality guard"
 reset
@@ -196,10 +213,12 @@ expect_red "== on a record, native" suite planted native
 
 echo "== isolation between agents"
 reset
-printf 'mod Skee.Physics do\n  this is not march\n' >"$work/lib/skee/physics.march"
+# A broken lib module with a derive is still loaded by everyone (march#1183), so
+# isolation covers other suites and forge test wrappers only.
+printf 'mod PhysicsTest do\n  this is not march\n' >"$work/test/physics_test.march"
 printf 'mod ScoringSuite do\n  fn cases( broken\n' >"$work/test/suites/scoring_suite.march"
-expect_green "another piece's broken files leave test-foundation green" suite foundation native
-expect_green "another piece's broken files leave test-js-foundation green" suite foundation js
+expect_green "another suite's broken files leave test-foundation green" suite foundation native
+expect_green "another suite's broken files leave test-js-foundation green" suite foundation js
 
 echo "== static gate"
 gate() { (cd "$work" && scripts/check.sh); }

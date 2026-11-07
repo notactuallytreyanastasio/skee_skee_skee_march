@@ -826,7 +826,7 @@ mod ReducerSuite do
 
   type Live = { label : String, seed_token : String, at : Int, s : RunState }
 
-  type Tally = {
+  type RunTally = {
     runs : Int,
     steps : Int,
     refused : Int,
@@ -1013,7 +1013,7 @@ mod ReducerSuite do
     end
   end
 
-  fn fail(t : Tally, l : Live, token : String, why : String) : Tally do
+  fn fail(t : RunTally, l : Live, token : String, why : String) : RunTally do
     let where =
       "run " ++ l.label ++ " seed " ++ l.seed_token ++ ", first diverging action #" ++ int_to_string(l.at) ++ " " ++ token ++ ": " ++ why
     let keep = if t.bad < 5 do Cons(where, t.shown) else t.shown end
@@ -1036,7 +1036,7 @@ mod ReducerSuite do
   end
 
   -- `balls` is Swift's RoundState.ballsLeft after the step, which no digest holds.
-  fn check_step(t : Tally, l : Live, token : String, step : Step, state_digest : String, event_digest : String, balls : String) : Tally do
+  fn check_step(t : RunTally, l : Live, token : String, step : Step, state_digest : String, event_digest : String, balls : String) : RunTally do
     let got_state = int_to_string(RunDigest.run(step.run))
     let got_events = int_to_string(RunDigest.events(step.step_events))
     let got_balls = int_to_string(balls_left(step.run.round))
@@ -1055,14 +1055,14 @@ mod ReducerSuite do
     end
   end
 
-  fn accepted(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, state_digest : String, event_digest : String, balls : String) : Tally do
+  fn accepted(k : Skee.Consts.Consts, t : RunTally, l : Live, token : String, state_digest : String, event_digest : String, balls : String) : RunTally do
     match apply(k, action_of(k, token), l.s) do
     Err(e) -> fail(t, l, token, "refused with " ++ show(e) ++ ", Swift accepted it")
     Ok(step) -> check_step(t, l, token, step, state_digest, event_digest, balls)
     end
   end
 
-  fn refused(k : Skee.Consts.Consts, t : Tally, l : Live, token : String, want : String) : Tally do
+  fn refused(k : Skee.Consts.Consts, t : RunTally, l : Live, token : String, want : String) : RunTally do
     match apply(k, action_of(k, token), l.s) do
     Ok(_) -> fail(t, l, token, "accepted, Swift refused it with error " ++ want)
     Err(e) -> do
@@ -1075,7 +1075,7 @@ mod ReducerSuite do
     end
   end
 
-  fn thrown(k : Skee.Consts.Consts, mode : Mode, t0 : Tally, l : Live, token : String, want : SwiftShot, state_digest : String, event_digest : String, balls : String) : Tally do
+  fn thrown(k : Skee.Consts.Consts, mode : Mode, t0 : RunTally, l : Live, token : String, want : SwiftShot, state_digest : String, event_digest : String, balls : String) : RunTally do
     let t = { t0 with shots: t0.shots + 1 }
     let shot = want.shot
     match step_with(k, mode, shot, action_of(k, token), l.s) do
@@ -1183,13 +1183,13 @@ mod ReducerSuite do
     end
   end
 
-  fn add_floats(t : Tally, m : FloatMeasure) : Tally do
+  fn add_floats(t : RunTally, m : FloatMeasure) : RunTally do
     let shot_differs = if m.differ > 0 || m.shape do 1 else 0 end
     let shape = if m.shape do 1 else 0 end
     { t with floats_differ: t.floats_differ + shot_differs, float_values: t.float_values + m.values, values_differ: t.values_differ + m.differ, worst_ulps: Math.max_int(t.worst_ulps, m.ulps), shape_differ: t.shape_differ + shape }
   end
 
-  fn started(k : Skee.Consts.Consts, configs : List(RunConfig), t : Tally, label : String, seed : String, room : String, extra : String, cfg : String, digest : String) : Tally do
+  fn started(k : Skee.Consts.Consts, configs : List(RunConfig), t : RunTally, label : String, seed : String, room : String, extra : String, cfg : String, digest : String) : RunTally do
     let s =
       new_run(k, GoldenIo.u64(seed), List.nth(configs, GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(GoldenIo.int(extra)))
     let l = { label: label, seed_token: seed, at: 0, s: s }
@@ -1204,14 +1204,14 @@ mod ReducerSuite do
 
   -- A row this replay cannot read is a failure, never skipped: a golden whose
   -- format moved on must not replay as a shorter, greener one.
-  fn unreadable(t : Tally, row : List(String)) : Tally do
+  fn unreadable(t : RunTally, row : List(String)) : RunTally do
     let why = "unreadable golden row: " ++ String.join(row, " ")
     let keep = if t.bad < 5 do Cons(why, t.shown) else t.shown end
     { t with bad: t.bad + 1, shown: keep, live: None }
   end
 
   -- Rows of a run that parted, or failed, have no live state to replay.
-  fn replay_row(k : Skee.Consts.Consts, mode : Mode, configs : List(RunConfig), t : Tally, row : List(String)) : Tally do
+  fn replay_row(k : Skee.Consts.Consts, mode : Mode, configs : List(RunConfig), t : RunTally, row : List(String)) : RunTally do
     match (t.live, row) do
     (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> started(k, configs, t, label, seed, room, extra, cfg, digest)
     (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))) -> accepted(k, t, l, token, state_digest, event_digest, balls)
@@ -1230,7 +1230,7 @@ mod ReducerSuite do
     end
   end
 
-  fn replay(k : Skee.Consts.Consts, mode : Mode, rows : List(List(String))) : Tally do
+  fn replay(k : Skee.Consts.Consts, mode : Mode, rows : List(List(String))) : RunTally do
     let configs = List.map(GoldenIo.of_kind(rows, "cfg"), config_of)
     let empty =
       {
@@ -1251,7 +1251,7 @@ mod ReducerSuite do
     List.fold_left(rows, empty, fn (t, row) -> replay_row(k, mode, configs, t, row))
   end
 
-  fn counted(t : Tally) : Outcome do
+  fn counted(t : RunTally) : Outcome do
     if t.bad > 0 do
       Mismatch(int_to_string(t.bad) ++ " of " ++ int_to_string(t.runs) ++ " runs diverged: " ++ String.join(List.reverse(t.shown), " | "))
     else
@@ -1263,7 +1263,7 @@ mod ReducerSuite do
   -- both targets: zero is what both measure, and a parting is how a wrong table
   -- shows here (a boss modifier dropped under an armed power-up parted 103 shots
   -- on JS). If libm alone ever parts one, this goes red and is reported as that.
-  fn with_physics(t : Tally) : Outcome do
+  fn with_physics(t : RunTally) : Outcome do
     if t.bad > 0 do
       counted(t)
     else
@@ -1301,7 +1301,7 @@ mod ReducerSuite do
     16384
   end
 
-  fn shot_floats(t : Tally) : Outcome do
+  fn shot_floats(t : RunTally) : Outcome do
     if t.shots == 0 || t.float_values == 0 do
       Mismatch("no shots")
     else
