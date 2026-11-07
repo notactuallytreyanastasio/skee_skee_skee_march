@@ -134,19 +134,7 @@ mod Skee.Synth do
   fn consts() : SynthConsts needs () do
     let r = rounding()
     let k = Skee.Consts.make()
-    {
-      r with
-      dt: f32(r, 1.0 /. rate()),
-      pi: pi_toward_zero(r, k.pi),
-      rumble_follow: f32(r, 0.0008),
-      lowpass_follow: f32(r, 0.035),
-      rumble_gain: f32(r, 0.9),
-      drum_step: f32(r, 0.055),
-      min_glide: f32(r, 0.0001),
-      attack_time: f32(r, 0.003),
-      square_level: f32(r, 0.6),
-      default_glide: f32(r, 0.1)
-    }
+    { r with dt: f32(r, 1.0 /. rate()), pi: pi_toward_zero(r, k.pi), rumble_follow: f32(r, 0.0008), lowpass_follow: f32(r, 0.035), rumble_gain: f32(r, 0.9), drum_step: f32(r, 0.055), min_glide: f32(r, 0.0001), attack_time: f32(r, 0.003), square_level: f32(r, 0.6), default_glide: f32(r, 0.1) }
   end
 
   doc """
@@ -259,31 +247,41 @@ mod Skee.Synth do
     f32(c, f32(c, start) +. times(c, i, step))
   end
 
-  pfn arpeggio_from(c : SynthConsts, notes : List(Float), i : Int, step : Float, amp : Float, decay : Float, w : SynthWave) : List(SynthVoice) needs () do
+  pfn arpeggio_from(c : SynthConsts, notes : List(Float), i : Int, step : Float, amp : Float, decay : Float, w : SynthWave, acc : List(SynthVoice)) : List(SynthVoice) needs () do
     match notes do
-    Nil -> []
-    Cons(f, rest) -> Cons(tone_at(c, w, f, amp, decay, times(c, i, step)), arpeggio_from(c, rest, i + 1, step, amp, decay, w))
+    Nil -> List.reverse(acc)
+    Cons(f, rest) -> do
+      arpeggio_from(c, rest, i + 1, step, amp, decay, w, Cons(tone_at(c, w, f, amp, decay, times(c, i, step)), acc))
+    end
     end
   end
 
   pfn arpeggio(c : SynthConsts, notes : List(Float), step : Float, amp : Float, decay : Float, w : SynthWave) : List(SynthVoice) needs () do
-    arpeggio_from(c, notes, 0, step, amp, decay, w)
+    arpeggio_from(c, notes, 0, step, amp, decay, w, [])
   end
 
   -- Bell partials, like a struck chime.
   pfn bell(c : SynthConsts, pitch : Float, loudness : Float, delay : Float) : List(SynthVoice) needs () do
     let f = f32(c, pitch)
     let amp = f32(c, loudness)
-    [tone_at(c, WaveSine, f, amp, 0.5, delay), tone_at(c, WaveSine, f *. f32(c, 2.76), amp *. f32(c, 0.35), 0.25, delay), tone_at(c, WaveSine, f *. f32(c, 5.4), amp *. f32(c, 0.15), 0.12, delay)]
+    [
+      tone_at(c, WaveSine, f, amp, 0.5, delay),
+      tone_at(c, WaveSine, f *. f32(c, 2.76), amp *. f32(c, 0.35), 0.25, delay),
+      tone_at(c, WaveSine, f *. f32(c, 5.4), amp *. f32(c, 0.15), 0.12, delay)
+    ]
   end
 
   -- (0..<n).map(f): Swift's range of voices.
   pfn upto(n : Int, f : Int -> SynthVoice) : List(SynthVoice) needs () do
-    upto_from(0, n, f)
+    upto_from(0, n, f, [])
   end
 
-  pfn upto_from(i : Int, n : Int, f : Int -> SynthVoice) : List(SynthVoice) needs () do
-    if i < n do Cons(f(i), upto_from(i + 1, n, f)) else [] end
+  pfn upto_from(i : Int, n : Int, f : Int -> SynthVoice, acc : List(SynthVoice)) : List(SynthVoice) needs () do
+    if i < n do
+      upto_from(i + 1, n, f, Cons(f(i), acc))
+    else
+      List.reverse(acc)
+    end
   end
 
   -- A dropped ball's bell, and whether the hole pays 50 or more (Hole.faceValue >= 50).
@@ -313,11 +311,11 @@ mod Skee.Synth do
   end
 
   pfn combo_voices(c : SynthConsts, n : Int) : List(SynthVoice) needs () do
-    -- A rising two-note chime, higher each link of the chain.
     let k = powf(c, f32(c, 1.0595), int_to_float(2 * Math.min_int(n, 6)))
     List.append([tone(c, WaveSquare, 659.0 *. k, 0.1, 0.08), tone_at(c, WaveSquare, 988.0 *. k, 0.1, 0.14, 0.07)], bell(c, 1318.0 *. k, 0.15, 0.14))
   end
 
+  -- A rising two-note chime, higher each link of the chain.
   pfn tally_step(c : SynthConsts, i : Int) : Float needs () do
     powf(c, f32(c, 1.06), int_to_float(i))
   end
@@ -335,24 +333,25 @@ mod Skee.Synth do
   end
 
   pfn lever_voices(c : SynthConsts) : List(SynthVoice) needs () do
-    -- Ratchet down, then the clunk of the reels letting go.
     let ratchet =
       upto(6, fn i -> tone_at(c, WaveTri, int_to_float(1200 - i * 60), 0.1, 0.012, times(c, i, 0.025)))
     List.append(ratchet, [voice(c, WaveSine, 90.0, 60.0, 0.1, 0.45, 0.12, 0.16), tone_at(c, WaveNoise, 0.0, 0.08, 0.05, 0.16)])
   end
 
+  -- Ratchet down, then the clunk of the reels letting go.
   pfn pull_win_voices(c : SynthConsts, chips : Int) : List(SynthVoice) needs () do
-    -- A coin rattle that runs longer the more it paid.
     let n = Math.min_int(30, 6 + div_trunc(chips, 15))
     let rattle =
       upto(n, fn i -> tone_at(c, WaveTri, int_to_float(2400 + i * 7 % 5 * 300), 0.06, 0.02, after(c, 0.2, i, 0.035)))
     List.append(arpeggio(c, [784.0, 988.0, 1175.0], 0.07, 0.2, 0.12, WaveSine), rattle)
   end
 
+  -- A coin rattle that runs longer the more it paid.
   pfn banner_voices(c : SynthConsts, text : String) : List(SynthVoice) needs () do
     if text == "CLEARED" do
       do
-        let ticks = upto(16, fn i -> tone_at(c, WaveTri, 1800.0, 0.08, 0.012, after(c, 0.5, i, 0.045)))
+        let ticks =
+          upto(16, fn i -> tone_at(c, WaveTri, 1800.0, 0.08, 0.012, after(c, 0.5, i, 0.045)))
         List.append(arpeggio(c, [392.0, 523.0, 659.0, 784.0, 1046.0], 0.08, 0.22, 0.25, WaveSine), ticks)
       end
     else
@@ -383,34 +382,85 @@ mod Skee.Synth do
   doc """The voices a sound starts, in Swift's order."""
   fn voices_for(c : SynthConsts, snd : Sound) : List(SynthVoice) needs () do
     match snd do
-    SndLaunch -> [tone(c, WaveNoise, 0.0, 0.12, 0.08), glide(c, WaveSine, 180.0, 320.0, 0.12, 0.15, 0.08)]
-    SndWhoosh -> [tone(c, WaveNoise, 0.0, 0.16, 0.3), glide(c, WaveSine, 900.0, 180.0, 0.5, 0.2, 0.3)]
+    SndLaunch -> do
+      [
+        tone(c, WaveNoise, 0.0, 0.12, 0.08),
+        glide(c, WaveSine, 180.0, 320.0, 0.12, 0.15, 0.08)
+      ]
+    end
+    SndWhoosh -> do
+      [
+        tone(c, WaveNoise, 0.0, 0.16, 0.3),
+        glide(c, WaveSine, 900.0, 180.0, 0.5, 0.2, 0.3)
+      ]
+    end
     SndHotSpot -> hot_spot_voices(c)
-    -- Boing: a pitch that jumps up and falls back.
-    SndHop -> [glide(c, WaveSine, 220.0, 780.0, 0.09, 0.3, 0.12), glide(c, WaveTri, 440.0, 1100.0, 0.09, 0.1, 0.08)]
+    SndHop -> do
+      [
+        glide(c, WaveSine, 220.0, 780.0, 0.09, 0.3, 0.12),
+        glide(c, WaveTri, 440.0, 1100.0, 0.09, 0.1, 0.08)
+      ]
+    end
     SndRail -> [tone(c, WaveTri, 900.0, 0.15, 0.03)]
-    -- Wood knock over the ramp.
-    SndHump -> [glide(c, WaveSine, 170.0, 120.0, 0.08, 0.55, 0.07), tone(c, WaveTri, 950.0, 0.18, 0.015), tone(c, WaveNoise, 0.0, 0.08, 0.02)]
-    SndLip -> [tone(c, WaveTri, 1900.0, 0.2, 0.02), tone_at(c, WaveTri, 2300.0, 0.16, 0.02, 0.035)]
-    SndBackwall -> [bend(c, WaveSine, 110.0, 80.0, 0.4, 0.12), tone(c, WaveNoise, 0.0, 0.06, 0.04)]
+    SndHump -> do
+      [
+        glide(c, WaveSine, 170.0, 120.0, 0.08, 0.55, 0.07),
+        tone(c, WaveTri, 950.0, 0.18, 0.015),
+        tone(c, WaveNoise, 0.0, 0.08, 0.02)
+      ]
+    end
+    SndLip -> do
+      [
+        tone(c, WaveTri, 1900.0, 0.2, 0.02),
+        tone_at(c, WaveTri, 2300.0, 0.16, 0.02, 0.035)
+      ]
+    end
+    SndBackwall -> do
+      [
+        bend(c, WaveSine, 110.0, 80.0, 0.4, 0.12),
+        tone(c, WaveNoise, 0.0, 0.06, 0.04)
+      ]
+    end
     SndLanded -> [bend(c, WaveSine, 140.0, 100.0, 0.3, 0.06)]
     SndDrop(h) -> drop_voices(c, h)
-    SndGutter -> [glide(c, WaveSine, 220.0, 70.0, 0.45, 0.35, 0.35), tone(c, WaveNoise, 0.0, 0.05, 0.1)]
+    SndGutter -> do
+      [
+        glide(c, WaveSine, 220.0, 70.0, 0.45, 0.35, 0.35),
+        tone(c, WaveNoise, 0.0, 0.05, 0.1)
+      ]
+    end
     SndReelTick -> [tone(c, WaveTri, 2600.0, 0.07, 0.012)]
-    SndReelStop -> [tone(c, WaveTri, 1500.0, 0.18, 0.05), tone(c, WaveSine, 750.0, 0.12, 0.08)]
+    SndReelStop -> do
+      [
+        tone(c, WaveTri, 1500.0, 0.18, 0.05),
+        tone(c, WaveSine, 750.0, 0.12, 0.08)
+      ]
+    end
     SndCombo(n) -> combo_voices(c, n)
     SndTallyChips(i) -> [tone(c, WaveSine, 440.0 *. tally_step(c, i), 0.22, 0.07)]
-    SndTallyMult(i) -> [tone(c, WaveSquare, 587.0 *. tally_step(c, i), 0.1, 0.09), tone(c, WaveSine, 1174.0 *. tally_step(c, i), 0.08, 0.06)]
+    SndTallyMult(i) -> do
+      [
+        tone(c, WaveSquare, 587.0 *. tally_step(c, i), 0.1, 0.09),
+        tone(c, WaveSine, 1174.0 *. tally_step(c, i), 0.08, 0.06)
+      ]
+    end
     SndFrameDone -> [tone(c, WaveSine, 392.0, 0.2, 0.15)]
     SndLineWon -> arpeggio(c, [523.0, 659.0, 784.0, 1046.0], 0.06, 0.22, 0.18, WaveSine)
     SndJackpot -> jackpot_voices(c)
     SndBanner(text) -> banner_voices(c, text)
     SndLever -> lever_voices(c)
     SndPullWin(chips) -> pull_win_voices(c, chips)
-    SndFoul -> [tone(c, WaveSquare, 110.0, 0.25, 0.3), tone(c, WaveSquare, 104.0, 0.2, 0.3)]
+    SndFoul -> do
+      [
+        tone(c, WaveSquare, 110.0, 0.25, 0.3),
+        tone(c, WaveSquare, 104.0, 0.2, 0.3)
+      ]
+    end
     end
   end
 
+  -- Boing: a pitch that jumps up and falls back.
+  -- Wood knock over the ramp.
   doc """Queue voices; past max_voices the oldest go. Swift's `add`."""
   fn add(s : Synth, vs : List(SynthVoice)) : Synth needs () do
     let all_voices = List.append(s.voices, vs)
@@ -455,15 +505,22 @@ mod Skee.Synth do
 
   -- One voice for one sample, in Swift's order of operations.
   pfn sound_voice(c : SynthConsts, v : SynthVoice, m : Mix) : Mix needs () do
-    let f = f32(c, v.freq +. f32(c, f32(c, v.freq_end -. v.freq) *. Skee.Maths.min_float(1.0, f32(c, v.t /. v.glide_floor))))
+    let f =
+      f32(c, v.freq +. f32(c, f32(c, v.freq_end -. v.freq) *. Skee.Maths.min_float(1.0, f32(c, v.t /. v.glide_floor))))
     let stepped = f32(c, v.phase +. f32(c, f *. c.dt))
     let phase = if stepped > 1.0 do f32(c, stepped -. 1.0) else stepped end
     let (osc, seed) = oscillate(c, v.wave, phase, m.mix_seed)
     let attack = Skee.Maths.min_float(1.0, f32(c, v.t /. c.attack_time))
     let envelope = expf(c, f32(c, (0.0 -. v.t) /. v.decay))
-    let level = f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
+    let level =
+      f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
     let t = f32(c, v.t +. c.dt)
-    let kept = if t > v.life do m.kept else Cons({ v with t: t, phase: phase }, m.kept) end
+    let kept =
+      if t > v.life do
+        m.kept
+      else
+        Cons({ v with t: t, phase: phase }, m.kept)
+      end
     { level: level, mix_seed: seed, kept: kept }
   end
 
@@ -506,10 +563,11 @@ mod Skee.Synth do
 
   pfn next_sample(s : Synth) : (Float, Synth) needs () do
     let c = s.c
-    -- Rolling rumble: low-passed noise that follows the ball's speed.
-    let rumble = f32(c, s.rumble +. f32(c, f32(c, s.rumble_target -. s.rumble) *. c.rumble_follow))
+    let rumble =
+      f32(c, s.rumble +. f32(c, f32(c, s.rumble_target -. s.rumble) *. c.rumble_follow))
     let seed = next_seed(s.seed)
-    let lowpass = f32(c, s.lowpass +. f32(c, f32(c, noise_of(seed) -. s.lowpass) *. c.lowpass_follow))
+    let lowpass =
+      f32(c, s.lowpass +. f32(c, f32(c, noise_of(seed) -. s.lowpass) *. c.lowpass_follow))
     let level = plus_zero(f32(c, f32(c, lowpass *. rumble) *. c.rumble_gain))
     let drummed = drum_roll({ s with rumble: rumble, lowpass: lowpass, seed: seed })
     let m = mix_voices(c, drummed.voices, { level: level, mix_seed: seed, kept: [] })
@@ -517,6 +575,7 @@ mod Skee.Synth do
     (out, { drummed with seed: m.mix_seed, voices: List.reverse(m.kept) })
   end
 
+  -- Rolling rumble: low-passed noise that follows the ball's speed.
   pfn render_into(s : Synth, n : Int, acc : List(Float)) : (List(Float), Synth) needs () do
     if n > 0 do
       do

@@ -242,16 +242,32 @@ mod Skee.Scene do
   -- A hole's reel on the board (Cabinet.setReel's arguments).
   type ReelLook = { symbol : Symbol, turn : Float, glow : Float, slot_match : Bool, pulse : Float }
 
-  -- What the presenter knows about the reels this frame.
+  -- What the presenter knows about the reels this frame: the board's reels,
+  -- where each is on screen (fractional while spinning), the symbols this
+  -- frame's balls have shown so far (empty while busy or tallying), and the
+  -- top slot unless busy.
   type ReelCue = {
     setup : BoardSetup,
     positions : PerReel(Float),
     have : List(Symbol),
-    throwing : Bool,
-    slot : Option(TopSlot),
-    clock : Float,
-    flash_age : PerReel(Option(Float))
+    slot : Option(TopSlot)
   }
+
+  -- Everything ScenePresenter.update reads from the Presentation in a frame.
+  -- `excited` is flash > 0.05, fever, a banner, anticipation or celebration.
+  type FrameCue = {
+    ball_cue : BallCue,
+    sparks : List(Spark),
+    kind : BallKind,
+    anticipation : Float,
+    shake : Float,
+    balls_left : Int,
+    excited : Bool,
+    reel_cue : ReelCue
+  }
+
+  -- What ScenePresenter keeps between frames.
+  type Keep = { motion : Motion, lean : Float, waves : List(Wave), flash_age : PerReel(Option(Float)) }
 
   -- Marquee bulbs: which step of the chase, and how bright, 0...1.
   type BulbLight = { chase : Int, level : Float }
@@ -819,6 +835,296 @@ mod Skee.Scene do
     Some(l) -> l
     None -> { symbol: Blank, turn: 0.0, glow: 0.0, slot_match: false, pulse: 1.0 }
     end
+  end
+
+  -- ===================================================================
+  -- ScenePresenter.update: placing things from the presentation
+  -- ===================================================================
+
+  doc """
+  Where the ball is drawn: on its recorded path, sinking through the hole it
+  landed in, waiting under the thumb, or hidden.
+  """
+  fn place_ball(w : World, c : BallCue) : BallPlace needs () do
+    let r = ball_radius(w)
+    let rest_spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), r))
+    match c.sample do
+    Some(s) -> do
+      let centre = ball_center(w, s)
+      let scale = ball_scale(w, s)
+      let base = { centre: centre, scale: scale, normal: surface_normal(w, s), airborne: s.phase == InAir && s.height > 0.005, visible: true, sink: 0.0, over_board: s.along > w.table.lane.length }
+      if c.busy == false || c.beat_is_roll == false do
+        match c.resting do
+        Some((_, until)) -> sunk(w, base, s, 0.6 -. (until -. c.clock))
+        None -> base
+        end
+      else
+        base
+      end
+    end
+    None -> do
+      if c.throwing && c.busy == false do
+        { centre: held_or(c.held, rest_spot), scale: 1.0, normal: lane_normal(w), airborne: false, visible: true, sink: 0.0, over_board: false }
+      else
+        { centre: rest_spot, scale: 1.0, normal: lane_normal(w), airborne: false, visible: false, sink: 0.0, over_board: false }
+      end
+    end
+    end
+  end
+
+  pfn held_or(h : Option(Vec3), fallback : Vec3) : Vec3 needs () do
+    match h do
+    Some(p) -> p
+    None -> fallback
+    end
+  end
+
+  -- Just landed: drop through the hole; in the gutter, vanish half way.
+  pfn sunk(w : World, b : BallPlace, s : PathSample, age : Float) : BallPlace needs () do
+    let sink = min_float(1.0, max_float(0.0, age /. 0.35))
+    let centre = minus(b.centre, times(board_normal(w), sink *. 2.2 *. ball_radius(w) *. b.scale))
+    let visible = if s.along <= w.table.lane.length do sink < 0.5 else true end
+    { b with centre: centre, scale: b.scale *. (1.0 -. 0.4 *. sink), visible: visible, sink: sink }
+  end
+
+  doc """
+  Roll the ball by the distance it moved over its radius, about the axis in
+  the surface across the motion. In the air it keeps the spin it had. The
+  swell from the last bounce fades at 4 per second.
+  """
+  fn roll_on(w : World, m : Motion, b : BallPlace, dt : Float) : Motion needs () do
+    let turned = match m.last do
+    Some(last) -> if b.visible do rolled(w, m, b, minus(b.centre, last), dt) else m end
+    None -> m
+    end
+    let last = if b.visible do Some(b.centre) else None end
+    { turned with last: last, pop: max_float(0.0, m.pop -. dt *. 4.0) }
+  end
+
+  pfn rolled(w : World, m : Motion, b : BallPlace, d : Vec3, dt : Float) : Motion needs () do
+    let dist = length3(d)
+    if b.airborne == false && dist > 0.00001 && dist < 0.5 do
+      do
+        let axis = unit(cross(b.normal, d))
+        let angle = dist /. (ball_radius(w) *. b.scale)
+        let o = quat_mul(quat_axis(angle, axis), m.orientation)
+        let spin = if dt > 1.0 /. 400.0 do plus(times(m.spin, 0.6), times(axis, angle /. dt *. 0.4)) else m.spin end
+        { m with orientation: o, spin: spin }
+      end
+    else
+      do
+        let rate = length3(m.spin)
+        if b.airborne && rate > 0.0 do
+          { m with orientation: quat_mul(quat_axis(rate *. dt, times(m.spin, 1.0 /. rate)), m.orientation) }
+        else
+          m
+        end
+      end
+    end
+  end
+
+  doc """The shadow on the surface under the ball: smaller and fainter the higher it flies."""
+  fn shadow_place(w : World, c : BallCue, b : BallPlace) : ShadowPlace needs () do
+    let r = ball_radius(w)
+    let l = w.table.lane.length
+    let (ground, height) = match c.sample do
+    Some(s) -> if s.along > l do (board(w, vec2(s.px, s.along -. l), 0.0), s.height) else (minus(b.centre, times(b.normal, r *. b.scale)), 0.0) end
+    None -> (minus(b.centre, times(b.normal, r *. b.scale)), 0.0)
+    end
+    let fade = max_float(0.25, 1.0 -. height *. 3.0)
+    { spot: plus(ground, times(b.normal, 0.004)), facing: b.normal, size: b.scale *. (0.7 +. 0.3 *. fade), fade: fade, shown: b.visible }
+  end
+
+  doc """The bounce swell a spark gives the ball."""
+  fn popped(pop : Float, s : Spark) : Float needs () do
+    match s do
+    SparkHump -> 1.0
+    SparkLip -> max_float(pop, 0.6)
+    SparkHop -> 1.0
+    SparkLanded -> max_float(pop, 0.8)
+    SparkBackwall -> pop
+    SparkRail -> pop
+    SparkDrop(_) -> pop
+    end
+  end
+
+  doc """The rings of light a spark sends out (ScenePresenter.shock)."""
+  fn shocks(w : World, s : Spark, centre : Vec3, kind : BallKind) : List(Wave) needs () do
+    let comet = kind == Comet
+    match s do
+    SparkHump -> [{ spot: centre, facing: lane_normal(w), age: 0.0, size: if comet do 0.9 else 0.5 end }]
+    SparkHop -> [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.25 }]
+    SparkBackwall -> if comet do [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.4 }] else [] end
+    SparkRail -> if comet do [{ spot: centre, facing: board_normal(w), age: 0.0, size: 0.4 }] else [] end
+    SparkDrop(h) -> [{ spot: board(w, Skee.Physics.hole_center(w.table.board, h), 0.02), facing: board_normal(w), age: 0.0, size: if Skee.Physics.face_value(h) >= 50 do 1.1 else 0.55 end }]
+    SparkLip -> []
+    SparkLanded -> []
+    end
+  end
+
+  doc """Rings of light grow and fade over 0.55 s."""
+  fn age_waves(waves : List(Wave), dt : Float) : List(Wave) needs () do
+    List.filter(List.map(waves, fn x -> { x with age: x.age +. dt }), fn x -> x.age /. 0.55 < 1.0)
+  end
+
+  doc """Cabinet.lightBulbs' arguments: an idle twinkle, a fast chase when excited."""
+  fn bulb_light(excited : Bool, clock : Float) : BulbLight needs () do
+    let rate = if excited do 14.0 else 2.0 end
+    { chase: float_truncate(clock *. rate), level: if excited do 0.9 else 0.35 end }
+  end
+
+  doc """Balls waiting in the tray: all that are left but the one in hand."""
+  fn waiting_count(balls_left : Int, held : Bool, in_flight : Bool, busy : Bool, throwing : Bool) : Int needs () do
+    let in_hand = if held || in_flight || busy == false && throwing do 1 else 0 end
+    Math.max_int(0, balls_left - in_hand)
+  end
+
+  doc """
+  Each reel shows the symbol it is on, orbiting while it spins. Rings that
+  would pair (glow 1) or finish the line (glow 2) glow; a hole that just took
+  a ball flashes; a symbol the top slot shows is ringed in cyan.
+  """
+  fn reel_looks(c : ReelCue, throwing : Bool, clock : Float, flash_age : PerReel(Option(Float))) : PerReel(ReelLook) needs () do
+    let pulse = 0.6 +. 0.4 *. Math.sin(clock *. 7.0)
+    let line_now = Skee.Scoring.added_mult(Skee.Scoring.evaluate(c.have))
+    {
+      reel10: reel_look(c, throwing, pulse, line_now, flash_age, Ring10),
+      reel20: reel_look(c, throwing, pulse, line_now, flash_age, Ring20),
+      reel30: reel_look(c, throwing, pulse, line_now, flash_age, Ring30),
+      reel40: reel_look(c, throwing, pulse, line_now, flash_age, Ring40),
+      reel50: reel_look(c, throwing, pulse, line_now, flash_age, Ring50),
+      reel_left: reel_look(c, throwing, pulse, line_now, flash_age, PocketLeft),
+      reel_right: reel_look(c, throwing, pulse, line_now, flash_age, PocketRight)
+    }
+  end
+
+  pfn reel_look(c : ReelCue, throwing : Bool, pulse : Float, line_now : Float, flash_age : PerReel(Option(Float)), h : Hole) : ReelLook needs () do
+    let reel = Skee.Scoring.reel(c.setup, h)
+    let n = List.length(reel)
+    let pos = match Skee.HoleMap.reel_at(c.positions, h) do
+    Some(x) -> x
+    None -> 0.0
+    end
+    let idx = (float_round(pos) % n + n) % n
+    let sym = match List.nth_opt(reel, idx) do
+    Some(x) -> x
+    None -> Blank
+    end
+    let held = List.length(c.have)
+    let line_glow = if held > 0 && held < 3 && throwing do (if Skee.Scoring.added_mult(Skee.Scoring.evaluate(List.append(c.have, [sym]))) -. line_now > 0.0 do (if held == 2 do 2.0 else 1.0 end) else 0.0 end) else 0.0 end
+    let age = match Skee.HoleMap.reel_at(flash_age, h) do
+    Some(a) -> a
+    None -> None
+    end
+    let glow = match age do
+    Some(a) -> if a < 0.6 do max_float(line_glow, 2.0) else line_glow end
+    None -> line_glow
+    end
+    let hits = match c.slot do
+    Some(t) -> Skee.Scoring.hits(t, sym)
+    None -> 0
+    end
+    let shown_pulse = match age do
+    Some(a) -> if a < 0.6 do 1.0 -. a /. 0.6 +. 0.3 else pulse end
+    None -> pulse
+    end
+    { symbol: sym, turn: pos, glow: glow, slot_match: throwing && hits > 0, pulse: shown_pulse }
+  end
+
+  pfn flash_drop(ages : PerReel(Option(Float)), s : Spark) : PerReel(Option(Float)) needs () do
+    match s do
+    SparkDrop(h) -> put_reel(ages, h, Some(0.0))
+    SparkHump -> ages
+    SparkLip -> ages
+    SparkHop -> ages
+    SparkLanded -> ages
+    SparkBackwall -> ages
+    SparkRail -> ages
+    end
+  end
+
+  pfn put_reel(m : PerReel(a), h : Hole, x : a) : PerReel(a) needs () do
+    match h do
+    Ring10 -> { m with reel10: x }
+    Ring20 -> { m with reel20: x }
+    Ring30 -> { m with reel30: x }
+    Ring40 -> { m with reel40: x }
+    Ring50 -> { m with reel50: x }
+    PocketLeft -> { m with reel_left: x }
+    PocketRight -> { m with reel_right: x }
+    Gutter -> m
+    end
+  end
+
+  pfn age_flashes(m : PerReel(Option(Float)), dt : Float) : PerReel(Option(Float)) needs () do
+    {
+      reel10: age_flash(m.reel10, dt),
+      reel20: age_flash(m.reel20, dt),
+      reel30: age_flash(m.reel30, dt),
+      reel40: age_flash(m.reel40, dt),
+      reel50: age_flash(m.reel50, dt),
+      reel_left: age_flash(m.reel_left, dt),
+      reel_right: age_flash(m.reel_right, dt)
+    }
+  end
+
+  pfn age_flash(a : Option(Float), dt : Float) : Option(Float) needs () do
+    match a do
+    Some(x) -> Some(x +. dt)
+    None -> None
+    end
+  end
+
+  doc """Nothing remembered yet: a fresh ScenePresenter."""
+  fn keep_fresh() : Keep needs () do
+    {
+      motion: { orientation: quat_identity(), last: None, spin: origin(), pop: 0.0 },
+      lean: 0.0,
+      waves: [],
+      flash_age: Skee.HoleMap.fill_reels(None)
+    }
+  end
+
+  doc """
+  ScenePresenter.update: one frame. Returns the scene to draw and what to
+  keep for the next frame. `rig` is the fitted camera (Skee.Camera.fit_world).
+  """
+  fn present(w : World, palette : Skee.Rooms.CabinetPalette, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport, keep : Keep, c : FrameCue, dt : Float) : (Scenery, Keep) needs () do
+    let bc = c.ball_cue
+    let place = place_ball(w, bc)
+    let moved = roll_on(w, keep.motion, place, dt)
+    let shadow = shadow_place(w, bc, place)
+    let drawn = { place: place, motion: moved, kind: c.kind, shadow: shadow }
+    let popped_motion = { moved with pop: List.fold_left(c.sparks, moved.pop, popped) }
+    let fresh = List.flat_map(c.sparks, fn s -> shocks(w, s, place.centre, c.kind))
+    let waves = age_waves(List.append(keep.waves, fresh), dt)
+    let dropped = List.fold_left(c.sparks, keep.flash_age, flash_drop)
+    let ages = age_flashes(dropped, dt)
+    let throwing = bc.throwing
+    let in_flight = bc.busy && bc.beat_is_roll
+    let held = match bc.held do
+    Some(_) -> true
+    None -> false
+    end
+    let lean = Skee.Camera.lean_step(keep.lean, c.anticipation, dt)
+    let scene = {
+      world: w,
+      palette: palette,
+      viewport: v,
+      camera: Skee.Camera.framed(w, rig, lean, c.shake, bc.clock),
+      ball: drawn,
+      waiting: waiting_count(c.balls_left, held, in_flight, bc.busy, throwing),
+      reels: reel_looks(c.reel_cue, throwing, bc.clock, ages),
+      bulbs: bulb_light(c.excited, bc.clock),
+      waves: waves
+    }
+    let kept = { motion: popped_motion, lean: lean, waves: waves, flash_age: ages }
+    pair(scene, kept)
+  end
+
+  -- A tuple after a record literal would parse as a call of the record.
+  pfn pair(a : Scenery, b : Keep) : (Scenery, Keep) needs () do
+    (a, b)
   end
 
 end

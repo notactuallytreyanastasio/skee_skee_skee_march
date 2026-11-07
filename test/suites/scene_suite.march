@@ -574,6 +574,114 @@ mod SceneSuite do
     ]
   end
 
+  -- ---- ScenePresenter.update replayed frame by frame ----
+  fn spark_of(token : String) : List(Skee.Scene.Spark) do
+    if token == "hump" do
+      [Skee.Scene.SparkHump]
+    else if token == "lip" do
+      [Skee.Scene.SparkLip]
+    else if token == "hop" do
+      [Skee.Scene.SparkHop]
+    else if token == "landed" do
+      [Skee.Scene.SparkLanded]
+    else if token == "backwall" do
+      [Skee.Scene.SparkBackwall]
+    else if token == "rail" do
+      [Skee.Scene.SparkRail]
+    else if String.starts_with(token, "drop-") do
+      [Skee.Scene.SparkDrop(hole_of(String.replace_all(token, "drop-", "")))]
+    else
+      []
+    end end end end end end end
+  end
+
+  fn sparks_of(token : String) : List(Skee.Scene.Spark) do
+    if token == "-" do [] else List.flat_map(String.split(token, ","), spark_of) end
+  end
+
+  fn sample_or_none(fields : List(String)) : Option(PathSample) do
+    match fields do
+    [phase, x, along, h] -> if phase == "-" do None else Some(sample_of(phase, x, along, h)) end
+    _ -> None
+    end
+  end
+
+  fn resting_of(fields : List(String)) : Option((PathSample, Float)) do
+    match fields do
+    [phase, x, along, h, until] -> if phase == "-" do None else Some((sample_of(phase, x, along, h), fl(until))) end
+    _ -> None
+    end
+  end
+
+  fn token_at(row : List(String), i : Int) : String do
+    match List.nth_opt(row, i) do
+    Some(t) -> t
+    None -> "-"
+    end
+  end
+
+  fn frame_cue(row : List(String)) : Skee.Scene.FrameCue do
+    let bc = { sample: sample_or_none(List.take(List.drop(row, 5), 4)), busy: token_at(row, 3) == "1", beat_is_roll: token_at(row, 4) == "1", resting: resting_of(List.take(List.drop(row, 9), 5)), clock: fl(token_at(row, 2)), throwing: token_at(row, 14) == "1", held: None }
+    let reel_cue = { setup: Skee.Types.standard_setup(), positions: Skee.HoleMap.fill_reels(0.0), have: [], slot: None }
+    { ball_cue: bc, sparks: sparks_of(token_at(row, 19)), kind: ClassicBall, anticipation: fl(token_at(row, 16)), shake: fl(token_at(row, 17)), balls_left: GoldenIo.int(token_at(row, 15)), excited: false, reel_cue: reel_cue }
+  end
+
+  -- Tolerance for the roll: 32-bit quaternion products over hundreds of frames.
+  fn spin_tol() : Float do
+    0.0001
+  end
+
+  fn frame_check(s : Skee.Scene.Scenery, row : List(String)) : Outcome do
+    let tail = List.drop(row, 20)
+    let what = "frame " ++ String.join(List.take(row, 2), " ")
+    let b = s.ball
+    let q = b.motion.orientation
+    let size = b.place.scale *. (1.0 +. 0.35 *. b.motion.pop)
+    let sh = b.shadow
+    let sq = Skee.Scene.quat_between(v3(0.0, 0.0, 1.0), sh.facing)
+    let cam = s.camera.eye
+    let got = [b.place.centre.x, b.place.centre.y, b.place.centre.z, q.qw, q.qx, q.qy, q.qz, size]
+    let got_shadow = [sh.spot.x, sh.spot.y, sh.spot.z, sq.qw, sq.qx, sq.qy, sq.qz, sh.size, sh.fade]
+    match tail do
+    [px, py, pz, qr, qx, qy, qz, scale, hidden, sx, sy, sz, sr, sqx, sqy, sqz, ss, so, shidden, waiting, cx, cy, cz] -> do
+      all([compare_floats(List.take(got, 3), [px, py, pz], metres_tol(), what ++ " ball"), compare_floats(List.drop(got, 3), [qr, qx, qy, qz, scale], spin_tol(), what ++ " roll"), expect_string(if b.place.visible do "0" else "1" end, hidden, what ++ " ball hidden"), compare_floats(got_shadow, [sx, sy, sz, sr, sqx, sqy, sqz, ss, so], metres_tol(), what ++ " shadow"), expect_string(if sh.shown do "0" else "1" end, shidden, what ++ " shadow hidden"), expect_int(s.waiting, GoldenIo.int(waiting), what ++ " waiting"), near3(cam, cx, cy, cz, metres_tol(), what ++ " camera")])
+    end
+    _ -> Mismatch("bad frame row")
+    end
+  end
+
+  type Replay = { kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float }
+
+  fn replay_step(acc : Replay, row : List(String)) : Replay do
+    let w = boardwalk()
+    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
+    let q = scene.ball.motion.orientation
+    let off_q = match List.drop(row, 23) do
+    Cons(qr, Cons(qx, Cons(qy, Cons(qz, _)))) -> worst([off(q.qw, qr), off(q.qx, qx), off(q.qy, qy), off(q.qz, qz)])
+    _ -> 0.0
+    end
+    { kept: kept, outcomes: Cons(frame_check(scene, row), acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end }
+  end
+
+  fn replayed() : Replay do
+    List.fold_left(rows("frame"), { kept: Skee.Scene.keep_fresh(), outcomes: [], worst_spin: 0.0 }, replay_step)
+  end
+
+  doc """Worst quaternion component error over the replay."""
+  fn worst_spin() : Float do
+    let r = replayed()
+    r.worst_spin
+  end
+
+  fn presenter_cases() : List(Case) do
+    [case("ScenePresenter.update over three real throws", fn () -> replay_outcome())]
+  end
+
+  fn replay_outcome() : Outcome do
+    let r = replayed()
+    all(List.reverse(r.outcomes))
+  end
+
   -- ---- Measured error, printed by the runner ----
   fn off(actual : Float, token : String) : Float do
     Math.abs(actual -. fl(token))
@@ -627,7 +735,7 @@ mod SceneSuite do
 
   fn cases() : List(Case) do
     let rig = fitted()
-    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases()])
+    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases(), presenter_cases()])
   end
 
 end

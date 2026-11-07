@@ -1,0 +1,25 @@
+mod JsonDeepNesting do
+
+  -- stdlib Json.parse recurses once per nesting level, so a few thousand open
+  -- brackets overflow the stack: SIGBUS natively, "RangeError: Maximum call
+  -- stack size exceeded" on JS (node). Parsing untrusted text (a damaged save in
+  -- localStorage) must never crash, so Skee.Save counts the depth with a
+  -- tail-recursive byte scan before calling Json.parse, and refuses anything
+  -- deeper than 32 as SaveTooDeep. Long flat arrays are fine (20000 elements
+  -- parsed on both targets).
+  --   march --compile --opt 0 -o /tmp/jdn tools/repros/json_deep_nesting.march && /tmp/jdn
+  --   march --target js -o /tmp/jdn.mjs tools/repros/json_deep_nesting.march && node /tmp/jdn.mjs
+  needs IO.Console
+
+  fn brackets(n : Int, acc : String) : String do
+    if n == 0 do acc else brackets(n - 1, acc ++ "[") end
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    match Json.parse(brackets(3000, "")) do
+    Ok(_) -> println("parsed")
+    Err(e) -> println("refused: " ++ e)
+    end
+  end
+
+end

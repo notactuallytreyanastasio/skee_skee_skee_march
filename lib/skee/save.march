@@ -53,7 +53,11 @@ mod Skee.Save do
 
   -- A new game: the run, the file to save for it, and the wallet after the
   -- comped night it may have used.
-  type StartedRun = { started_run : RunState, started_file : RunFile, started_wallet : Wallet }
+  type StartedRun = {
+    started_run : RunState,
+    started_file : RunFile,
+    started_wallet : Wallet
+  }
 
   derive Show for StartedRun
 
@@ -202,7 +206,11 @@ mod Skee.Save do
   end
 
   pfn hex_digits(x : Int, count : Int, acc : String) : String needs () do
-    if count == 0 do acc else hex_digits(x / 16, count - 1, hex_char(x % 16) ++ acc) end
+    if count == 0 do
+      acc
+    else
+      hex_digits(x / 16, count - 1, hex_char(x % 16) ++ acc)
+    end
   end
 
   doc """16 lowercase hex digits."""
@@ -248,7 +256,11 @@ mod Skee.Save do
         let m = float_to_int(scaled)
         let biased = e + 1075
         let (exponent, fraction) =
-          if biased >= 1 do (biased, m - two52()) else (0, int_shr(m, 1 - biased)) end
+          if biased >= 1 do
+            (biased, m - two52())
+          else
+            (0, int_shr(m, 1 - biased))
+          end
         Skee.U64.make(sign + exponent * 1048576 + fraction / two32(), fraction % two32())
       end
     end
@@ -316,9 +328,17 @@ mod Skee.Save do
           depth_ok(s, i + 1, depth, true)
         else
           if c == 91 || c == 123 do
-            if depth + 1 > deepest() do false else depth_ok(s, i + 1, depth + 1, false) end
+            if depth + 1 > deepest() do
+              false
+            else
+              depth_ok(s, i + 1, depth + 1, false)
+            end
           else
-            if c == 93 || c == 125 do depth_ok(s, i + 1, depth - 1, false) else depth_ok(s, i + 1, depth, false) end
+            if c == 93 || c == 125 do
+              depth_ok(s, i + 1, depth - 1, false)
+            else
+              depth_ok(s, i + 1, depth, false)
+            end
           end
         end
       end
@@ -437,7 +457,8 @@ mod Skee.Save do
       match named(all, name, s) do
       Some(x) -> Ok(x)
       None -> Err(SaveUnknownName(path, s))
-      end)
+      end
+    )
   end
 
   pfn lookup(fields : List((String, JsonValue)), key : String) : Option(JsonValue) needs () do
@@ -474,7 +495,8 @@ mod Skee.Save do
       match o do
       Some(x) -> x
       None -> fallback
-      end)
+      end
+    )
   end
 
   pfn index(path : String, i : Int) : String needs () do
@@ -542,7 +564,8 @@ mod Skee.Save do
       match List.find([BetOne, BetThree, BetFive], fn b -> bet_raw(b) == n) do
       Some(b) -> Ok(b)
       None -> Err(SaveUnknownName(path, int_to_string(n)))
-      end)
+      end
+    )
   end
 
   -- ---- The Wallet (WalletStore) ----
@@ -559,7 +582,8 @@ mod Skee.Save do
       match Skee.Rooms.room_at(w.comps, r) do
       Some(c) -> [Json.Str(room_name(r)), comp_json(c)]
       None -> []
-      end))
+      end
+    ))
   end
 
   pfn meters_json(p : Progressive) : JsonValue needs () do
@@ -568,7 +592,8 @@ mod Skee.Save do
 
   doc """WalletStore.save: Swift's JSONEncoder output with sorted keys. Rooms and comps are listed in Room order."""
   fn encode_wallet(w : Wallet) : String needs () do
-    let rooms = List.filter(Skee.Rooms.all_rooms(), fn r -> Skee.Rooms.room_at(w.rooms, r))
+    let rooms =
+      List.filter(Skee.Rooms.all_rooms(), fn r -> Skee.Rooms.room_at(w.rooms, r))
     Json.to_string(Json.Object([("balance", winnings_json(w.balance)), ("comps", comps_json(w)), ("gamesSinceHost", Json.encode_int(w.games_since_host)), ("hostVisits", Json.encode_int(w.host_visits)), ("lifetime", winnings_json(w.lifetime)), ("owned", Json.Array(List.map(w.owned, fn p -> Json.Str(prize_name(p))))), ("progressive", meters_json(w.progressive)), ("room", Json.Str(room_name(w.wallet_room))), ("rooms", Json.Array(List.map(rooms, fn r -> Json.Str(room_name(r)))))]))
   end
 
@@ -577,11 +602,7 @@ mod Skee.Save do
   end
 
   pfn comp_of(v : JsonValue, path : String) : Result(Comp, SaveError) needs () do
-    bind(object_of(v, path), fn f ->
-      bind(required(f, path, "room", room_of), fn room ->
-        bind(required(f, path, "nights", int_of), fn nights ->
-          bind(required(f, path, "tickets", int_of), fn tickets ->
-            ok_map(required(f, path, "credit", winnings_of), fn credit -> { comp_room: room, nights: nights, comp_tickets: Tickets(tickets), credit: credit })))))
+    bind(object_of(v, path), fn f -> bind(required(f, path, "room", room_of), fn room -> bind(required(f, path, "nights", int_of), fn nights -> bind(required(f, path, "tickets", int_of), fn tickets -> ok_map(required(f, path, "credit", winnings_of), fn credit -> { comp_room: room, nights: nights, comp_tickets: Tickets(tickets), credit: credit })))))
   end
 
   pfn set_meter(p : Progressive, entry : (JackpotTier, Winnings)) : Progressive needs () do
@@ -598,13 +619,16 @@ mod Skee.Save do
   -- A Progressive's meters, starting from the seeds: a tier the save lacks reads
   -- as its seed, as Progressive.amount does. A later entry overwrites an earlier.
   pfn progressive_of(v : JsonValue, path : String) : Result(Progressive, SaveError) needs () do
-    bind(object_of(v, path), fn f ->
-      ok_map(required(f, path, "meters", pairs_of(tier_of, winnings_of)), fn entries ->
-        List.fold_left(entries, Skee.Scoring.new_progressive(), set_meter)))
+    bind(object_of(v, path), fn f -> ok_map(required(f, path, "meters", pairs_of(tier_of, winnings_of)), fn entries -> List.fold_left(entries, Skee.Scoring.new_progressive(), set_meter)))
   end
 
   pfn rooms_of(rs : List(Room)) : PerRoom(Bool) needs () do
-    { boardwalk: List.any(rs, fn r -> r == Boardwalk), neon_lounge: List.any(rs, fn r -> r == NeonLounge), high_roller: List.any(rs, fn r -> r == HighRoller), penthouse: List.any(rs, fn r -> r == Penthouse) }
+    {
+      boardwalk: List.any(rs, fn r -> r == Boardwalk),
+      neon_lounge: List.any(rs, fn r -> r == NeonLounge),
+      high_roller: List.any(rs, fn r -> r == HighRoller),
+      penthouse: List.any(rs, fn r -> r == Penthouse)
+    }
   end
 
   pfn comps_of(entries : List((Room, Comp))) : PerRoom(Option(Comp)) needs () do
@@ -615,17 +639,7 @@ mod Skee.Save do
   doc """Wallet.init(from:): balance, lifetime and owned are required; every later field defaults when missing or null. Anything present must be well formed."""
   fn decode_wallet(text : String) : Result(Wallet, SaveError) needs () do
     let base = Skee.Rooms.empty_wallet()
-    bind(parse(text), fn v ->
-      bind(object_of(v, ""), fn f ->
-        bind(required(f, "", "balance", winnings_of), fn balance ->
-          bind(required(f, "", "lifetime", winnings_of), fn lifetime ->
-            bind(required(f, "", "owned", list_of(prize_of)), fn owned ->
-              bind(or_else(optional(f, "", "progressive", progressive_of), base.progressive), fn progressive ->
-                bind(or_else(ok_map(optional(f, "", "rooms", list_of(room_of)), fn o -> Option.map(o, rooms_of)), base.rooms), fn rooms ->
-                  bind(or_else(optional(f, "", "room", room_of), base.wallet_room), fn room ->
-                    bind(or_else(ok_map(optional(f, "", "comps", pairs_of(room_of, comp_of)), fn o -> Option.map(o, comps_of)), base.comps), fn comps ->
-                      bind(or_else(optional(f, "", "gamesSinceHost", int_of), base.games_since_host), fn since ->
-                        ok_map(or_else(optional(f, "", "hostVisits", int_of), base.host_visits), fn visits -> { balance: balance, lifetime: lifetime, owned: owned, progressive: progressive, rooms: rooms, wallet_room: room, comps: comps, games_since_host: since, host_visits: visits })))))))))))
+    bind(parse(text), fn v -> bind(object_of(v, ""), fn f -> bind(required(f, "", "balance", winnings_of), fn balance -> bind(required(f, "", "lifetime", winnings_of), fn lifetime -> bind(required(f, "", "owned", list_of(prize_of)), fn owned -> bind(or_else(optional(f, "", "progressive", progressive_of), base.progressive), fn progressive -> bind(or_else(ok_map(optional(f, "", "rooms", list_of(room_of)), fn o -> Option.map(o, rooms_of)), base.rooms), fn rooms -> bind(or_else(optional(f, "", "room", room_of), base.wallet_room), fn room -> bind(or_else(ok_map(optional(f, "", "comps", pairs_of(room_of, comp_of)), fn o -> Option.map(o, comps_of)), base.comps), fn comps -> bind(or_else(optional(f, "", "gamesSinceHost", int_of), base.games_since_host), fn since -> ok_map(or_else(optional(f, "", "hostVisits", int_of), base.host_visits), fn visits -> { balance: balance, lifetime: lifetime, owned: owned, progressive: progressive, rooms: rooms, wallet_room: room, comps: comps, games_since_host: since, host_visits: visits })))))))))))
   end
 
   doc """WalletStore.load: nothing saved, or anything that does not decode, is a fresh Wallet()."""
@@ -644,7 +658,12 @@ mod Skee.Save do
   -- ---- The run (RunStore) ----
   doc """RunStore.save's File: a new save always names its room and comped tickets."""
   fn run_file(seed : Skee.U64.U64, room : Room, extra : Tickets, actions : List(Action)) : RunFile needs () do
-    { file_seed: seed, file_room: Some(room), file_extra: Some(extra), file_actions: actions }
+    {
+      file_seed: seed,
+      file_room: Some(room),
+      file_extra: Some(extra),
+      file_actions: actions
+    }
   end
 
   pfn launch_json(l : Launch) : JsonValue needs () do
@@ -674,7 +693,9 @@ mod Skee.Save do
     CommitFoul -> case_json("foul", Json.Object([]))
     ChooseBall(b) -> case_json("chooseBall", one(Json.Str(ball_name(b))))
     Arm(i) -> case_json("arm", one(Json.encode_int(i)))
-    Buy(i, target) -> case_json("buy", Json.Object(Cons(("_0", Json.encode_int(i)), target_fields(target))))
+    Buy(i, target) -> do
+      case_json("buy", Json.Object(Cons(("_0", Json.encode_int(i)), target_fields(target))))
+    end
     Reroll -> case_json("reroll", Json.Object([]))
     Sell(i) -> case_json("sell", one(Json.encode_int(i)))
     LeaveCounter -> case_json("leaveCounter", Json.Object([]))
@@ -682,7 +703,11 @@ mod Skee.Save do
   end
 
   pfn seed_json(seed : Skee.U64.U64) : JsonValue needs () do
-    if seed.hi < 2097152 do Json.encode_int(seed.hi * two32() + seed.lo) else Json.Str(u64_hex(seed)) end
+    if seed.hi < 2097152 do
+      Json.encode_int(seed.hi * two32() + seed.lo)
+    else
+      Json.Str(u64_hex(seed))
+    end
   end
 
   pfn optional_field(key : String, v : Option(a), encode : a -> JsonValue) : List((String, JsonValue)) needs () do
@@ -703,7 +728,13 @@ mod Skee.Save do
     match v do
     Json.Str(s) -> do
       match Skee.U64.of_hex(s) do
-      Some(seed) -> if string_byte_length(s) == 16 do Ok(seed) else Err(SaveWrongType(path)) end
+      Some(seed) -> do
+        if string_byte_length(s) == 16 do
+          Ok(seed)
+        else
+          Err(SaveWrongType(path))
+        end
+      end
       None -> Err(SaveWrongType(path))
       end
     end
@@ -723,15 +754,7 @@ mod Skee.Save do
 
   doc """Launch.init(from:): power and aim are required; a save with no speed is a power from the line."""
   fn launch_of(k : Skee.Consts.Consts, v : JsonValue, path : String) : Result(Launch, SaveError) needs () do
-    bind(object_of(v, path), fn f ->
-      bind(required(f, path, "power", float_of), fn power ->
-        bind(required(f, path, "aim", float_of), fn aim ->
-          bind(opt_float(f, path, "start"), fn start ->
-            bind(opt_float(f, path, "fold"), fn fold ->
-              bind(opt_float(f, path, "spin"), fn spin ->
-                bind(opt_float(f, path, "skid"), fn skid ->
-                  bind(opt_float(f, path, "speed"), fn speed ->
-                    ok_map(opt_float(f, path, "from"), fn from -> Skee.Physics.launch_of_saved(k, { saved_power: power, saved_aim: aim, saved_start: start, saved_fold: fold, saved_spin: spin, saved_skid: skid, saved_speed: speed, saved_from: from }))))))))))
+    bind(object_of(v, path), fn f -> bind(required(f, path, "power", float_of), fn power -> bind(required(f, path, "aim", float_of), fn aim -> bind(opt_float(f, path, "start"), fn start -> bind(opt_float(f, path, "fold"), fn fold -> bind(opt_float(f, path, "spin"), fn spin -> bind(opt_float(f, path, "skid"), fn skid -> bind(opt_float(f, path, "speed"), fn speed -> ok_map(opt_float(f, path, "from"), fn from -> Skee.Physics.launch_of_saved(k, { saved_power: power, saved_aim: aim, saved_start: start, saved_fold: fold, saved_spin: spin, saved_skid: skid, saved_speed: speed, saved_from: from }))))))))))
   end
 
   pfn payload(v : JsonValue, path : String, decode : List((String, JsonValue)) -> String -> Result(Action, SaveError)) : Result(Action, SaveError) needs () do
@@ -754,25 +777,41 @@ mod Skee.Save do
     let p = at(path, name)
     if name == "pull" do
       payload(v, p, first(bet_of, fn b -> PullLever(b)))
-    else if name == "throwBall" do
-      payload(v, p, first(fn (x, q) -> launch_of(k, x, q), fn l -> ThrowBall(l)))
-    else if name == "foul" do
-      payload(v, p, bare(CommitFoul))
-    else if name == "chooseBall" do
-      payload(v, p, first(ball_of, fn b -> ChooseBall(b)))
-    else if name == "arm" do
-      payload(v, p, first(int_of, fn i -> Arm(i)))
-    else if name == "buy" do
-      payload(v, p, buy_of)
-    else if name == "reroll" do
-      payload(v, p, bare(Reroll))
-    else if name == "sell" do
-      payload(v, p, first(int_of, fn i -> Sell(i)))
-    else if name == "leaveCounter" do
-      payload(v, p, bare(LeaveCounter))
     else
-      Err(SaveUnknownName(path, name))
-    end end end end end end end end end
+      if name == "throwBall" do
+        payload(v, p, first(fn (x, q) -> launch_of(k, x, q), fn l -> ThrowBall(l)))
+      else
+        if name == "foul" do
+          payload(v, p, bare(CommitFoul))
+        else
+          if name == "chooseBall" do
+            payload(v, p, first(ball_of, fn b -> ChooseBall(b)))
+          else
+            if name == "arm" do
+              payload(v, p, first(int_of, fn i -> Arm(i)))
+            else
+              if name == "buy" do
+                payload(v, p, buy_of)
+              else
+                if name == "reroll" do
+                  payload(v, p, bare(Reroll))
+                else
+                  if name == "sell" do
+                    payload(v, p, first(int_of, fn i -> Sell(i)))
+                  else
+                    if name == "leaveCounter" do
+                      payload(v, p, bare(LeaveCounter))
+                    else
+                      Err(SaveUnknownName(path, name))
+                    end
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
   end
 
   doc """One Action: an object with exactly one key, the case name."""
@@ -782,17 +821,13 @@ mod Skee.Save do
       Cons((name, payload_value), Nil) -> case_of(k, name, payload_value, path)
       Nil -> Err(SaveWrongType(path))
       Cons(_, Cons(_, _)) -> Err(SaveWrongType(path))
-      end)
+      end
+    )
   end
 
   doc """RunStore.load: the seed and actions are required, room and comped tickets optional."""
   fn decode_run(k : Skee.Consts.Consts, text : String) : Result(RunFile, SaveError) needs () do
-    bind(parse(text), fn v ->
-      bind(object_of(v, ""), fn f ->
-        bind(required(f, "", "seed", seed_of), fn seed ->
-          bind(optional(f, "", "room", room_of), fn room ->
-            bind(optional(f, "", "extraTickets", int_of), fn extra ->
-              ok_map(required(f, "", "actions", list_of(fn (x, p) -> action_of(k, x, p))), fn actions -> { file_seed: seed, file_room: room, file_extra: Option.map(extra, fn n -> Tickets(n)), file_actions: actions }))))))
+    bind(parse(text), fn v -> bind(object_of(v, ""), fn f -> bind(required(f, "", "seed", seed_of), fn seed -> bind(optional(f, "", "room", room_of), fn room -> bind(optional(f, "", "extraTickets", int_of), fn extra -> ok_map(required(f, "", "actions", list_of(fn (x, p) -> action_of(k, x, p))), fn actions -> { file_seed: seed, file_room: room, file_extra: Option.map(extra, fn n -> Tickets(n)), file_actions: actions }))))))
   end
 
   pfn replay_go(k : Skee.Consts.Consts, actions : List(Action), s : RunState, kept : List(Action)) : (RunState, List(Action)) needs () do
@@ -821,9 +856,15 @@ mod Skee.Save do
       Some(t) -> t
       None -> Tickets(0)
       end
-    let start = Skee.Reducer.new_run(k, f.file_seed, Skee.Types.standard_config(), file_room(f), extra)
+    let start =
+      Skee.Reducer.new_run(k, f.file_seed, Skee.Types.standard_config(), file_room(f), extra)
     let (s, kept) = replay_go(k, f.file_actions, start, [])
-    { replayed_run: s, replayed_seed: f.file_seed, replayed_extra: extra, replayed_actions: kept }
+    {
+      replayed_run: s,
+      replayed_seed: f.file_seed,
+      replayed_extra: extra,
+      replayed_actions: kept
+    }
   end
 
   doc """GameModel.init: carry on the saved run if there is one, it decodes, and it was played in the wallet's room. None: start a new game."""
@@ -853,8 +894,12 @@ mod Skee.Save do
   pfn bank_event(s : RunState, w : Wallet, e : GameEvent) : Wallet needs () do
     match e do
     Pulled(p) -> Tuple.second(Skee.Reducer.wallet_pulled(w, p))
-    RoundFailed(_, _) -> Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, false)))
-    RunWon -> Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, true)))
+    RoundFailed(_, _) -> do
+      Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, false)))
+    end
+    RunWon -> do
+      Skee.Rooms.game_played(Skee.Rooms.credit(w, Skee.Rooms.winnings(s.stats, true)))
+    end
     FreeGamesWon(_) -> w
     JackpotHit(_) -> w
     Shot(_, _) -> w
@@ -892,7 +937,8 @@ mod Skee.Save do
   fn decode_tips(text : String) : Result(List(Tip), SaveError) needs () do
     bind(parse(text), fn v ->
       let decode = list_of(tip_entry)
-      ok_map(decode(v, ""), fn found -> Skee.Walkthrough.tip_set(List.filter_map(found, fn o -> o))))
+      ok_map(decode(v, ""), fn found -> Skee.Walkthrough.tip_set(List.filter_map(found, fn o -> o)))
+    )
   end
 
   doc """TipStore.seen with its fallback: nothing seen."""

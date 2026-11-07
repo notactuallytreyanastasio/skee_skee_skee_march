@@ -75,7 +75,12 @@ mod Skee.Walkthrough do
   -- ---- The walkthrough ----
   doc """Walkthrough(step:)."""
   fn start_at(s : WalkthroughStep) : Walkthrough needs () do
-    { walk_step: s, walk_finished: false, walk_last_foul: false, walk_pulled_ahead: false }
+    {
+      walk_step: s,
+      walk_finished: false,
+      walk_last_foul: false,
+      walk_pulled_ahead: false
+    }
   end
 
   doc """Walkthrough(): from the welcome card."""
@@ -241,14 +246,23 @@ mod Skee.Walkthrough do
   end
 
   pfn coach(title : String, body : String, needs_tap : Bool, high : Bool) : CoachCard needs () do
-    { coach_title: title, coach_body: body, coach_needs_tap: needs_tap, coach_high: high }
+    {
+      coach_title: title,
+      coach_body: body,
+      coach_needs_tap: needs_tap,
+      coach_high: high
+    }
   end
 
   doc """Walkthrough.card: the card for the current step."""
   fn card(w : Walkthrough) : CoachCard needs () do
     match w.walk_step do
-    WalkWelcome -> coach("YOUR FIRST LOADOUT", "This is a practice game. It doesn't count, you can't get it wrong, and nobody's in a hurry. We'll just cover the basics.", true, false)
-    WalkPull -> coach("PULL THE LEVER", "Every turn starts at the slot machine. Drag the lever down, or tap SPIN.", false, true)
+    WalkWelcome -> do
+      coach("YOUR FIRST LOADOUT", "This is a practice game. It doesn't count, you can't get it wrong, and nobody's in a hurry. We'll just cover the basics.", true, false)
+    end
+    WalkPull -> do
+      coach("PULL THE LEVER", "Every turn starts at the slot machine. Drag the lever down, or tap SPIN.", false, true)
+    end
     WalkFlick -> do
       if w.walk_last_foul do
         coach("THAT WAS A FOUL", "Your thumb went past the line, so that ball didn't count. No harm done. Start lower, flick, and let go before the line.", false, false)
@@ -256,21 +270,40 @@ mod Skee.Walkthrough do
         coach("ROLL THE BALL", "Put your thumb on the dotted line, flick straight up and let go. A faster flick rolls farther. Don't worry about aiming yet.", false, false)
       end
     end
-    WalkSymbols -> coach("EVERY HOLE HAS A PICTURE", "Your ball took the picture of the hole it landed in. Look for it in the row of three. Roll another.", false, false)
-    WalkLine -> coach("THREE BALLS, ONE LINE", "Your three balls make a slot line, just like three reels. Two matching pictures pay well. Three pay big. Roll your last ball.", false, false)
-    WalkScore -> coach("HOW SCORING WORKS", "Holes pay chips, and the far ones pay most. Matches raise your multiplier. Your score for the turn is chips times multiplier.", true, false)
-    WalkPullAgain -> coach("NEXT TURN", "Pull again. This time, watch the middle row of the machine.", false, true)
-    WalkTopSlot -> coach("AIM FOR YOUR PICTURES", "The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try to hit one.", false, false)
-    WalkLastPull -> coach("LAST TURN", "One more turn in this round. Pull the lever.", false, true)
-    WalkFinish -> coach("BEAT THE TARGET", "The goal of every round is the target score at the top of the screen. Reach it before your balls run out. Roll your last three.", false, false)
-    WalkCounter -> coach("THE PRIZE COUNTER", "Clearing a round pays tickets. Spend them here on things that help, or save them. Tap NEXT ROUND when you're ready.", false, true)
-    WalkPrizes -> coach("THAT'S ALL YOU NEED", "Now for a real game. There's more to discover, and I'll show you each new thing as it comes up. Have fun!", true, false)
+    WalkSymbols -> do
+      coach("EVERY HOLE HAS A PICTURE", "Your ball took the picture of the hole it landed in. Look for it in the row of three. Roll another.", false, false)
+    end
+    WalkLine -> do
+      coach("THREE BALLS, ONE LINE", "Your three balls make a slot line, just like three reels. Two matching pictures pay well. Three pay big. Roll your last ball.", false, false)
+    end
+    WalkScore -> do
+      coach("HOW SCORING WORKS", "Holes pay chips, and the far ones pay most. Matches raise your multiplier. Your score for the turn is chips times multiplier.", true, false)
+    end
+    WalkPullAgain -> do
+      coach("NEXT TURN", "Pull again. This time, watch the middle row of the machine.", false, true)
+    end
+    WalkTopSlot -> do
+      coach("AIM FOR YOUR PICTURES", "The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try to hit one.", false, false)
+    end
+    WalkLastPull -> do
+      coach("LAST TURN", "One more turn in this round. Pull the lever.", false, true)
+    end
+    WalkFinish -> do
+      coach("BEAT THE TARGET", "The goal of every round is the target score at the top of the screen. Reach it before your balls run out. Roll your last three.", false, false)
+    end
+    WalkCounter -> do
+      coach("THE PRIZE COUNTER", "Clearing a round pays tickets. Spend them here on things that help, or save them. Tap NEXT ROUND when you're ready.", false, true)
+    end
+    WalkPrizes -> do
+      coach("THAT'S ALL YOU NEED", "Now for a real game. There's more to discover, and I'll show you each new thing as it comes up. Have fun!", true, false)
+    end
     end
   end
 
   doc """practiceRun(room:): a fixed seed and a low target, so a first try clears it and sees the counter."""
   fn practice_run(k : Skee.Consts.Consts, room : Room) : RunState needs () do
-    let s = Skee.Reducer.new_run(k, Skee.U64.of_int(2024), Skee.Types.standard_config(), room, Tickets(0))
+    let s =
+      Skee.Reducer.new_run(k, Skee.U64.of_int(2024), Skee.Types.standard_config(), room, Tickets(0))
     { s with round: { s.round with target: practice_target() } }
   end
 
@@ -332,7 +365,11 @@ mod Skee.Walkthrough do
   end
 
   pfn shot_tip(b : BallRecord) : Option(Tip) needs () do
-    if b.hot do Some(TipHotSpot) else if b.slot_hits > 0 do Some(TipCombo) else None end end
+    if b.hot do
+      Some(TipHotSpot)
+    else
+      if b.slot_hits > 0 do Some(TipCombo) else None end
+    end
   end
 
   pfn is_warmup(k : RoundKind) : Bool needs () do
@@ -365,12 +402,16 @@ mod Skee.Walkthrough do
   fn raised(e : GameEvent, s : RunState, seen : List(Tip)) : Option(Tip) needs () do
     match e do
     Shot(_, b) -> shot_tip(b)
-    Pulled(_) -> if !is_warmup(s.round.kind) || s.ante > 1 do Some(TipHotSpot) else None end
+    Pulled(_) -> do
+      if !is_warmup(s.round.kind) || s.ante > 1 do
+        Some(TipHotSpot)
+      else
+        None
+      end
+    end
     Bought(o) -> Some(bought_tip(o))
     RoundStarted(k, _) -> round_tip(k, seen)
-    FrameScored(_) -> do
-      if s.ante > 1 || has_tip(seen, TipGameOver) do Some(TipBets) else None end
-    end
+    FrameScored(_) -> if s.ante > 1 || has_tip(seen, TipGameOver) do Some(TipBets) else None end
     FeverLit -> Some(TipFever)
     FreeGamesWon(_) -> Some(TipFreeGames)
     JackpotHit(_) -> Some(TipJackpot)
@@ -400,7 +441,11 @@ mod Skee.Walkthrough do
     Cons(e, rest) -> do
       match raised(e, s, seen) do
       Some(t) -> do
-        if !has_tip(seen, t) && (!can_wait(t) || waited(since)) do Some(t) else first_tip(rest, s, seen, since) end
+        if !has_tip(seen, t) && (!can_wait(t) || waited(since)) do
+          Some(t)
+        else
+          first_tip(rest, s, seen, since)
+        end
       end
       None -> first_tip(rest, s, seen, since)
       end
@@ -416,18 +461,42 @@ mod Skee.Walkthrough do
   doc """Tip.card."""
   fn tip_card(t : Tip) : CoachCard needs () do
     match t do
-    TipCombo -> coach("A COMBO!", "That ball matched one of your targets. Keep matching, ball after ball, and each one adds more to your score. A miss ends it.", true, false)
-    TipHotSpot -> coach("THE HOT SPOT", "See the sparkling gold ring on the board? That hole pays double this turn. Every pull moves it.", true, false)
-    TipCharm -> coach("YOUR FIRST CHARM", "Charms work by themselves for the rest of the game. There's nothing to do. Yours sit down the left side of the screen.", true, true)
-    TipSpecialty -> coach("A SPECIALTY BALL", "Tap it at the side of the screen when you want it, then throw. It only works on that one ball, so save it for a good moment.", true, true)
-    TipBoardEdit -> coach("YOUR OWN BOARD", "That change stays on the board until this game ends. Shaping the holes to suit you is how big scores get built.", true, true)
-    TipBoss -> coach("A BOSS MACHINE", "The third round of every ante bends one rule. This machine's rule is written at the top of the screen. Beat it to reach the next ante.", true, false)
-    TipBets -> coach("BIGGER BETS", "The machine has new buttons. Betting 3 or 5 lines costs tickets but wins more, and only 5 lines can hit a jackpot. 1 line is always free.", true, true)
-    TipBalls -> coach("PICK YOUR BALL", "You can now swap balls for free before any throw. Marshmallow is the easiest. Wilder balls are harder and pay more.", true, true)
-    TipFever -> coach("FEVER!", "Rattles and gutter balls filled the meter, so your next turn scores double. Even a bad roll helps.", true, false)
-    TipFreeGames -> coach("FREE GAMES!", "Three BONUS pictures won you extra turns. The machine pulls for you, and they score double.", true, false)
-    TipJackpot -> coach("JACKPOT!", "You hit a jackpot meter. It goes straight into your winnings for the prize shop, and you keep it whatever happens next.", true, false)
-    TipGameOver -> coach("NOT TO WORRY", "Every game ends sooner or later. Your winnings are saved for the prize shop, and the next game starts fresh. Sal looks after people who come back.", true, false)
+    TipCombo -> do
+      coach("A COMBO!", "That ball matched one of your targets. Keep matching, ball after ball, and each one adds more to your score. A miss ends it.", true, false)
+    end
+    TipHotSpot -> do
+      coach("THE HOT SPOT", "See the sparkling gold ring on the board? That hole pays double this turn. Every pull moves it.", true, false)
+    end
+    TipCharm -> do
+      coach("YOUR FIRST CHARM", "Charms work by themselves for the rest of the game. There's nothing to do. Yours sit down the left side of the screen.", true, true)
+    end
+    TipSpecialty -> do
+      coach("A SPECIALTY BALL", "Tap it at the side of the screen when you want it, then throw. It only works on that one ball, so save it for a good moment.", true, true)
+    end
+    TipBoardEdit -> do
+      coach("YOUR OWN BOARD", "That change stays on the board until this game ends. Shaping the holes to suit you is how big scores get built.", true, true)
+    end
+    TipBoss -> do
+      coach("A BOSS MACHINE", "The third round of every ante bends one rule. This machine's rule is written at the top of the screen. Beat it to reach the next ante.", true, false)
+    end
+    TipBets -> do
+      coach("BIGGER BETS", "The machine has new buttons. Betting 3 or 5 lines costs tickets but wins more, and only 5 lines can hit a jackpot. 1 line is always free.", true, true)
+    end
+    TipBalls -> do
+      coach("PICK YOUR BALL", "You can now swap balls for free before any throw. Marshmallow is the easiest. Wilder balls are harder and pay more.", true, true)
+    end
+    TipFever -> do
+      coach("FEVER!", "Rattles and gutter balls filled the meter, so your next turn scores double. Even a bad roll helps.", true, false)
+    end
+    TipFreeGames -> do
+      coach("FREE GAMES!", "Three BONUS pictures won you extra turns. The machine pulls for you, and they score double.", true, false)
+    end
+    TipJackpot -> do
+      coach("JACKPOT!", "You hit a jackpot meter. It goes straight into your winnings for the prize shop, and you keep it whatever happens next.", true, false)
+    end
+    TipGameOver -> do
+      coach("NOT TO WORRY", "Every game ends sooner or later. Your winnings are saved for the prize shop, and the next game starts fresh. Sal looks after people who come back.", true, false)
+    end
     end
   end
 
@@ -463,7 +532,13 @@ mod Skee.Walkthrough do
     Some(_) -> counted
     None -> do
       match next_tip(step.step_events, step.run, counted.tips_seen, counted.since_tip) do
-      Some(tip) -> { tips_seen: add_tip(counted.tips_seen, tip), since_tip: BallsSince(0), tip_showing: Some(tip) }
+      Some(tip) -> do
+        {
+          tips_seen: add_tip(counted.tips_seen, tip),
+          since_tip: BallsSince(0),
+          tip_showing: Some(tip)
+        }
+      end
       None -> counted
       end
     end

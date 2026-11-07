@@ -28,7 +28,11 @@ mod Skee.Guide do
   doc """Guide.num: a whole multiplier prints without its decimal point."""
   fn num(x : Float) : String needs () do
     let whole = float_round(x)
-    if int_to_float(whole) == x do int_to_string(whole) else float_to_string(x) end
+    if int_to_float(whole) == x do
+      int_to_string(whole)
+    else
+      float_to_string(x)
+    end
   end
 
   doc """Guide.label: the symbol's raw name, capitalised."""
@@ -52,7 +56,9 @@ mod Skee.Guide do
   pfn chunk(items : List(String), per : { Int | _ >= 1 }, acc : List(String)) : List(String) needs () do
     match items do
     Nil -> List.reverse(acc)
-    Cons(_, _) -> chunk(List.drop(items, per), per, Cons(String.join(List.take(items, per), "\n\n"), acc))
+    Cons(_, _) -> do
+      chunk(List.drop(items, per), per, Cons(String.join(List.take(items, per), "\n\n"), acc))
+    end
     end
   end
 
@@ -112,7 +118,8 @@ mod Skee.Guide do
   end
 
   pfn balls() : GuideTopic needs () do
-    let first = "Swap for free before any throw. The number is what the ball's chips are multiplied by."
+    let first =
+      "Swap for free before any throw. The number is what the ball's chips are multiplied by."
     list("Choosing a Ball", Cons(first, List.map(Skee.Items.all_balls(), fn b -> Skee.Items.ball_name(b) ++ " (" ++ Skee.Items.pay_label(b) ++ "): " ++ Skee.Items.ball_blurb(b))), 3, [TipBalls])
   end
 
@@ -122,7 +129,8 @@ mod Skee.Guide do
   end
 
   pfn winnings() : GuideTopic needs () do
-    let rooms = String.join(List.map(List.drop(Skee.Rooms.all_rooms(), 1), Skee.Rooms.name), ", ")
+    let rooms =
+      String.join(List.map(List.drop(Skee.Rooms.all_rooms(), 1), Skee.Rooms.name), ", ")
     topic("Winnings and Hosts", ["Winnings are kept between games. Each finished game pays 1 for every 20 points you scored, 20 for each round cleared, and 500 for beating the arcade.", "Spend winnings in the prize shop. Prizes are just for show and never change the game. They're there to be collected.", "Jackpots only pay at the 5-line bet. Three bars pay the MINI, three sevens the MINOR, three diamonds the MAJOR, and three wilds on the middle row the GRAND.", "The meters over the machine grow with every pull and carry over between games. A jackpot goes straight to your winnings.", "Every 3 or 4 games a host sits down to offer you free nights. A night is one game that starts with bonus tickets. Talk to them: charm pays, and rudeness costs patience.", "Win enough and the host offers a new room, yours for good, with its own board and machine: " ++ rooms ++ ". Pick your room on the title screen."], [TipGameOver, TipJackpot])
   end
 

@@ -55,7 +55,8 @@ mod SynthBench do
     time_it("busy", busy(), 44100, 5)
     let one_time = Skee.Synth.consts()
     let t0 = unix_time_ms()
-    let s = List.fold_left(List.range(0, 1000), Skee.Synth.new(), fn (acc, _) -> Skee.Synth.play(acc, SndReelTick))
+    let s =
+      List.fold_left(List.range(0, 1000), Skee.Synth.new(), fn (acc, _) -> Skee.Synth.play(acc, SndReelTick))
     println("play(reelTick) x1000 with consts built once per synth: " ++ int_to_string(unix_time_ms() - t0) ++ " ms (voices " ++ int_to_string(Skee.Synth.voice_count(s)) ++ ", pi " ++ float_to_string(one_time.pi) ++ ")")
     println(SynthSuite.measure())
   end

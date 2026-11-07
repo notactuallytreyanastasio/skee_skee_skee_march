@@ -43,6 +43,8 @@ foundation: ask before changing it.
 | rooms | `lib/skee/rooms.march` | `Meta/Room.swift`, `Meta/PrizeShelf.swift` | `golden-rooms` | `make test-rooms` |
 | reducer | `lib/skee/reducer.march` | `Run/Reducer.swift`, `Run/Config.swift`, `Run/RunState.swift`, `Run/Difficulty.swift` | `golden-run` | `make test-reducer` |
 | bots | `lib/skee/bots.march` | `Bots/*` | `golden-bots` | `make test-bots` |
+| meta | `lib/skee/guide.march`, `walkthrough.march`, `save.march` | `Meta/Guide.swift`, `Meta/Walkthrough.swift`, Wallet's decoder, GameModel's `TipStore`/`WalletStore`/`RunStore` and tip bookkeeping | `golden-meta` | `make test-meta` |
+| synth | `lib/skee/synth.march` | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -238,6 +240,33 @@ goldens and 22 re-seeded generators:
 Accepted: a web shot can rarely play differently from the same shot on iPhone.
 Runs replay exactly on one target, not across targets.
 
+### Skee.Synth: Swift's 32-bit Float
+
+The synth is Swift `Float` arithmetic. Every Float operation is done in double
+and rounded with `Skee.Synth.f32` (Veltkamp's split for normal values, a
+`1.5 * 2^-97` shift for subnormals, ties to even). A double holds any sum or
+product of two Floats closely enough that one rounding gives Swift's bits:
+6015 golden rows of `Float(x)`, ties and subnormals included, are exact on
+both targets. Where Swift chains operations, round after each one.
+
+- Swift's `Float.pi` is pi rounded toward zero (`0x40490FDA`), one ulp below
+  the nearest Float. Everything that says `.pi` on a Float needs this.
+- `sinf` and `expf` are double libm rounded to Float. Darwin's `sinf` differs
+  from that on 31 of 3000 phase arguments and `expf` on 16 of 3000, by 1 Float
+  ulp. `powf` was exact on the 74 golden rows. Native and V8 give the same
+  rounded result on every golden row.
+- Over the synth goldens (every cue, combinations, voice stealing, rumble into
+  subnormals, drum roll) 1457 of 96450 kept samples differ from Swift, worst
+  |error| 5.96e-8 (2^-24, one ulp at full scale). A Swift replica with double
+  libm rounded to Float is bit-identical to March for `frameDone` over 20000
+  samples, so libm is the only cause. The suite's tolerance is 2^-22.
+- The LCG is exact Int arithmetic: `seed * 1664525 + 1013904223` stays below 2^53.
+- `make test-synth` takes about a minute: most of it is compiling the golden.
+- Speed, `tools/synth_bench/run.sh` (M-series Mac, node 26), per `render(128)`
+  call (budget 2902 us): idle 19 us, 9 voices 116 us, 48 voices 196 us on node
+  (7% of real time); native 27, 251, 292 us. `render(44100)` with 48 voices:
+  115 ms on node, 221 ms native.
+
 ## Rules every core module follows
 
 - `cap pure` at the top, `needs ()` on every `fn` and `pfn`, no `needs` lines.
@@ -282,6 +311,10 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   holding a record with such a `None` segfaults at drop time. Annotate the `let`
   with the record type, as `start_sim` does. (`none_float_field.march`,
   march#1173)
+- **`0.0 +. x` is folded to `x`, every target.** Even with `opt.fold` off. When
+  `x` is `-0.0` the IEEE answer is `+0.0`, so the sign of a zero is lost. Write
+  `if x == 0.0 do 0.0 else x end` where it matters (`Skee.Synth.plus_zero`).
+  (`synth/fold_probe.march`)
 - **Int on JS.** Doubles: exact to 2^53-1. The JS runners use `--js-int-check`, which
   throws past that. Anything wider goes through `Skee.U64`.
 
@@ -316,6 +349,15 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   `fn -> f()` to pass one. Constructors are not functions: `fn n -> Points(n)`.
 - Constructors can clash with the stdlib (`Failed`, `Bar`): the compiler says
   `ambiguous_constructor`. Rename yours.
+- `Json`'s constructors (`Str`, `Array`, `Object`, `Number`, `Null`, `Bool`) clash
+  with `Msgpack` and `IOList`: write them `Json.Str` and so on, in patterns too.
+- `then` is a keyword: a function called `then` is a parse error at its name.
+- **`Json.parse` overflows the stack on deep nesting.** A few thousand `[` crash
+  it (SIGBUS natively, `RangeError` on JS). Untrusted text goes through
+  `Skee.Save.parse`, which counts depth first. (`json_deep_nesting.march`)
+- Swift's JSONEncoder writes a dictionary whose key is a String-backed enum
+  (`[Room: Comp]`, `[JackpotTier: Int]`) as one array, key then value, not as an
+  object. `Skee.Save.pairs_of` reads that shape.
 - `doc` goes before a function only. Comment a type with `--`.
 - `else if` nests: each one adds an `end`.
 - Float operators are `+. -. *. /.`. `/.` by zero panics natively, where Swift and

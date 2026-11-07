@@ -2,6 +2,7 @@ import AppKit
 import GoldenSupport
 import SceneKit
 import SkeeCore
+import SkeeRender
 import SkeeScene
 import simd
 
@@ -186,5 +187,66 @@ for (phase, level) in [(0, Float(0.35)), (1, 0.9), (5, 0.35), (2, 0)] as [(Int, 
     }
     g.line(["bulbs", i(phase), f(level)] + lit)
 }
+
+// ---- ScenePresenter.update, frame by frame over real throws ----
+// Inputs the presenter read and what it did to the ball, shadow, trough and
+// camera, so the March port can replay the same inputs.
+@MainActor func replay(seed: UInt64, throws launches: [Launch], tag: String) {
+    let cab = Cabinet(table: Room.boardwalk.table, palette: .boardwalk)
+    let presenter = ScenePresenter(cabinet: cab, aspect: 390.0 / 844.0)
+    var state = newRun(seed: seed)
+    var p = Presentation(state: state)
+    let dt = 1.0 / 60
+    var frame = 0
+    func send(_ a: Action) {
+        guard case .success(let step) = apply(a, to: state) else { fatalError("action refused") }
+        state = step.state
+        p.enqueue(step)
+    }
+    func cueToken(_ c: Cue) -> String? {
+        switch c {
+        case .hump: "hump"
+        case .lip: "lip"
+        case .hop: "hop"
+        case .landed: "landed"
+        case .backwall: "backwall"
+        case .rail: "rail"
+        case .drop(let h): "drop-" + holeToken(h)
+        default: nil
+        }
+    }
+    func step(record: Bool) {
+        p.advance(dt)
+        presenter.update(p, held: nil, dt: dt)
+        guard record else { return }
+        let s = p.shown
+        var t: [String] = ["frame", tag, i(frame), f64(p.clock), b(p.isBusy)]
+        if case .roll = p.current { t.append("1") } else { t.append("0") }
+        if let sm = p.ball { t += [phaseToken(sm.phase), f64(sm.x), f64(sm.along), f64(sm.height)] } else { t += ["-", "-", "-", "-"] }
+        if let r = p.restingBall { t += [phaseToken(r.sample.phase), f64(r.sample.x), f64(r.sample.along), f64(r.sample.height), f64(r.until)] } else { t += ["-", "-", "-", "-", "-"] }
+        if case .throwing = s.phase { t.append("1") } else { t.append("0") }
+        t += [i(s.round.ballsLeft), f64(p.anticipation), f64(p.shake), s.ball.rawValue]
+        let cues = p.cues.compactMap(cueToken)
+        t.append(cues.isEmpty ? "-" : cues.joined(separator: ","))
+        let ball = cab.ball
+        let q = ball.simdOrientation
+        t += v(ball.simdPosition) + [f(q.real), f(q.imag.x), f(q.imag.y), f(q.imag.z), f(ball.simdScale.x), b(ball.isHidden)]
+        let sh = cab.shadow
+        let sq = sh.simdOrientation
+        t += v(sh.simdPosition) + [f(sq.real), f(sq.imag.x), f(sq.imag.y), f(sq.imag.z), f(sh.simdScale.x), f(Float(sh.opacity)), b(sh.isHidden)]
+        t.append(i(cab.waiting.filter { !$0.isHidden }.count))
+        t += v(cab.camera.simdPosition)
+        g.line(t)
+        frame += 1
+    }
+    send(.pull(.one))
+    while p.isBusy { step(record: false) }
+    for l in launches {
+        send(.throwBall(l))
+        while p.isBusy { step(record: true) }
+        for _ in 0..<40 { step(record: true) }
+    }
+}
+replay(seed: 7, throws: [Launch(power: 0.62, aim: 0.01), Launch(power: 0.05, aim: -0.03), Launch(power: 0.9, aim: 0.05, spin: 0.4)], tag: "a")
 
 try g.write()

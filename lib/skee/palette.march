@@ -45,7 +45,7 @@ mod Skee.Palette do
     mix(a, of_hex(0), t)
   end
 
-  doc """Two tints with the same bits in every channel."""
+  doc """Two tints with the same value in every channel."""
   fn same_tint(a : Tint, b : Tint) : Bool needs () do
     a.red == b.red && a.green == b.green && a.blue == b.blue
   end
