@@ -1,0 +1,325 @@
+mod RunDigest do
+
+  -- A 32-bit digest of a run: tools/golden/Sources/golden-run/digest.swift, word
+  -- for word. Every function takes the digest so far and returns the next one.
+  -- Enums go in as their Swift allCases index; lists carry a count and optionals
+  -- a tag, so two different shapes cannot feed the same words.
+  fn start() : Int do
+    2166136261
+  end
+
+  fn mask32() : Int do
+    4294967295
+  end
+
+  -- h * 16777619 mod 2^32, as h * 403 + h * 2^24. A plain product passes 2^53.
+  fn times_prime(h : Int) : Int do
+    int_and(h * 403 + int_and(h, 255) * 16777216, mask32())
+  end
+
+  fn word(h : Int, x : Int) : Int do
+    let m = times_prime(int_xor(h, x))
+    int_xor(m, int_shr(m, 15))
+  end
+
+  fn int(h : Int, x : Int) : Int do
+    word(h, int_and(x, mask32()))
+  end
+
+  fn ints(h : Int, xs : List(Int)) : Int do
+    List.fold_left(xs, h, int)
+  end
+
+  fn bool(h : Int, x : Bool) : Int do
+    word(h, if x do 1 else 0 end)
+  end
+
+  fn u64(h : Int, x : Skee.U64.U64) : Int do
+    word(word(h, x.hi), x.lo)
+  end
+
+  fn float(h : Int, x : Float) : Int do
+    u64(h, GoldenIo.float_bits(x))
+  end
+
+  fn text(h : Int, s : String) : Int do
+    let n = String.byte_size(s)
+    List.fold_left(List.range(0, n), int(h, n), fn (acc, i) -> word(acc, string_byte_at(s, i)))
+  end
+
+  fn list(h : Int, xs : List(a), one : Int -> a -> Int) : Int do
+    List.fold_left(xs, int(h, List.length(xs)), one)
+  end
+
+  fn option(h : Int, x : Option(a), one : Int -> a -> Int) : Int do
+    match x do
+    Some(v) -> one(word(h, 1), v)
+    None -> word(h, 0)
+    end
+  end
+
+  fn index_of(xs : List(a), x : a, i : Int) : Int do
+    match xs do
+    Nil -> panic("not in allCases")
+    Cons(y, rest) -> if x == y do i else index_of(rest, x, i + 1) end
+    end
+  end
+
+  fn hole_index(h : Hole) : Int do
+    Skee.Units.hole_rank(h)
+  end
+
+  fn symbol_index(s : Symbol) : Int do
+    match s do
+    Blank -> 0
+    Cherry -> 1
+    Lemon -> 2
+    Bell -> 3
+    BarSym -> 4
+    Seven -> 5
+    Diamond -> 6
+    Clover -> 7
+    end
+  end
+
+  fn charm_index(c : Charm) : Int do
+    index_of(Skee.Items.all_charms(), c, 0)
+  end
+
+  fn power_up_index(p : PowerUp) : Int do
+    index_of(Skee.Items.all_power_ups(), p, 0)
+  end
+
+  fn ball_index(b : BallKind) : Int do
+    index_of(Skee.Items.all_balls(), b, 0)
+  end
+
+  fn boss_index(b : Boss) : Int do
+    index_of(Skee.Items.all_bosses(), b, 0)
+  end
+
+  fn kind_index(k : RoundKind) : Int do
+    index_of(Skee.Items.all_round_kinds(), k, 0)
+  end
+
+  fn hole(h : Int, x : Hole) : Int do
+    int(h, hole_index(x))
+  end
+
+  fn symbol(h : Int, x : Symbol) : Int do
+    int(h, symbol_index(x))
+  end
+
+  fn charm(h : Int, c : Charm) : Int do
+    int(h, charm_index(c))
+  end
+
+  fn power_up(h : Int, p : PowerUp) : Int do
+    int(h, power_up_index(p))
+  end
+
+  fn tickets(h : Int, t : Tickets) : Int do
+    int(h, Skee.Units.tickets_int(t))
+  end
+
+  fn points(h : Int, p : Points) : Int do
+    int(h, Skee.Units.points_int(p))
+  end
+
+  fn chips(h : Int, c : Chips) : Int do
+    int(h, Skee.Units.chips_int(c))
+  end
+
+  fn pull(h : Int, p : Pull) : Int do
+    let stopped =
+      match p.stops do
+      Three(a, b, c) -> ints(h, [a, b, c])
+      end
+    int(bool(int(stopped, Skee.Units.bet_rank(p.bet)), p.free), Skee.Units.room_rank(p.pull_room))
+  end
+
+  fn record(h : Int, b : BallRecord) : Int do
+    let front = chips(symbol(hole(h, b.record_hole), b.record_symbol), b.record_chips)
+    let folded = float(int(front, b.rattles), b.record_fold)
+    bool(int(ints(bool(folded, b.foul), [b.slot_hits, b.record_combo]), ball_index(b.record_ball)), b.hot)
+  end
+
+  fn payline(h : Int, p : Payline) : Int do
+    match p do
+    NoLine -> word(h, 0)
+    Pair(s) -> symbol(word(h, 1), s)
+    Triple(s) -> symbol(word(h, 2), s)
+    end
+  end
+
+  fn source(h : Int, s : ScoreSource) : Int do
+    match s do
+    FromBase -> word(h, 0)
+    FromPull -> word(h, 1)
+    FromBall(i) -> int(word(h, 2), i)
+    FromSlot(i) -> int(word(h, 3), i)
+    FromPayline -> word(h, 4)
+    FromCharm(c) -> charm(word(h, 5), c)
+    FromFever -> word(h, 6)
+    FromFreeGame -> word(h, 7)
+    end
+  end
+
+  fn effect(h : Int, e : ScoreEffect) : Int do
+    match e do
+    SetBase(c, m) -> float(chips(word(h, 0), c), m)
+    AddChips(c) -> chips(word(h, 1), c)
+    AddMult(m) -> float(word(h, 2), m)
+    TimesMult(m) -> float(word(h, 3), m)
+    AddTickets(t) -> tickets(word(h, 4), t)
+    Note(n) -> text(word(h, 5), n)
+    end
+  end
+
+  fn step(h : Int, s : ScoreStep) : Int do
+    effect(source(h, s.source), s.effect)
+  end
+
+  fn frame(h : Int, f : FrameScore) : Int do
+    let front = list(payline(list(h, f.balls, record), f.payline), f.steps, step)
+    int(tickets(float(chips(front, f.frame_chips), f.mult), f.frame_tickets), f.streak_after)
+  end
+
+  fn round(h : Int, r : RoundState) : Int do
+    let front = int(points(int(h, kind_index(r.kind)), r.target), r.frames_total)
+    let balls = list(list(front, r.frames, frame), r.current_balls, record)
+    let armed = option(ints(balls, [r.streak, r.combo]), r.armed, power_up)
+    let hot = option(int(option(armed, r.round_pull, pull), r.free_left), r.round_hot, hole)
+    int(hot, Skee.Units.bet_rank(r.last_bet))
+  end
+
+  fn offer_words(h : Int, o : Offer) : Int do
+    match o do
+    OfferCharm(c) -> charm(word(h, 0), c)
+    OfferStamp(s) -> symbol(word(h, 1), s)
+    OfferGild -> word(h, 2)
+    OfferPurge -> word(h, 3)
+    OfferPowerUp(p) -> power_up(word(h, 4), p)
+    end
+  end
+
+  fn phase(h : Int, p : Phase) : Int do
+    match p do
+    Throwing -> word(h, 0)
+    AtCounter(c) -> do
+      let held = list(word(h, 1), c.offers, fn (acc, slot) -> option(acc, slot, offer_words))
+      tickets(held, c.reroll_cost)
+    end
+    Lost -> word(h, 2)
+    Won -> word(h, 3)
+    end
+  end
+
+  fn config(h : Int, c : RunConfig) : Int do
+    let counts = ints(h, [c.antes, c.frames_per_round, c.balls_per_frame])
+    let front = ints(tickets(counts, c.start_tickets), [c.charm_slots, c.power_up_slots, c.fever_heat])
+    let bases = float(list(front, c.ante_base, points), c.target_scale)
+    let kinds =
+      List.fold_left(Skee.Items.all_round_kinds(), bases, fn (acc, k) ->
+        tickets(float(acc, Skee.Items.per_round_at(c.kind_scale, k)), Skee.Items.per_round_at(c.round_tickets, k))
+      )
+    ints(float(kinds, c.overkill_step), [c.overkill_cap, c.interest_per, c.interest_cap, c.offer_count])
+  end
+
+  fn or_zero(x : Option(Int)) : Int do
+    match x do
+    Some(n) -> n
+    None -> 0
+    end
+  end
+
+  fn reel(h : Int, s : RunState, hole_at : Hole) : Int do
+    let symbols = list(h, Skee.Scoring.reel(s.setup, hole_at), symbol)
+    let gild =
+      match Skee.HoleMap.reel_at(s.setup.gild, hole_at) do
+      Some(c) -> Skee.Units.chips_int(c)
+      None -> 0
+      end
+    int(int(symbols, gild), or_zero(Skee.HoleMap.reel_at(s.reel_stops, hole_at)))
+  end
+
+  fn stats(h : Int, t : RunStats) : Int do
+    let holes =
+      List.fold_left(Skee.HoleMap.all_holes(), int(h, t.stat_balls), fn (acc, x) -> int(acc, Skee.HoleMap.at(t.stat_holes, x)))
+    let front = points(ints(holes, [t.jackpots, t.stat_rattles]), t.best_frame)
+    let tiers = t.jackpot_tiers
+    let counted =
+      ints(front, [t.pulls, t.free_games, tiers.mini, tiers.minor, tiers.major, tiers.grand])
+    int(points(counted, t.points), t.rounds_cleared)
+  end
+
+  doc """The digest of a whole state."""
+  fn run(s : RunState) : Int do
+    let front = int(int(config(start(), s.config), ball_index(s.ball)), Skee.Units.room_rank(s.room))
+    let seeded = u64(u64(front, s.rng.word), s.seed)
+    let phased = phase(round(int(int(seeded, s.ante), boss_index(s.boss)), s.round), s.phase)
+    let reels = List.fold_left(Skee.HoleMap.reel_holes(), phased, fn (acc, x) -> reel(acc, s, x))
+    let slotted =
+      match s.top_slot.targets do
+      Three(a, b, c) -> symbol(symbol(symbol(reels, a), b), c)
+      end
+    let items = list(list(slotted, s.charms, charm), s.power_ups, power_up)
+    stats(bool(int(tickets(items, s.tickets), s.heat), s.fever), s.stats)
+  end
+
+  fn shot_event(h : Int, e : ShotEvent) : Int do
+    match e do
+    ShotDud -> word(h, 0)
+    ShotRail -> word(h, 1)
+    ShotLaunched -> word(h, 2)
+    ShotLanded -> word(h, 3)
+    ShotLip(ring) -> int(word(h, 4), ring)
+    ShotBackwall -> word(h, 5)
+    ShotHop -> word(h, 6)
+    ShotDropped(x) -> hole(word(h, 7), x)
+    ShotSettled(x) -> hole(word(h, 8), x)
+    ShotGutter -> word(h, 9)
+    end
+  end
+
+  -- Everything but a shot's floats: those depend on libm, the rest is the
+  -- reducer's to pass on. `detail` covers the floats.
+  fn event(h : Int, e : GameEvent) : Int do
+    match e do
+    Pulled(p) -> pull(word(h, 0), p)
+    FreeGamesWon(n) -> int(word(h, 1), n)
+    JackpotHit(t) -> int(word(h, 2), Skee.Units.tier_rank(t))
+    Shot(s, r) -> record(list(hole(word(h, 3), s.hole), s.events, fn (acc, x) -> shot_event(acc, x.event)), r)
+    Fouled -> word(h, 4)
+    FrameScored(f) -> frame(word(h, 5), f)
+    FeverLit -> word(h, 6)
+    RoundCleared(score, target, p) -> do
+      tickets(tickets(tickets(points(points(word(h, 7), score), target), p.base), p.overkill), p.interest)
+    end
+    RoundFailed(score, target) -> points(points(word(h, 8), score), target)
+    CounterOpened -> word(h, 9)
+    Bought(o) -> offer_words(word(h, 10), o)
+    Sold(c) -> charm(word(h, 11), c)
+    Rerolled -> word(h, 12)
+    Armed(p) -> power_up(word(h, 13), p)
+    BallChosen(b) -> int(word(h, 14), ball_index(b))
+    RoundStarted(k, target) -> points(int(word(h, 15), kind_index(k)), target)
+    AnteStarted(a, b) -> int(int(word(h, 16), a), boss_index(b))
+    RunWon -> word(h, 17)
+    end
+  end
+
+  doc """The digest of a step's events, in order."""
+  fn events(xs : List(GameEvent)) : Int do
+    list(start(), xs, event)
+  end
+
+  doc """The floats of one shot, for measuring libm drift."""
+  fn detail(s : ShotResult) : Int do
+    let times = list(start(), s.events, fn (acc, x) -> float(acc, x.at))
+    let hinge = option(times, s.hinge_speed, float)
+    let landing = option(hinge, s.first_landing, fn (acc, v) -> float(float(acc, v.x), v.y))
+    int(float(float(landing, s.peak_height), s.duration), List.length(s.path))
+  end
+
+end

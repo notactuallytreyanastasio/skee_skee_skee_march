@@ -52,10 +52,828 @@ mod ReducerSuite do
     ])
   end
 
+  -- ---- Helpers ----
+  fn act(a : Action, s : RunState) : Result(Step, ActionError) do
+    apply(consts(), a, s)
+  end
+
+  fn step_of(r : Result(Step, ActionError)) : Step do
+    match r do
+    Ok(step) -> step
+    Err(e) -> panic("action refused: " ++ show(e))
+    end
+  end
+
+  fn after(a : Action, s : RunState) : RunState do
+    let step = step_of(act(a, s))
+    step.run
+  end
+
+  fn events_after(a : Action, s : RunState) : List(GameEvent) do
+    let step = step_of(act(a, s))
+    step.step_events
+  end
+
+  fn expect_err(r : Result(Step, ActionError), want : ActionError, what : String) : Outcome do
+    match r do
+    Ok(_) -> Mismatch(what ++ ": expected " ++ show(want) ++ ", it succeeded")
+    Err(e) -> expect(e == want, what ++ ": got " ++ show(e) ++ ", want " ++ show(want))
+    end
+  end
+
+  fn tickets_of(s : RunState) : Int do
+    Skee.Units.tickets_int(s.tickets)
+  end
+
+  fn a_throw() : Launch do
+    Skee.Physics.launch_of_power(consts(), 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+  end
+
+  -- `apply`, pulling the lever first (one line, free) when a ball needs it, for
+  -- tests about balls rather than the pull: Swift's `play`.
+  fn play(a : Action, s0 : RunState) : Result(Step, ActionError) do
+    let needs_pull =
+      match (s0.round.round_pull, s0.phase, a) do
+      (None, Throwing, ThrowBall(_)) -> true
+      (None, Throwing, CommitFoul) -> true
+      (_, _, _) -> false
+      end
+    let s =
+      if needs_pull do
+        match act(PullLever(BetOne), s0) do
+        Ok(step) -> step.run
+        Err(_) -> s0
+        end
+      else
+        s0
+      end
+    act(a, s)
+  end
+
+  fn is_pulled(e : GameEvent) : Bool do
+    match e do
+    Pulled(_) -> true
+    _ -> false
+    end
+  end
+
+  -- ---- The pull ----
+  fn no_ball_before_the_pull() : Outcome do
+    let s = run_of(4)
+    all([
+      expect_err(act(ThrowBall(a_throw()), s), NeedsPull, "throw"),
+      expect_err(act(CommitFoul, s), NeedsPull, "foul")
+    ])
+  end
+
+  fn the_pull_costs_its_bet_and_sets_the_targets() : Outcome do
+    let s0 = run_of(4)
+    let step = step_of(act(PullLever(BetFive), s0))
+    let s = step.run
+    let events = step.step_events
+    let targets =
+      match s.round.round_pull do
+      Some(p) -> show(Skee.Scoring.targets(p))
+      None -> "no pull"
+      end
+    all([
+      expect_int(tickets_of(s), tickets_of(s0) - 2, "tickets"),
+      expect_string(show(s.top_slot.targets), targets, "targets"),
+      expect(List.any(List.take(events, 1), is_pulled), "first event"),
+      expect_err(act(PullLever(BetOne), s), AlreadyPulled, "second pull")
+    ])
+  end
+
+  fn a_bet_you_cant_afford_is_refused() : Outcome do
+    let s = { run_of(4) with tickets: Tickets(1) }
+    expect_err(act(PullLever(BetFive), s), CantAfford, "pull")
+  end
+
+  fn every_pull_picks_a_hot_spot() : Outcome do
+    all(List.map(List.range(1, 31), fn seed ->
+      do
+        let s = after(PullLever(BetOne), run_of(seed))
+        match s.round.round_hot do
+        Some(hot) -> expect(List.member(Skee.Physics.hot_spots(), hot) && hot != Ring10 && hot != Gutter, "hot " ++ show(hot))
+        None -> Mismatch("no hot spot")
+        end
+      end
+    ))
+  end
+
+  fn jackpot_seed(seed : Int) : Outcome do
+    if seed >= 4000 do
+      Mismatch("no jackpot in 4000 pulls")
+    else
+      do
+        let s = { run_of(seed) with tickets: Tickets(10) }
+        let step = step_of(act(PullLever(BetFive), s))
+        let after_pull = step.run
+        let tier =
+          match after_pull.round.round_pull do
+          Some(p) -> Skee.Scoring.jackpot(p)
+          None -> None
+          end
+        match tier do
+        None -> jackpot_seed(seed + 1)
+        Some(t) -> do
+          let tiers = after_pull.stats.jackpot_tiers
+          let count =
+            match t do
+            Mini -> tiers.mini
+            Minor -> tiers.minor
+            Major -> tiers.major
+            Grand -> tiers.grand
+            end
+          all([
+            expect(List.any(step.step_events, fn e -> is_jackpot_of(e, t)), "jackpot event"),
+            expect_int(count, 1, "tier count")
+          ])
+        end
+        end
+      end
+    end
+  end
+
+  fn is_jackpot_of(e : GameEvent, t : JackpotTier) : Bool do
+    match e do
+    JackpotHit(x) -> x == t
+    _ -> false
+    end
+  end
+
+  fn a_room_runs_on_its_own_table() : Outcome do
+    let k = consts()
+    let s = new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Penthouse, Tickets(0))
+    let t = table_for(k, s)
+    let room_table = Skee.Rooms.table(k, Penthouse)
+    let pulled = after(PullLever(BetOne), s)
+    let room_of_pull =
+      match pulled.round.round_pull do
+      Some(p) -> p.pull_room == Penthouse
+      None -> false
+      end
+    all([
+      expect(s.room == Penthouse, "room"),
+      expect(t.board.tilt == room_table.board.tilt, "tilt"),
+      expect(room_of_pull, "pull room"),
+      expect_int(tickets_of(new_run(k, Skee.U64.of_int(5), Skee.Types.standard_config(), Boardwalk, Tickets(2))), 6, "extra tickets")
+    ])
+  end
+
+  fn feather_ball_ignores_lips() : Outcome do
+    let s = run_of(1)
+    let armed = { s with round: { s.round with armed: Some(Feather) } }
+    let t = table_for(consts(), armed)
+    expect(t.board.lip_band == 0.0, "lip band")
+  end
+
+  fn choosing_a_ball_is_free() : Outcome do
+    let s0 = run_of(1)
+    let s = after(ChooseBall(Comet), s0)
+    expect(s.ball == Comet && tickets_of(s) == tickets_of(s0), "ball chosen")
+  end
+
+  fn arming_takes_the_item() : Outcome do
+    let s0 = run_of(1)
+    let s = { s0 with power_ups: [Hold, GoldenBall] }
+    let armed = after(Arm(1), s)
+    all([
+      expect(armed.round.armed == Some(GoldenBall), "armed"),
+      expect(armed.power_ups == [Hold], "left"),
+      expect_err(act(Arm(0), armed), AlreadyArmed, "second"),
+      expect_err(act(Arm(2), s), NoSuchItem, "past the end"),
+      expect_err(act(Arm(-1), s), NoSuchItem, "negative")
+    ])
+  end
+
+  fn outside_the_lane_is_rejected() : Outcome do
+    let s = { run_of(1) with phase: Skee.Types.Lost }
+    let c = { s with phase: AtCounter({ offers: [], reroll_cost: Tickets(1) }) }
+    all([
+      expect_err(act(ThrowBall(a_throw()), s), WrongPhase, "throw when lost"),
+      expect_err(act(PullLever(BetOne), s), WrongPhase, "pull when lost"),
+      expect_err(act(CommitFoul, c), WrongPhase, "foul at the counter"),
+      expect_err(act(ChooseBall(Comet), c), WrongPhase, "ball at the counter"),
+      expect_err(act(Arm(0), c), WrongPhase, "arm at the counter")
+    ])
+  end
+
+  -- ---- Throwing ----
+  -- Swift's launch(for:): the first straight-ish launch that lands in `hole`.
+  fn scan_power(t : Table, hole : Hole, aim : Float, start : Float, i : Int) : Option(Launch) do
+    if i > 200 do
+      None
+    else
+      do
+        let k = consts()
+        let l = Skee.Physics.launch_of_power(k, int_to_float(i) /. 200.0, aim, start, 0.0, 0.0, 0.0)
+        let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.of_int(0))
+        if r.hole == hole do Some(l) else scan_power(t, hole, aim, start, i + 1) end
+      end
+    end
+  end
+
+  fn scan_pairs(t : Table, hole : Hole, pairs : List((Float, Float))) : Option(Launch) do
+    match pairs do
+    Nil -> None
+    Cons((aim, start), rest) -> do
+      match scan_power(t, hole, aim, start, 0) do
+      Some(l) -> Some(l)
+      None -> scan_pairs(t, hole, rest)
+      end
+    end
+    end
+  end
+
+  fn launch_for(hole : Hole, t : Table) : Launch do
+    let pairs =
+      List.flat_map([0.0, 0.3, -0.3, 0.6, -0.6, 1.0, -1.0], fn aim -> List.map([0.0, 1.0, -1.0], fn start -> (aim, start)))
+    match scan_pairs(t, hole, pairs) do
+    Some(l) -> l
+    None -> panic("no launch reaches " ++ show(hole))
+    end
+  end
+
+  -- Swift's throwing(_:_:times:): that many balls into `hole`, pulling as needed.
+  fn throwing(s : RunState, hole : Hole, times : Int, events : List(GameEvent)) : (RunState, List(GameEvent)) do
+    if times == 0 do
+      (s, events)
+    else
+      do
+        let step = step_of(play(ThrowBall(launch_for(hole, table_for(consts(), s))), s))
+        throwing(step.run, hole, times - 1, List.append(events, step.step_events))
+      end
+    end
+  end
+
+  fn fouls(s : RunState, times : Int) : RunState do
+    if times == 0 do s else fouls(after(CommitFoul, s), times - 1) end
+  end
+
+  fn played_fouls(s : RunState, times : Int) : RunState do
+    if times == 0 do s else played_fouls(step_run(play(CommitFoul, s)), times - 1) end
+  end
+
+  fn step_run(r : Result(Step, ActionError)) : RunState do
+    let step = step_of(r)
+    step.run
+  end
+
+  fn is_frame_scored(e : GameEvent) : Bool do
+    match e do
+    FrameScored(_) -> true
+    _ -> false
+    end
+  end
+
+  fn is_round_cleared(e : GameEvent) : Bool do
+    match e do
+    RoundCleared(_, _, _) -> true
+    _ -> false
+    end
+  end
+
+  fn is_run_won(e : GameEvent) : Bool do
+    match e do
+    RunWon -> true
+    _ -> false
+    end
+  end
+
+  fn is_fever_lit(e : GameEvent) : Bool do
+    match e do
+    FeverLit -> true
+    _ -> false
+    end
+  end
+
+  fn is_fouled(e : GameEvent) : Bool do
+    match e do
+    Fouled -> true
+    _ -> false
+    end
+  end
+
+  fn is_lost(s : RunState) : Bool do
+    match s.phase do
+    Lost -> true
+    Throwing -> false
+    AtCounter(_) -> false
+    Won -> false
+    end
+  end
+
+  fn is_won(s : RunState) : Bool do
+    match s.phase do
+    Won -> true
+    Throwing -> false
+    AtCounter(_) -> false
+    Lost -> false
+    end
+  end
+
+  fn with_target(s : RunState, n : Int) : RunState do
+    { s with round: { s.round with target: Points(n) } }
+  end
+
+  fn points_of(p : Points) : Int do
+    Skee.Units.points_int(p)
+  end
+
+  fn three_balls_make_a_frame() : Outcome do
+    let (s, events) = throwing(run_of(1), Ring30, 3, [])
+    all([
+      expect_int(List.length(s.round.frames), 1, "frames"),
+      expect_int(List.length(s.round.current_balls), 0, "current balls"),
+      expect(List.any(events, is_frame_scored), "frame scored"),
+      expect_int(points_of(round_score(s.round)), points_of(frame_total_at(s, 0)), "score"),
+      expect_int(points_of(s.stats.points), points_of(round_score(s.round)), "stats points"),
+      expect(points_of(s.stats.points) > 0, "points")
+    ])
+  end
+
+  fn frame_total_at(s : RunState, i : Int) : Points do
+    match List.nth_opt(s.round.frames, i) do
+    Some(f) -> Skee.Scoring.frame_total(f)
+    None -> Points(-1)
+    end
+  end
+
+  fn clearing_a_round_opens_the_counter_and_pays() : Outcome do
+    let s = with_target(run_of(1), 10)
+    let (done, events) = throwing(s, Ring10, 9, [])
+    let offers =
+      match done.phase do
+      AtCounter(c) -> List.length(c.offers)
+      Throwing -> -1
+      Lost -> -1
+      Won -> -1
+      end
+    all([
+      expect_int(offers, 4, "offers"),
+      expect(tickets_of(done) > tickets_of(s), "tickets"),
+      expect(List.any(events, is_round_cleared), "cleared")
+    ])
+  end
+
+  fn missing_the_target_ends_the_run() : Outcome do
+    let (done, _) = throwing(with_target(run_of(1), 1000000), Gutter, 9, [])
+    expect(is_lost(done), "lost")
+  end
+
+  fn beating_the_last_boss_wins_the_run() : Outcome do
+    let s0 = run_of(1)
+    let s =
+      { s0 with ante: s0.config.antes, boss: TallLips, round: { s0.round with kind: BossRound, target: Points(10), frames_total: 3 } }
+    let (done, events) = throwing(s, Ring10, 9, [])
+    all([expect(is_won(done), "won"), expect(List.any(events, is_run_won), "event")])
+  end
+
+  fn ball_takes_the_symbol_showing_when_thrown() : Outcome do
+    let s = run_of(11)
+    let shown = showing(s, Ring30)
+    let (done, _) = throwing(s, Ring30, 1, [])
+    match done.round.current_balls do
+    Cons(b, _) -> expect(b.record_symbol == shown, "symbol")
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  -- A derived Show of a generic record has no JS implementation.
+  fn stops_text(s : RunState) : String do
+    let r = s.reel_stops
+    String.join(List.map([r.reel10, r.reel20, r.reel30, r.reel40, r.reel50, r.reel_left, r.reel_right], int_to_string), ",")
+  end
+
+  fn reels_spin_after_every_ball() : Outcome do
+    let s0 = run_of(12)
+    let s = step_run(play(CommitFoul, s0))
+    expect(stops_text(s) != stops_text(s0), "stops moved")
+  end
+
+  fn hold_keeps_the_reels_still() : Outcome do
+    let s0 = run_of(13)
+    let s = after(Arm(0), { s0 with power_ups: [Hold] })
+    let (done, _) = throwing(s, Ring20, 1, [])
+    expect_string(stops_text(done), stops_text(s), "stops")
+  end
+
+  fn golden_ball_triples_chips() : Outcome do
+    let s0 = run_of(1)
+    let s = after(Arm(0), { s0 with power_ups: [GoldenBall] })
+    let (done, _) = throwing(s, Ring30, 1, [])
+    match done.round.current_balls do
+    Cons(b, _) -> all([
+      expect_int(Skee.Units.chips_int(b.record_chips), if b.hot do 216 else 108 end, "chips"),
+      expect(done.round.armed == None, "disarmed"),
+      expect(List.is_empty(done.power_ups), "used")
+    ])
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  fn wild_ball_is_a_clover() : Outcome do
+    let s0 = run_of(1)
+    let s = { s0 with round: { s0.round with armed: Some(WildBall) } }
+    let (done, _) = throwing(s, Ring20, 1, [])
+    match done.round.current_balls do
+    Cons(b, _) -> expect(b.record_symbol == Clover, "symbol")
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  fn is_fever_step(st : ScoreStep) : Bool do
+    match st.source do
+    FromFever -> true
+    _ -> false
+    end
+  end
+
+  fn full_heat_lights_fever_for_the_next_frame() : Outcome do
+    let s = { run_of(1) with heat: 9 }
+    let (lit, events) = throwing(s, Gutter, 3, [])
+    let (next, _) = throwing(lit, Ring10, 3, [])
+    let fevered =
+      match List.nth_opt(next.round.frames, 1) do
+      Some(f) -> List.any(f.steps, is_fever_step)
+      None -> false
+      end
+    all([
+      expect(lit.fever, "fever"),
+      expect(List.any(events, is_fever_lit), "event"),
+      expect(fevered, "fever step"),
+      expect(!next.fever, "spent")
+    ])
+  end
+
+  fn every_frame_needs_a_new_pull() : Outcome do
+    let s = played_fouls(run_of(4), 3)
+    all([
+      expect_int(List.length(s.round.frames), 1, "frames"),
+      expect(no_pull(s), "pull gone")
+    ])
+  end
+
+  fn no_pull(s : RunState) : Bool do
+    match s.round.round_pull do
+    None -> true
+    Some(_) -> false
+    end
+  end
+
+  fn a_foul_spends_a_ball_for_nothing() : Outcome do
+    let s = run_of(4)
+    let step = step_of(play(CommitFoul, s))
+    let done = step.run
+    match done.round.current_balls do
+    Cons(b, _) -> all([
+      expect(b.foul, "foul"),
+      expect_int(Skee.Units.chips_int(b.record_chips), 0, "chips"),
+      expect(b.record_symbol == Blank, "symbol"),
+      expect(List.any(step.step_events, is_fouled), "event"),
+      expect_int(balls_left(done.round), balls_left(s.round) - 1, "balls left"),
+      expect_int(done.heat, s.heat, "heat")
+    ])
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  -- PullTests' pull(centre:): a stop whose next row shows `want`.
+  fn stop_showing(strip : List(ReelSymbol), want : ReelSymbol, i : Int) : Int do
+    if i >= List.length(strip) do
+      panic("no such symbol")
+    else
+      if List.nth(strip, (i + 1) % List.length(strip)) == want do
+        i
+      else
+        stop_showing(strip, want, i + 1)
+      end
+    end
+  end
+
+  fn pull_showing(a : ReelSymbol, b : ReelSymbol, c : ReelSymbol, bet : Bet) : Pull do
+    match Skee.Rooms.base_strips() do
+    Three(left, middle, right) -> {
+      stops: Three(stop_showing(left, a, 0), stop_showing(middle, b, 0), stop_showing(right, c, 0)),
+      bet: bet,
+      free: false,
+      pull_room: Boardwalk
+    }
+    end
+  end
+
+  fn line_wins_are_banked_into_the_frame() : Outcome do
+    let s0 = run_of(4)
+    let s = { s0 with round: { s0.round with round_pull: Some(pull_showing(ReelBell, ReelBell, ReelBell, BetOne)) } }
+    let done = fouls(s, 3)
+    match done.round.frames do
+    Cons(f, _) -> all([
+      expect(List.any(f.steps, is_pull_40), "pull step"),
+      expect_int(points_of(Skee.Scoring.frame_total(f)), 40, "total")
+    ])
+    Nil -> Mismatch("no frame")
+    end
+  end
+
+  fn is_pull_40(st : ScoreStep) : Bool do
+    match (st.source, st.effect) do
+    (FromPull, AddChips(Chips(40))) -> true
+    (_, _) -> false
+    end
+  end
+
+  fn free_games_add_frames_the_player_does_not_pull() : Outcome do
+    let s0 = run_of(4)
+    let frames = s0.round.frames_total
+    let n = Skee.Scoring.free_games_awarded()
+    let pulled = after(PullLever(BetThree), s0)
+    let forced =
+      { pulled with round: { pulled.round with round_pull: Some(pull_showing(ReelBonus, ReelBonus, ReelBonus, BetThree)), free_left: n, frames_total: pulled.round.frames_total + n } }
+    let s = fouls(forced, 3)
+    match s.round.round_pull do
+    Some(next) -> all([
+      expect(next.free && next.bet == BetThree, "free at the same bet"),
+      expect_int(s.round.free_left, n - 1, "free left"),
+      expect_int(s.round.frames_total, frames + n, "frames total")
+    ])
+    None -> Mismatch("the machine did not pull")
+    end
+  end
+
+  fn combo_chains_on_hits_and_breaks_on_a_miss() : Outcome do
+    let k = consts()
+    let s0 = after(PullLever(BetOne), run_of(1))
+    let s1 = { s0 with top_slot: { targets: Three(showing(s0, Ring30), Diamond, Diamond) } }
+    let first = step_run(play(ThrowBall(launch_for(Ring30, table_for(k, s1))), s1))
+    let s2 = { first with top_slot: { targets: Three(showing(first, Ring30), Diamond, Diamond) } }
+    let second = step_run(play(ThrowBall(launch_for(Ring30, table_for(k, s2))), s2))
+    let broken = step_run(play(CommitFoul, second))
+    let last_combo =
+      match List.reverse(second.round.current_balls) do
+      Cons(b, _) -> b.record_combo
+      Nil -> -1
+      end
+    all([
+      expect_int(first.round.combo, 1, "first"),
+      expect_int(second.round.combo, 2, "second"),
+      expect_int(last_combo, 2, "record"),
+      expect_int(broken.round.combo, 0, "broken")
+    ])
+  end
+
+  fn a_chosen_ball_stays() : Outcome do
+    let s = after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(Comet), run_of(1))))
+    match s.round.current_balls do
+    Cons(b, _) -> expect(s.ball == Comet && b.record_ball == Comet, "ball")
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  fn chips_for_ball(ball : BallKind) : Outcome do
+    let s = after(ThrowBall(a_throw()), after(PullLever(BetOne), after(ChooseBall(ball), run_of(3))))
+    match s.round.current_balls do
+    Cons(b, _) -> do
+      let base = int_to_float(Skee.Units.chips_int(Skee.Scoring.hole_chips(s.setup, b.record_hole)))
+      let hot = if b.hot do 2.0 else 1.0 end
+      let want = float_round(base *. Skee.Items.pay(ball) *. hot)
+      all([
+        expect_int(Skee.Units.chips_int(b.record_chips), want, "chips"),
+        expect(b.hot == (Some(b.record_hole) == s.round.round_hot), "hot")
+      ])
+    end
+    Nil -> Mismatch("no ball")
+    end
+  end
+
+  fn replay_actions() : List(Action) do
+    List.flat_map(List.range(0, 9), fn i ->
+      do
+        let ball = ThrowBall(Skee.Physics.launch_of_power(consts(), 0.4 +. int_to_float(i) *. 0.03, 0.0, 0.0, 0.0, 0.0, 0.0))
+        if i % 3 == 0 do [PullLever(BetThree), ball] else [ball] end
+      end
+    )
+  end
+
+  fn replayed() : RunState do
+    List.fold_left(replay_actions(), run_of(9), fn (s, a) -> after(a, s))
+  end
+
+  fn replay_is_exact() : Outcome do
+    let a = replayed()
+    let b = replayed()
+    all([
+      expect(Skee.U64.equal(a.rng.word, b.rng.word), "rng"),
+      expect_string(stops_text(a), stops_text(b), "stops"),
+      expect_int(tickets_of(a), tickets_of(b), "tickets")
+    ])
+  end
+
+  -- ---- The prize counter ----
+  fn counter(offers : List(Offer)) : Phase do
+    AtCounter({ offers: List.map(offers, fn o -> Some(o)), reroll_cost: Tickets(1) })
+  end
+
+  fn at_counter(offers : List(Offer), tickets : Int) : RunState do
+    { run_of(2) with tickets: Tickets(tickets), phase: counter(offers) }
+  end
+
+  fn offers_of(s : RunState) : List(Option(Offer)) do
+    match s.phase do
+    AtCounter(c) -> c.offers
+    Throwing -> []
+    Lost -> []
+    Won -> []
+    end
+  end
+
+  fn reroll_cost_of(s : RunState) : Int do
+    match s.phase do
+    AtCounter(c) -> Skee.Units.tickets_int(c.reroll_cost)
+    Throwing -> -1
+    Lost -> -1
+    Won -> -1
+    end
+  end
+
+  fn buying_a_charm_costs_tickets() : Outcome do
+    let s = after(Buy(0, None), at_counter([OfferCharm(MultBall)], 20))
+    all([
+      expect(s.charms == [MultBall], "charms"),
+      expect_int(tickets_of(s), 20 - Skee.Units.tickets_int(Skee.Items.charm_cost(MultBall)), "tickets"),
+      expect(offers_of(s) == [None], "slot emptied")
+    ])
+  end
+
+  fn cannot_afford_it() : Outcome do
+    expect_err(act(Buy(0, None), at_counter([OfferCharm(ExtraBall)], 2)), CantAfford, "buy")
+  end
+
+  fn no_such_offer() : Outcome do
+    let s = at_counter([OfferCharm(MultBall)], 20)
+    let bought = after(Buy(0, None), s)
+    all([
+      expect_err(act(Buy(1, None), s), NoSuchOffer, "past the end"),
+      expect_err(act(Buy(-1, None), s), NoSuchOffer, "negative"),
+      expect_err(act(Buy(0, None), bought), NoSuchOffer, "already bought")
+    ])
+  end
+
+  fn charm_slots_are_limited() : Outcome do
+    let s = { at_counter([OfferCharm(MultBall)], 20) with charms: [LuckyPenny, Ladder, HeavyHand, GutterRat, NearMiss] }
+    expect_err(act(Buy(0, None), s), SlotsFull, "buy")
+  end
+
+  fn power_up_slots_are_limited() : Outcome do
+    let s = { at_counter([OfferPowerUp(Hold)], 20) with power_ups: [Feather, Magnet] }
+    expect_err(act(Buy(0, None), s), SlotsFull, "buy")
+  end
+
+  fn stamp_adds_a_symbol_to_a_reel() : Outcome do
+    let before = at_counter([OfferStamp(Seven)], 20)
+    let s = after(Buy(0, Some(Ring40)), before)
+    expect(Skee.Scoring.reel(s.setup, Ring40) == List.append(Skee.Scoring.reel(before.setup, Ring40), [Seven]), "reel")
+  end
+
+  fn purge_removes_the_showing_symbol() : Outcome do
+    let before0 = at_counter([OfferPurge], 20)
+    let before = { before0 with reel_stops: Skee.HoleMap.reel_put(before0.reel_stops, Ring10, 2) }
+    let s = after(Buy(0, Some(Ring10)), before)
+    all([
+      expect(Skee.Scoring.reel(s.setup, Ring10) == [Cherry, Cherry, Cherry, Bell], "reel"),
+      expect(Skee.HoleMap.reel_at(s.reel_stops, Ring10) == Some(0), "stop reset")
+    ])
+  end
+
+  fn purge_leaves_at_least_one_symbol() : Outcome do
+    let before0 = at_counter([OfferPurge], 20)
+    let setup = before0.setup
+    let before = { before0 with setup: { setup with reels: Skee.HoleMap.reel_put(setup.reels, Ring10, [Cherry]) } }
+    expect_err(act(Buy(0, Some(Ring10)), before), ReelTooShort, "buy")
+  end
+
+  fn stamp_needs_a_target() : Outcome do
+    all([
+      expect_err(act(Buy(0, None), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "none"),
+      expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferStamp(Seven)], 20)), NeedsTarget, "gutter"),
+      expect_err(act(Buy(0, None), at_counter([OfferPurge], 20)), NeedsTarget, "purge"),
+      expect_err(act(Buy(0, Some(Gutter)), at_counter([OfferGild], 20)), NeedsTarget, "gild")
+    ])
+  end
+
+  fn gild_adds_chips_to_a_hole() : Outcome do
+    let s = after(Buy(0, Some(Ring20)), at_counter([OfferGild], 20))
+    expect_int(Skee.Units.chips_int(Skee.Scoring.hole_chips(s.setup, Ring20)), 30, "chips")
+  end
+
+  fn selling_a_charm_refunds_half() : Outcome do
+    let s = after(Sell(0), { at_counter([], 20) with charms: [GlassCannon] })
+    all([
+      expect(List.is_empty(s.charms), "charms"),
+      expect_int(tickets_of(s), 20 + Skee.Units.tickets_int(Skee.Items.charm_cost(GlassCannon)) / 2, "tickets"),
+      expect_err(act(Sell(0), s), NoSuchItem, "nothing left"),
+      expect_err(act(Sell(-1), s), NoSuchItem, "negative")
+    ])
+  end
+
+  fn run_at_counter(seed : Int) : RunState do
+    let s = with_target({ run_of(seed) with tickets: Tickets(10) }, 1)
+    let (done, _) = throwing(s, Ring10, 9, [])
+    done
+  end
+
+  fn reroll_is_deterministic_and_gets_pricier() : Outcome do
+    let s = run_at_counter(3)
+    let a = after(Reroll, s)
+    let b = after(Reroll, s)
+    let broke = { s with tickets: Tickets(0) }
+    all([
+      expect(offers_of(a) == offers_of(b), "same offers"),
+      expect_int(reroll_cost_of(a), 2, "cost"),
+      expect_int(tickets_of(a), tickets_of(s) - 1, "tickets"),
+      expect_err(act(Reroll, broke), CantAfford, "broke")
+    ])
+  end
+
+  fn counter_actions_outside_are_rejected() : Outcome do
+    let s = run_of(1)
+    all([
+      expect_err(act(Buy(0, None), s), WrongPhase, "buy"),
+      expect_err(act(Reroll, s), WrongPhase, "reroll"),
+      expect_err(act(Sell(0), s), WrongPhase, "sell"),
+      expect_err(act(LeaveCounter, s), WrongPhase, "leave")
+    ])
+  end
+
+  fn leave(s : RunState) : RunState do
+    after(LeaveCounter, { s with phase: counter([]) })
+  end
+
+  fn leaving_the_counter_advances_round_and_ante() : Outcome do
+    let s0 = run_of(1)
+    let feature = leave(s0)
+    let boss = leave(feature)
+    let next_ante = leave(boss)
+    let boss_target =
+      match Skee.Items.target(s0.config, 1, BossRound) do
+      Some(p) -> points_of(p)
+      None -> -1
+      end
+    all([
+      expect(feature.round.kind == Feature, "feature"),
+      expect(boss.round.kind == BossRound, "boss"),
+      expect_int(points_of(boss.round.target), boss_target, "boss target"),
+      expect_int(next_ante.ante, 2, "ante"),
+      expect(next_ante.round.kind == Warmup, "warmup")
+    ])
+  end
+
   fn cases() : List(Case) do
     [
       case("new run starts at the first warmup", fn -> new_run_starts_at_the_first_warmup()),
-      case("same seed, same boss", fn -> same_seed_same_boss())
+      case("same seed, same boss", fn -> same_seed_same_boss()),
+      case("no ball before the pull", fn -> no_ball_before_the_pull()),
+      case("the pull costs its bet and sets the targets", fn -> the_pull_costs_its_bet_and_sets_the_targets()),
+      case("a bet you can't afford is refused", fn -> a_bet_you_cant_afford_is_refused()),
+      case("every pull picks a hot spot", fn -> every_pull_picks_a_hot_spot()),
+      case("a max-bet jackpot is an event", fn -> jackpot_seed(0)),
+      case("a room runs on its own table", fn -> a_room_runs_on_its_own_table()),
+      case("feather ball ignores lips", fn -> feather_ball_ignores_lips()),
+      case("choosing a ball is free", fn -> choosing_a_ball_is_free()),
+      case("arming takes the item", fn -> arming_takes_the_item()),
+      case("outside the lane is rejected", fn -> outside_the_lane_is_rejected()),
+      case("three balls make a frame", fn -> three_balls_make_a_frame()),
+      case("clearing a round opens the counter and pays", fn -> clearing_a_round_opens_the_counter_and_pays()),
+      case("missing the target ends the run", fn -> missing_the_target_ends_the_run()),
+      case("beating the last boss wins the run", fn -> beating_the_last_boss_wins_the_run()),
+      case("ball takes the symbol showing when thrown", fn -> ball_takes_the_symbol_showing_when_thrown()),
+      case("reels spin after every ball", fn -> reels_spin_after_every_ball()),
+      case("hold keeps the reels still", fn -> hold_keeps_the_reels_still()),
+      case("golden ball triples chips", fn -> golden_ball_triples_chips()),
+      case("wild ball is a clover", fn -> wild_ball_is_a_clover()),
+      case("full heat lights fever for the next frame", fn -> full_heat_lights_fever_for_the_next_frame()),
+      case("every frame needs a new pull", fn -> every_frame_needs_a_new_pull()),
+      case("a foul spends a ball for nothing", fn -> a_foul_spends_a_ball_for_nothing()),
+      case("line wins are banked into the frame", fn -> line_wins_are_banked_into_the_frame()),
+      case("free games add frames the player does not pull", fn -> free_games_add_frames_the_player_does_not_pull()),
+      case("combo chains on hits and breaks on a miss", fn -> combo_chains_on_hits_and_breaks_on_a_miss()),
+      case("a chosen ball stays", fn -> a_chosen_ball_stays()),
+      case("chips are ball pay times hot spot", fn -> all(List.map(Skee.Items.all_balls(), chips_for_ball))),
+      case("replay is exact", fn -> replay_is_exact()),
+      case("buying a charm costs tickets", fn -> buying_a_charm_costs_tickets()),
+      case("cannot afford it", fn -> cannot_afford_it()),
+      case("no such offer", fn -> no_such_offer()),
+      case("charm slots are limited", fn -> charm_slots_are_limited()),
+      case("power-up slots are limited", fn -> power_up_slots_are_limited()),
+      case("stamp adds a symbol to a reel", fn -> stamp_adds_a_symbol_to_a_reel()),
+      case("purge removes the showing symbol", fn -> purge_removes_the_showing_symbol()),
+      case("purge leaves at least one symbol", fn -> purge_leaves_at_least_one_symbol()),
+      case("stamp needs a target", fn -> stamp_needs_a_target()),
+      case("gild adds chips to a hole", fn -> gild_adds_chips_to_a_hole()),
+      case("selling a charm refunds half", fn -> selling_a_charm_refunds_half()),
+      case("reroll is deterministic and gets pricier", fn -> reroll_is_deterministic_and_gets_pricier()),
+      case("counter actions outside are rejected", fn -> counter_actions_outside_are_rejected()),
+      case("leaving the counter advances round and ante", fn -> leaving_the_counter_advances_round_and_ante())
     ]
   end
 
