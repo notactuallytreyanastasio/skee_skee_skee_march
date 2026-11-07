@@ -1,4 +1,5 @@
 mod DriftMain do
+
   needs IO.Console
 
   -- Samples of three cues outside the goldens, one per line; compared with
@@ -6,13 +7,18 @@ mod DriftMain do
   -- x exactly, as "sign mantissa exponent" with x = sign * mantissa * 2^-exponent
   -- (float_to_string rounds to fewer digits than a Float needs).
   fn scaled(m : Float, e : Int) : (Float, Int) do
-    if m == 0.0 do (0.0, 0) else if m < 8388608.0 do scaled(m *. 2.0, e + 1) else (m, e) end end
+    if m == 0.0 do
+      (0.0, 0)
+    else
+      if m < 8388608.0 do scaled(m *. 2.0, e + 1) else (m, e) end
+    end
   end
 
   fn exact(x : Float) : String do
     let neg = x < 0.0
     let (m, e) = scaled(if neg do 0.0 -. x else x end, 0)
-    (if neg do "-1 " else "1 " end) ++ int_to_string(float_to_int(m)) ++ " " ++ int_to_string(e)
+    let sign = if neg do "-1 " else "1 " end
+    sign ++ int_to_string(float_to_int(m)) ++ " " ++ int_to_string(e)
   end
 
   fn dump(snd : Sound) : () do
@@ -25,4 +31,5 @@ mod DriftMain do
     dump(SndTallyMult(80))
     dump(SndCombo(40))
   end
+
 end

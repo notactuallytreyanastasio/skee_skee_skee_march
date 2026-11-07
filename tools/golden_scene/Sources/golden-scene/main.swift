@@ -14,7 +14,7 @@ import simd
 // SkeeScene computes in Float (32-bit). Every value is written as the Double
 // of that Float, so March (64-bit) is compared with a stated tolerance.
 
-var g = GoldenFile(module: "Scene")
+var g = GoldenFile(module: "Scene", regenerate: "make golden-scene")
 
 func f(_ x: Float) -> String { f64(Double(x)) }
 func v(_ p: SIMD3<Float>) -> [String] { [f(p.x), f(p.y), f(p.z)] }
@@ -191,7 +191,7 @@ for (phase, level) in [(0, Float(0.35)), (1, 0.9), (5, 0.35), (2, 0)] as [(Int, 
 // ---- ScenePresenter.update, frame by frame over real throws ----
 // Inputs the presenter read and what it did to the ball, shadow, trough and
 // camera, so the March port can replay the same inputs.
-@MainActor func replay(seed: UInt64, throws launches: [Launch], tag: String) {
+@MainActor func replay(seed: UInt64, throws launches: [Launch], tag: String, looks: Bool = false) {
     let cab = Cabinet(table: Room.boardwalk.table, palette: .boardwalk)
     let presenter = ScenePresenter(cabinet: cab, aspect: 390.0 / 844.0)
     var state = newRun(seed: seed)
@@ -199,7 +199,7 @@ for (phase, level) in [(0, Float(0.35)), (1, 0.9), (5, 0.35), (2, 0)] as [(Int, 
     let dt = 1.0 / 60
     var frame = 0
     func send(_ a: Action) {
-        guard case .success(let step) = apply(a, to: state) else { fatalError("action refused") }
+        let r = apply(a, to: state); guard case .success(let step) = r else { fatalError("action refused: \(r) after \(frame) frames") }
         state = step.state
         p.enqueue(step)
     }
@@ -236,17 +236,60 @@ for (phase, level) in [(0, Float(0.35)), (1, 0.9), (5, 0.35), (2, 0)] as [(Int, 
         t += v(sh.simdPosition) + [f(sq.real), f(sq.imag.x), f(sq.imag.y), f(sq.imag.z), f(sh.simdScale.x), f(Float(sh.opacity)), b(sh.isHidden)]
         t.append(i(cab.waiting.filter { !$0.isHidden }.count))
         t += v(cab.camera.simdPosition)
-        g.line(t)
+        if looks { lookRows(t, p) } else { g.line(t) }
         frame += 1
+    }
+    // What the reels, bulbs, rings of light and camera aim showed: the
+    // frame's inputs (the first 20 tokens of a frame row), the rest of what
+    // update reads, then the cabinet's state after it.
+    func lookRows(_ t: [String], _ p: Presentation) {
+        let s = p.shown
+        let excited = p.flash > 0.05 || s.fever || p.banner != nil || p.anticipation > 0 || p.celebration > 0
+        let have = (p.tallyProgress == nil && !p.isBusy) ? s.round.currentBalls.map(\.symbol.rawValue) : []
+        let slot = p.isBusy ? "-" : s.topSlot.symbols.map(\.rawValue).joined(separator: ",")
+        var l = ["look"] + Array(t.dropFirst().prefix(20))
+        l += [b(excited), have.isEmpty ? "-" : have.joined(separator: ","), slot, b(s.setup == BoardSetup.standard)]
+        for hole in BoardSetup.reelHoles {
+            let r = cab.reelsOnBoard[hole]!
+            let d = r.decals[0]
+            let e = (d.geometry!.firstMaterial!.emission.contents as? NSColor)?.usingColorSpace(.extendedSRGB)
+            l += [f64(p.reelPositions[hole] ?? 0), r.shown?.rawValue ?? "-", f(Float(r.halo.opacity)), rgbOf(r.halo.geometry?.firstMaterial?.diffuse.contents), f(d.simdScale.x), b(d.isHidden)]
+            l += [f(Float(e?.redComponent ?? 0)), f(Float(e?.greenComponent ?? 0)), f(Float(e?.blueComponent ?? 0))]
+        }
+        l += v(cab.camera.simdWorldPosition) + v(cab.camera.simdWorldFront)
+        g.line(l)
+        let lit = cab.bulbs.map { n -> String in
+            let e = (n.geometry?.firstMaterial?.emission.contents as? NSColor)?.usingColorSpace(.extendedSRGB)
+            return f(Float(e?.redComponent ?? 0))
+        }
+        g.line(["lookbulbs", tag, i(frame)] + lit)
+        let wave = Textures.wave as AnyObject
+        let rings = cab.scene.rootNode.childNodes.filter { n in
+            guard let c = n.geometry?.firstMaterial?.diffuse.contents else { return false }
+            return (c as AnyObject) === wave
+        }
+        g.line(["lookwaves", tag, i(frame), i(rings.count)] + rings.flatMap { [f($0.simdScale.x), f(Float($0.opacity))] })
     }
     send(.pull(.one))
     while p.isBusy { step(record: false) }
     for l in launches {
+        guard case .throwing = state.phase else { break }
+        if case .failure(.needsPull) = apply(.throwBall(l), to: state) {
+            send(.pull(.one))
+            while p.isBusy { step(record: true) }
+        }
         send(.throwBall(l))
         while p.isBusy { step(record: true) }
         for _ in 0..<40 { step(record: true) }
     }
 }
 replay(seed: 7, throws: [Launch(power: 0.62, aim: 0.01), Launch(power: 0.05, aim: -0.03), Launch(power: 0.9, aim: 0.05, spin: 0.4)], tag: "a")
+// A whole frame of nine balls, for the reels' glow, flashes and slot
+// matches, the bulbs' chase, the rings of light and the camera's lean.
+replay(seed: 7, throws: [
+    Launch(power: 0.62, aim: 0.01), Launch(power: 0.62, aim: 0.01), Launch(power: 0.55, aim: 0.03),
+    Launch(power: 0.8, aim: 0.0), Launch(power: 0.8, aim: 0.0), Launch(power: 0.05, aim: -0.03),
+    Launch(power: 0.9, aim: 0.05, spin: 0.4), Launch(power: 0.6, aim: -0.05), Launch(power: 0.75, aim: 0.02),
+], tag: "b", looks: true)
 
 try g.write()
