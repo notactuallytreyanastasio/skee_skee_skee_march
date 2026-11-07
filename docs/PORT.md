@@ -50,6 +50,7 @@ foundation: ask before changing it.
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
 | painter + platform | `lib/skee/painter.march` (`Skee.Painter`); the shell: `shell/game.march`, `paint.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
+| audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Skee.Synth`, which is golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -129,7 +130,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make playtest` | Headless Chrome against a running `make serve`: 390x844 touch and 1280x800 mouse, first launch to a thrown ball, console must be clean; shots in `tools/playtest/shots/` (`npm install` in `tools/playtest` once) |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`, `audio`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -561,6 +562,57 @@ Deviations from SkeeHUD:
   animated; popups, the banner, the tally, coins and the hot spot follow the
   same per-frame formulas as Swift.
 - Text that SwiftUI shrinks to fit (`minimumScaleFactor`) is clipped or wraps.
+
+### Audio: Skee.Synth in real time
+
+The synth runs in an AudioWorklet, one 128-sample block per render quantum,
+not as pre-rendered per-cue buffers: the synth's state is shared (one noise
+LCG threaded through the rumble and every noise voice, voice stealing at 48,
+the rumble low-pass and drum clock always running, the clip on the mix), so
+only one live synth sounds like Swift's.
+
+```
+update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
+  -> port.postMessage (a structured clone of March's plain-object values)
+  -> each quantum: Skee.SynthFeed.block(synth, cmds since last, 128)   worklet
+  -> Float32 mono -> gain 0.8 (mainMixerNode.outputVolume) -> speakers
+```
+
+- `make web` builds a second entry, `shell/synth_worklet.march`, into
+  `dist/skee_synth_worklet.mjs` (340 KB: Skee.Synth and Skee.SynthFeed, no
+  game), which `audioWorklet.addModule` loads. It imports
+  `march_runtime.mjs` in the worklet's realm; nothing in the runtime touches
+  `window` or `document` at load. Each processor starts from a silent synth
+  (`SynthEngine.reset`): one module-level cell serves every processor in a
+  realm, so the constructor resets it.
+- The AudioContext is made on the first gesture (pointerdown, pointerup,
+  touchend, keydown, click, captured on window), at 44100 Hz with
+  `latencyHint: "interactive"`, and resumed on later gestures while not
+  running. Hidden page: suspended; shown: resumed. Before the speakers are
+  up a cue is dropped (it would play late) and the rumble and drum levels are
+  tracked (`Skee.SynthFeed.track`), then restored (`restore`) the moment the
+  synth comes up. A browser that ignores `sampleRate` gets linear
+  resampling in the pump (`web/skee_synth_cell.mjs`).
+- No AudioWorklet (an insecure context such as a phone on plain http over
+  the LAN, an old browser) or a failed `addModule`: a ScriptProcessorNode of
+  2048 samples runs `SynthEngine.serve` on the main thread, between frames.
+  No AudioContext at all: silent, nothing thrown.
+- A command lands on the first sample of the block after it arrives, as
+  Swift's lock does at the next render callback. Measured in headless
+  Chrome, every batch reached the synth in the next quantum or the one
+  after (worst 5.8 ms after the send); `playbackStats` reported 0 underruns.
+- Parity (`make audio-check`): the shipped worklet in an
+  OfflineAudioContext at 44100 Hz, on the 48 golden scenarios that are one
+  cue then silence (78188 kept samples), against the real Swift Synth:
+  1264 not bit-identical, worst |error| 5.96e-8 (2^-24), tolerance 2^-22.
+  The same bundle under node with a stand-in worklet scope
+  (`tools/audio_check/worklet_node.mjs`) gives the same 1264 and the same
+  worst: Chrome's V8 and node's agree, and the drift is libm's (see
+  "Skee.Synth" above).
+- `<html data-audio>` is the context's state (`none` before a gesture),
+  `data-audio-path` is `worklet`, `script` or `off`, and
+  `window.__skeeAudio.log` keeps the last 400 batches sent (page time, audio
+  time, the commands, and the audio frame at which the worklet took them).
 
 ## Rules every core module follows
 

@@ -76,7 +76,7 @@ async function marks(page) {
       crease: Number(el.getAttribute("data-crease-y")),
       audio: el.getAttribute("data-audio"),
       path: el.getAttribute("data-audio-path"),
-      buttons: [...document.querySelectorAll("#hud .dev-tap")].map((b) => b.dataset.intent),
+      buttons: [...document.querySelectorAll("#hud [data-intent]")].map((b) => b.dataset.intent),
     };
   });
 }
@@ -93,7 +93,7 @@ async function waitFor(page, pred, what, ms = 8000) {
 }
 
 async function tap(page, intent) {
-  const sel = `#hud .dev-tap[data-intent="${intent}"]`;
+  const sel = `#hud [data-intent="${intent}"]`;
   await page.waitForSelector(sel, { timeout: 5000 });
   await page.click(sel);
   await sleep(120);

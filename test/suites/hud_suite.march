@@ -163,7 +163,7 @@ mod HudSuite do
   fn distinct(xs : List(Int)) : Bool do
     match xs do
     Nil -> true
-    Cons(x, rest) -> !List.any(rest, fn y -> y == x) && distinct(rest)
+    Cons(x, rest) -> if List.any(rest, fn y -> y == x) do false else distinct(rest) end
     end
   end
 

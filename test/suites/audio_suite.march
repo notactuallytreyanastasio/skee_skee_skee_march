@@ -147,6 +147,13 @@ mod AudioSuite do
     all([same_samples(in_128, whole, 0, "128"), same_samples(in_2048, whole, 0, "2048")])
   end
 
+  -- One block per Web Audio render quantum: a worklet callback is exactly
+  -- one block, so a command lands on the first sample after it arrives.
+  fn quantum_is_the_render_quantum() : Outcome do
+    let (out, _) = Skee.SynthFeed.block(fresh(), [], Skee.SynthFeed.quantum())
+    all([expect_int(Skee.SynthFeed.quantum(), 128, "quantum"), expect_int(List.length(out), 128, "block")])
+  end
+
   fn an_empty_block_is_empty() : Outcome do
     let (out, s) = Skee.SynthFeed.block(fresh(), [CmdPlay(SndLaunch)], 0)
     all([expect_int(List.length(out), 0, "samples"), expect_int(Skee.Synth.voice_count(s), Skee.Synth.voice_count(Skee.Synth.play(fresh(), SndLaunch)), "the cue is queued")])
@@ -273,6 +280,7 @@ mod AudioSuite do
       case("blocks play cues at block starts", fn () -> blocks_play_cues_at_block_starts()),
       case("block size is invisible", fn () -> block_size_is_invisible()),
       case("an empty block is empty", fn () -> an_empty_block_is_empty()),
+      case("quantum is the render quantum", fn () -> quantum_is_the_render_quantum()),
       case("quiet is a fresh synth", fn () -> quiet_is_a_fresh_synth()),
       case("track keeps the last levels", fn () -> track_keeps_the_last_levels()),
       case("restore brings the levels back", fn () -> restore_brings_the_levels_back()),
