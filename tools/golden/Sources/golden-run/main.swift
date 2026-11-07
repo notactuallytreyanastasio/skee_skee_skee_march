@@ -201,7 +201,9 @@ for n in 1...Int(botSeeds) {
         var s = newRun(seed: seed, room: room)
         header("bot,\(skill.name),\(index(ball))", seed, room, 0, 0, s)
         for a in run.actions { s = write(a, s) }
-        precondition(s == run.final, "replaying a bot run must reach its final state")
+        // By digest, not ==: a tied pair names a symbol picked in Set order, which
+        // Swift seeds per Set instance, so two replays can differ in that alone.
+        precondition(digest(of: s) == digest(of: run.final), "replaying a bot run must reach its final state")
         botRuns += 1
         if case .won = s.phase { wins += 1 }
     }
