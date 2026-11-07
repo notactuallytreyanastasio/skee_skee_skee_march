@@ -8,10 +8,21 @@ import GoldenSupport
 //       <overkillStep> <overkillCap> <interestPer> <interestCap> <offers> <anteBase,...>
 //   run <label> <seed> <roomIndex> <extraTickets> <cfg id> <state digest>
 //   s <action> <state digest> <event digest> <balls left>                 an accepted action
-//   t <action> <shot> <detail> <state digest> <event digest> <balls left> an accepted throw
+//   t <action> <shot> <detail> <state digest> <event digest> <balls left> <floats>
+//                                                                         an accepted throw
 //   e <action> <error index>                                              a refused action
 //   tablefor <room> <ante> <antes> <kind> <boss> <power or n> <ball> <table digest>
 //       table(for:) on a state built with those fields, every index an allCases one
+//
+// <floats> is the shot's floats that <detail> hashes, each as its bit pattern,
+// comma-separated: every event time, then hinge speed, landing x and landing y
+// ("n" when absent), peak height and duration, then the path count in decimal.
+// They let the March suite measure libm drift in ulps, not only count it.
+//
+// The same executable writes Golden.RunHeldout (test/golden/runheldout.march):
+// chaos runs on seeds and configs the main golden never uses, so a bound set
+// on the main golden is checked on shots it was not fitted to. Its first run
+// starts on a config other than the standard one and with extra tickets.
 //
 // <balls left> is RoundState.ballsLeft after the step. It counts three balls a
 // frame whatever ballsPerFrame says, as Swift does, and the tall config's two
@@ -71,6 +82,19 @@ func shotToken(_ s: ShotResult) -> String {
 
 func hash(_ x: UInt32) -> String { String(x) }
 
+func optionalFloat(_ x: Double?) -> String { x.map(f64) ?? "n" }
+
+func shotFloats(_ s: ShotResult) -> String {
+    var parts = s.eventTimes.map(f64)
+    parts.append(optionalFloat(s.hingeSpeed))
+    parts.append(optionalFloat(s.firstLanding?.x))
+    parts.append(optionalFloat(s.firstLanding?.y))
+    parts.append(f64(s.peakHeight))
+    parts.append(f64(s.duration))
+    parts.append(i(s.path.count))
+    return parts.joined(separator: ",")
+}
+
 // ---- Coverage ----
 
 var eventsSeen = Set<String>()
@@ -101,7 +125,7 @@ func name(_ e: GameEvent) -> String { String(String(describing: e).prefix { $0 !
         }.first
         if let shot {
             g.line("t", token(a), shotToken(shot), hash(detail(of: shot)), hash(digest(of: step.state)), hash(digest(of: step.events)),
-                   i(step.state.round.ballsLeft))
+                   i(step.state.round.ballsLeft), shotFloats(shot))
         } else {
             g.line("s", token(a), hash(digest(of: step.state)), hash(digest(of: step.events)), i(step.state.round.ballsLeft))
         }
@@ -460,4 +484,38 @@ precondition(missingTiers.isEmpty, "golden never saw jackpot tiers: \(missingTie
 precondition(grandRuns == 2, "the Grand hunt found \(grandRuns) runs")
 precondition(missingEvents.isEmpty, "golden never saw events: \(missingEvents)")
 precondition(missingErrors.isEmpty, "golden never saw errors: \(missingErrors)")
+try g.write()
+
+// ---- Held out: chaos on seeds and configs the main golden never sees ----
+
+g = GoldenFile(module: "RunHeldout")
+for (n, c) in configs.enumerated() {
+    g.line("cfg", i(n), i(c.antes), i(c.framesPerRound), i(c.ballsPerFrame), i(c.startTickets), i(c.charmSlots),
+           i(c.powerUpSlots), i(c.feverHeat), f64(c.targetScale), f64(c.overkillStep), i(c.overkillCap),
+           i(c.interestPer), i(c.interestCap), i(c.offerCount), c.anteBase.map(String.init).joined(separator: ","))
+}
+let heldoutRuns = 400
+var heldoutShots = 0
+for n in 1...heldoutRuns {
+    let room = Room.allCases[(n * 7) % Room.allCases.count]
+    // n = 1 gives config 1 and extra tickets: the first run is not the standard one.
+    let cfg = n % configs.count
+    let extra = n % 2 == 1 ? 1 + n % 9 : 0
+    let seed = mixed(n + 400_000)
+    var s = newRun(seed: seed, config: configs[cfg], room: room, extraTickets: extra)
+    var driver = Chaos(rng: SplitMix64(seed: seed ^ 0x5EED), purger: n % 11 == 0)
+    header("heldout,\(n)", seed, room, extra, cfg, s)
+    var over = 0
+    for _ in 0..<400 {
+        s = write(driver.next(s), s)
+        switch s.phase {
+        case .won, .lost: over += 1
+        case .throwing, .prizeCounter: break
+        }
+        if over > 4 { break }
+    }
+}
+heldoutShots = g.lines.filter { $0.hasPrefix("t ") }.count
+print("held out: runs \(heldoutRuns), shots \(heldoutShots), rows \(g.lines.count)")
+precondition(heldoutShots > 2000, "held-out golden is too thin: \(heldoutShots) shots")
 try g.write()
