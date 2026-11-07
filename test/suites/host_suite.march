@@ -1,0 +1,149 @@
+mod HostSuite do
+
+  -- The host piece: Skee.SwiftText (Swift's String), Skee.HostGuard and
+  -- Skee.Host. Golden rows come from tools/golden_host (golden-host), which
+  -- runs the real SkeeCore and SkeeNet. The ported Swift tests are named after
+  -- their Swift functions.
+  import Harness
+
+  fn rows(kind : String) : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Host.chunks()), kind)
+  end
+
+  -- ---- Text as hex, as the generator writes it ----
+  fn nibble(c : Int) : Int do
+    if c >= 97 do c - 87 else c - 48 end
+  end
+
+  fn hex_byte(h : String, i : Int) : Int do
+    nibble(string_byte_at(h, i)) * 16 + nibble(string_byte_at(h, i + 1))
+  end
+
+  fn utf8_tail(h : String, i : Int, left : Int, code : Int) : Int do
+    if left == 0 do
+      code
+    else
+      utf8_tail(h, i + 2, left - 1, code * 64 + hex_byte(h, i) % 64)
+    end
+  end
+
+  fn lead_of(lead : Int) : (Int, Int) do
+    if lead < 128 do
+      (0, lead)
+    else
+      if lead < 224 do
+        (1, lead % 32)
+      else
+        if lead < 240 do (2, lead % 16) else (3, lead % 8) end
+      end
+    end
+  end
+
+  fn unhex_go(h : String, i : Int, acc : List(Int)) : List(Int) do
+    if i >= string_byte_length(h) do
+      List.reverse(acc)
+    else
+      do
+        let (left, first) = lead_of(hex_byte(h, i))
+        unhex_go(h, i + 2 + 2 * left, Cons(utf8_tail(h, i + 2, left, first), acc))
+      end
+    end
+  end
+
+  -- Golden text is Swift's UTF-8, two hex digits a byte, "-" for empty.
+  fn unhex_scalars(h : String) : List(Int) do
+    if h == "-" do [] else unhex_go(h, 0, []) end
+  end
+
+  fn unhex(h : String) : String do
+    Skee.SwiftText.of_scalars(unhex_scalars(h))
+  end
+
+  fn ints_csv(xs : List(Int)) : String do
+    String.join(List.map(xs, fn n -> int_to_string(n)), ",")
+  end
+
+  fn mark(b : Bool, c : String) : String do
+    if b do c else "." end
+  end
+
+  fn bit(b : Bool) : String do
+    if b do "1" else "0" end
+  end
+
+  -- ---- Skee.SwiftText ----
+  fn char_token(c : SwiftChar) : String do
+    let key = Skee.SwiftText.ascii(c)
+    let n = List.length(Skee.SwiftText.char_scalars(c))
+    let shown = if key < 0 do "x" else int_to_string(key) end
+    int_to_string(n) ++ mark(Skee.SwiftText.is_letter(c), "L") ++ mark(Skee.SwiftText.is_number(c), "N") ++ mark(Skee.SwiftText.is_whitespace(c), "W") ++ ":" ++ shown
+  end
+
+  fn seg_row(row : List(String)) : Outcome do
+    match row do
+    [text, want] -> do
+      let got =
+        String.join(List.map(Skee.SwiftText.characters(unhex_scalars(text)), char_token), ",")
+      expect_string(got, want, "characters of " ++ text)
+    end
+    _ -> Mismatch("bad seg row")
+    end
+  end
+
+  fn lower_row(row : List(String)) : Outcome do
+    match row do
+    [text, want] -> do
+      let got = Skee.SwiftText.lowercased(unhex_scalars(text))
+      expect_string(ints_csv(got), ints_csv(unhex_scalars(want)), "lowercased " ++ text)
+    end
+    _ -> Mismatch("bad lower row")
+    end
+  end
+
+  fn lowermap_row(row : List(String)) : Outcome do
+    match row do
+    [cp, want] -> do
+      expect_string(ints_csv(Skee.SwiftText.lowercased([GoldenIo.int(cp)])), want, "lowercaseMapping " ++ cp)
+    end
+    _ -> Mismatch("bad lowermap row")
+    end
+  end
+
+  fn prop_bits(cp : Int) : String do
+    let c = SwiftChar([cp])
+    bit(Skee.SwiftText.is_letter(c)) ++ bit(Skee.SwiftText.is_number(c)) ++ bit(Skee.SwiftText.is_whitespace(c)) ++ bit(Skee.UnicodeData.emoji_presentation(cp)) ++ bit(Skee.SwiftText.trim([cp]) == [])
+  end
+
+  fn prop_row(row : List(String)) : Outcome do
+    match row do
+    [cp, want] -> expect_string(prop_bits(GoldenIo.int(cp)), want, "properties of " ++ cp)
+    _ -> Mismatch("bad prop row")
+    end
+  end
+
+  fn prefix_row(row : List(String)) : Outcome do
+    match row do
+    [text, n, want, count] -> do
+      let s = unhex(text)
+      let p = Skee.SwiftText.prefix(s, GoldenIo.int(n))
+      all([expect_string(ints_csv(Skee.SwiftText.scalars(p)), ints_csv(unhex_scalars(want)), "prefix " ++ n ++ " of " ++ text), expect_int(Skee.SwiftText.count(s), GoldenIo.int(count), "count of " ++ text)])
+    end
+    _ -> Mismatch("bad prefix row")
+    end
+  end
+
+  fn text_cases() : List(Case) do
+    [
+      case("Characters as Swift's String groups them", fn -> all(List.map(rows("seg"), seg_row))),
+      case("String.lowercased()", fn -> all(List.map(rows("lower"), lower_row))),
+      case("lowercaseMapping for every scalar that changes", fn -> all(List.map(rows("lowermap"), lowermap_row))),
+      case("scalar properties and the trim set", fn -> all(List.map(rows("prop"), prop_row))),
+      case("String(text.prefix(n)) and count", fn -> all(List.map(rows("prefix"), prefix_row)))
+    ]
+  end
+
+  fn cases() : List(Case) do
+    text_cases()
+  end
+
+end

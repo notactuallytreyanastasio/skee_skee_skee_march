@@ -30,7 +30,10 @@ for (let i = 0; i < 400 && di < durs.length * 2; i++) {
     let a; while (true) { a = await marks(); if (a.busy === "0") break; await sleep(50); }
     const s1 = a.text.match(/(\d+) \/ (\d+)/);
     const pop = a.text.match(/BALLS (.*)$/)?.[1]?.slice(0, 90);
-    res.push(`${d}ms (${((y0 - y1) / d * 1000).toFixed(0)}px/s): settle ${Date.now() - t0}ms | ${pop}`);
+    const sv = await page.evaluate(() => { try { const r = JSON.parse(localStorage.getItem("skee.run")); const t = r.actions.filter((a) => a.throwBall).pop(); return t ? t.throwBall._0 : null; } catch (e) { return String(e); } });
+    const hx = (h) => { const b = Buffer.from(h, "hex"); return b.readDoubleBE(0).toFixed(3); };
+    const pw = sv ? `power=${hx(sv.power)} speed=${hx(sv.speed)} aim=${hx(sv.aim)} start=${hx(sv.start)} skid=${hx(sv.skid)}` : "nosave";
+    res.push(`${pw} ${d}ms (${((y0 - y1) / d * 1000).toFixed(0)}px/s): settle ${Date.now() - t0}ms | ${pop}`);
     console.log(res[res.length - 1]);
     continue;
   }

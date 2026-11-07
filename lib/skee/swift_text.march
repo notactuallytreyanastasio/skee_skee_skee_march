@@ -1,0 +1,415 @@
+mod Skee.SwiftText do
+
+  -- Swift's String as HostGuard, Haggle and DeepSeek.parse use it. Swift
+  -- compares and counts Characters (extended grapheme clusters), not bytes or
+  -- scalars, and two Characters are equal when they are canonically
+  -- equivalent. So `"kill myself\u{301}".contains("kill myself")` is false
+  -- (the last Character is "f" with an accent), "kill\u{A0}myself" splits at
+  -- the no-break space, and the Kelvin sign lowercases to "k". The guard's
+  -- phrase lists are ASCII, which this module leans on: a Character can equal
+  -- an ASCII Character only if it is that one scalar or one of the three
+  -- canonical singletons Swift maps onto ASCII (Skee.UnicodeData.ascii_equal).
+  -- Every Unicode fact comes from Skee.UnicodeData, read off the Swift runtime.
+  cap pure
+
+  import Skee.UnicodeData
+
+  -- One Swift Character: its scalars in order, never empty.
+  type SwiftChar = SwiftChar(List(Int))
+
+  derive Show for SwiftChar
+
+  -- Where String's grapheme breaking stands after a scalar: its
+  -- Grapheme_Cluster_Break class, whether it ends `ExtPict Extend*` (1) or
+  -- `ExtPict Extend* ZWJ` (2), how many Regional_Indicators end here, and
+  -- whether it ends `Consonant [Extend Linker]*` (1) with a Linker in it (2).
+  type BreakState = {
+    prev_class : Int,
+    pict_run : Int,
+    ri_run : Int,
+    conjunct : Int
+  }
+
+  derive Show for BreakState
+
+  -- ---- Grapheme_Cluster_Break classes, as Skee.UnicodeData numbers them ----
+  pfn cr() : Int needs () do
+    1
+  end
+
+  pfn lf() : Int needs () do
+    2
+  end
+
+  pfn control() : Int needs () do
+    3
+  end
+
+  pfn extend() : Int needs () do
+    4
+  end
+
+  pfn zwj() : Int needs () do
+    5
+  end
+
+  pfn spacing_mark() : Int needs () do
+    6
+  end
+
+  pfn prepend() : Int needs () do
+    7
+  end
+
+  pfn hangul_l() : Int needs () do
+    8
+  end
+
+  pfn hangul_v() : Int needs () do
+    9
+  end
+
+  pfn hangul_t() : Int needs () do
+    10
+  end
+
+  pfn hangul_lv() : Int needs () do
+    11
+  end
+
+  pfn hangul_lvt() : Int needs () do
+    12
+  end
+
+  pfn regional() : Int needs () do
+    13
+  end
+
+  pfn break_class(cp : Int) : Int needs () do
+    if cp >= 32 && cp < 127 do 0 else Skee.UnicodeData.grapheme_break(cp) end
+  end
+
+  pfn is_pict(cp : Int) : Bool needs () do
+    cp >= 169 && Skee.UnicodeData.pictographic(cp)
+  end
+
+  pfn conjunct_class(cp : Int) : Int needs () do
+    if cp < 768 do 0 else Skee.UnicodeData.indic(cp) end
+  end
+
+  -- ---- Scalars ----
+  -- A lone surrogate (a JS string can hold one; a Swift String cannot) is
+  -- read as U+FFFD, as Swift reads it when it bridges such text.
+  pfn scalar_of(cp : Int) : Int needs () do
+    if cp >= 55296 && cp <= 57343 do 65533 else cp end
+  end
+
+  doc """The text's Unicode scalars."""
+  fn scalars(s : String) : List(Int) needs () do
+    List.map(String.to_codepoints(s), scalar_of)
+  end
+
+  pfn piece(cp : Int) : String needs () do
+    Option.unwrap_or(String.from_codepoint(cp), "")
+  end
+
+  doc """Scalars back to text."""
+  fn of_scalars(xs : List(Int)) : String needs () do
+    String.join(List.map(xs, piece), "")
+  end
+
+  doc """How many UTF-16 code units the text takes: JavaScript's `.length`, which the relay limits."""
+  fn utf16_length(s : String) : Int needs () do
+    List.fold_left(scalars(s), 0, fn (n, cp) -> if cp >= 65536 do n + 2 else n + 1 end)
+  end
+
+  -- ---- Characters ----
+  pfn start_state(cp : Int) : BreakState needs () do
+    next_state({ prev_class: 0, pict_run: 0, ri_run: 0, conjunct: 0 }, cp)
+  end
+
+  pfn next_pict(st : BreakState, cp : Int, c : Int) : Int needs () do
+    if is_pict(cp) do
+      1
+    else
+      if st.pict_run == 1 && c == extend() do
+        1
+      else
+        if st.pict_run == 1 && c == zwj() do 2 else 0 end
+      end
+    end
+  end
+
+  pfn next_conjunct(st : BreakState, cp : Int) : Int needs () do
+    let k = conjunct_class(cp)
+    if k == 1 do
+      1
+    else
+      if k == 2 && st.conjunct >= 1 do
+        2
+      else
+        if k == 3 && st.conjunct >= 1 do st.conjunct else 0 end
+      end
+    end
+  end
+
+  pfn next_state(st : BreakState, cp : Int) : BreakState needs () do
+    let c = break_class(cp)
+    let ri = if c == regional() do st.ri_run + 1 else 0 end
+    {
+      prev_class: c,
+      pict_run: next_pict(st, cp, c),
+      ri_run: ri,
+      conjunct: next_conjunct(st, cp)
+    }
+  end
+
+  pfn is_control_class(c : Int) : Bool needs () do
+    c == cr() || c == lf() || c == control()
+  end
+
+  -- GB6 to GB8: Hangul syllable sequences.
+  pfn hangul_joins(p : Int, c : Int) : Bool needs () do
+    if p == hangul_l() do
+      c == hangul_l() || c == hangul_v() || c == hangul_lv() || c == hangul_lvt()
+    else
+      if p == hangul_lv() || p == hangul_v() do
+        c == hangul_v() || c == hangul_t()
+      else
+        (p == hangul_lvt() || p == hangul_t()) && c == hangul_t()
+      end
+    end
+  end
+
+  -- GB9 to GB13, after the controls and Hangul.
+  pfn joins_late(st : BreakState, cp : Int, c : Int) : Bool needs () do
+    let p = st.prev_class
+    if c == extend() || c == zwj() || c == spacing_mark() do
+      true
+    else
+      if p == prepend() do
+        true
+      else
+        if st.conjunct == 2 && conjunct_class(cp) == 1 do
+          true
+        else
+          if p == zwj() && st.pict_run == 2 && is_pict(cp) do
+            true
+          else
+            p == regional() && c == regional() && st.ri_run % 2 == 1
+          end
+        end
+      end
+    end
+  end
+
+  -- Whether a Character boundary falls before `cp`, given what came before.
+  pfn breaks_before(st : BreakState, cp : Int) : Bool needs () do
+    let p = st.prev_class
+    let c = break_class(cp)
+    if p == cr() && c == lf() do
+      false
+    else
+      if is_control_class(p) || is_control_class(c) do
+        true
+      else
+        if hangul_joins(p, c) do false else !joins_late(st, cp, c) end
+      end
+    end
+  end
+
+  pfn close_char(cur : List(Int), acc : List(SwiftChar)) : List(SwiftChar) needs () do
+    match cur do
+    Nil -> acc
+    Cons(_, _) -> Cons(SwiftChar(List.reverse(cur)), acc)
+    end
+  end
+
+  pfn segment(xs : List(Int), st : BreakState, cur : List(Int), acc : List(SwiftChar)) : List(SwiftChar) needs () do
+    match xs do
+    Nil -> List.reverse(close_char(cur, acc))
+    Cons(cp, rest) -> do
+      if breaks_before(st, cp) do
+        segment(rest, next_state(st, cp), [cp], close_char(cur, acc))
+      else
+        segment(rest, next_state(st, cp), Cons(cp, cur), acc)
+      end
+    end
+    end
+  end
+
+  doc """The scalars grouped into Characters, as Swift's String groups them."""
+  fn characters(xs : List(Int)) : List(SwiftChar) needs () do
+    match xs do
+    Nil -> []
+    Cons(cp, rest) -> segment(rest, start_state(cp), [cp], [])
+    end
+  end
+
+  doc """The text's Characters."""
+  fn characters_of(s : String) : List(SwiftChar) needs () do
+    characters(scalars(s))
+  end
+
+  doc """A Character's scalars."""
+  fn char_scalars(c : SwiftChar) : List(Int) needs () do
+    match c do
+    SwiftChar(xs) -> xs
+    end
+  end
+
+  pfn first_scalar(c : SwiftChar) : Int needs () do
+    match char_scalars(c) do
+    Cons(cp, _) -> cp
+    Nil -> 0
+    end
+  end
+
+  doc """String.count: how many Characters."""
+  fn count(s : String) : Int needs () do
+    List.length(characters_of(s))
+  end
+
+  pfn chars_scalars(cs : List(SwiftChar)) : List(Int) needs () do
+    List.flat_map(cs, char_scalars)
+  end
+
+  doc """String(text.prefix(n)): the first n Characters."""
+  fn prefix(s : String, n : Int) : String needs () do
+    of_scalars(chars_scalars(List.take(characters_of(s), Math.max_int(n, 0))))
+  end
+
+  -- ---- Character properties: Swift reads each off the first scalar ----
+  doc """Character.isLetter."""
+  fn is_letter(c : SwiftChar) : Bool needs () do
+    let cp = first_scalar(c)
+    if cp < 128 do
+      cp >= 97 && cp <= 122 || cp >= 65 && cp <= 90
+    else
+      Skee.UnicodeData.alphabetic(cp)
+    end
+  end
+
+  doc """Character.isNumber."""
+  fn is_number(c : SwiftChar) : Bool needs () do
+    let cp = first_scalar(c)
+    if cp < 128 do cp >= 48 && cp <= 57 else Skee.UnicodeData.numeric(cp) end
+  end
+
+  doc """Character.isWhitespace."""
+  fn is_whitespace(c : SwiftChar) : Bool needs () do
+    let cp = first_scalar(c)
+    if cp < 128 do
+      cp == 32 || cp >= 9 && cp <= 13
+    else
+      Skee.UnicodeData.white_space(cp)
+    end
+  end
+
+  doc """The ASCII byte this Character equals in Swift (`==`, canonical equivalence), or -1."""
+  fn ascii(c : SwiftChar) : Int needs () do
+    match char_scalars(c) do
+    Cons(cp, Nil) -> if cp < 128 do cp else Skee.UnicodeData.ascii_equal(cp) end
+    Cons(_, Cons(_, _)) -> -1
+    Nil -> -1
+    end
+  end
+
+  -- ---- Lowercasing: String.lowercased(), scalar by scalar, no context ----
+  pfn lower_scalar(cp : Int) : List(Int) needs () do
+    if cp < 128 do
+      if cp >= 65 && cp <= 90 do [cp + 32] else [cp] end
+    else
+      match Skee.UnicodeData.lower_many(cp) do
+      Nil -> [Skee.UnicodeData.lower_one(cp)]
+      Cons(m, ms) -> Cons(m, ms)
+      end
+    end
+  end
+
+  doc """String.lowercased() on scalars."""
+  fn lowercased(xs : List(Int)) : List(Int) needs () do
+    List.flat_map(xs, lower_scalar)
+  end
+
+  -- ---- Splitting and searching ----
+  pfn split_go(cs : List(SwiftChar), sep : SwiftChar -> Bool, cur : List(SwiftChar), acc : List(List(SwiftChar))) : List(List(SwiftChar)) needs () do
+    match cs do
+    Nil -> List.reverse(close_piece(cur, acc))
+    Cons(c, rest) -> do
+      if sep(c) do
+        split_go(rest, sep, [], close_piece(cur, acc))
+      else
+        split_go(rest, sep, Cons(c, cur), acc)
+      end
+    end
+    end
+  end
+
+  pfn close_piece(cur : List(SwiftChar), acc : List(List(SwiftChar))) : List(List(SwiftChar)) needs () do
+    match cur do
+    Nil -> acc
+    Cons(_, _) -> Cons(List.reverse(cur), acc)
+    end
+  end
+
+  doc """split(whereSeparator:), dropping empty pieces as Swift's default does."""
+  fn split(cs : List(SwiftChar), sep : SwiftChar -> Bool) : List(List(SwiftChar)) needs () do
+    split_go(cs, sep, [], [])
+  end
+
+  doc """The pieces' scalars with one space between each, as `joined(separator: " ")`."""
+  fn join_spaced(pieces : List(List(SwiftChar))) : List(Int) needs () do
+    List.flat_map(List.intersperse(List.map(pieces, chars_scalars), [32]), fn xs -> xs)
+  end
+
+  pfn key_piece(c : SwiftChar) : String needs () do
+    let k = ascii(c)
+    if k < 0 do Option.unwrap_or(String.from_codepoint(1), "") else piece(k) end
+  end
+
+  doc """
+  The Characters as ASCII text: each one that equals an ASCII Character as
+  that byte, every other one as U+0001, which no phrase holds. An ASCII
+  phrase is in Swift's String (Character by Character) exactly when it is a
+  substring of this.
+  """
+  fn ascii_keys(cs : List(SwiftChar)) : String needs () do
+    String.join(List.map(cs, key_piece), "")
+  end
+
+  pfn ascii_word(cs : List(SwiftChar)) : Option(String) needs () do
+    if List.all(cs, fn c -> ascii(c) >= 0) do Some(ascii_keys(cs)) else None end
+  end
+
+  doc """
+  The pieces that equal an ASCII string, spelled in ASCII. Any other piece
+  can never equal an ASCII word, so a set test against ASCII words reads only
+  these.
+  """
+  fn ascii_words(pieces : List(List(SwiftChar))) : List(String) needs () do
+    List.filter_map(pieces, ascii_word)
+  end
+
+  -- ---- DeepSeek.parse's trim ----
+  pfn is_trimmed(cp : Int) : Bool needs () do
+    if cp < 128 do
+      cp == 32 || cp >= 9 && cp <= 13
+    else
+      Skee.UnicodeData.trimmed(cp)
+    end
+  end
+
+  pfn drop_trimmed(xs : List(Int)) : List(Int) needs () do
+    match xs do
+    Nil -> []
+    Cons(cp, rest) -> if is_trimmed(cp) do drop_trimmed(rest) else xs end
+    end
+  end
+
+  doc """trimmingCharacters(in: .whitespacesAndNewlines): scalars, from both ends."""
+  fn trim(xs : List(Int)) : List(Int) needs () do
+    List.reverse(drop_trimmed(List.reverse(drop_trimmed(xs))))
+  end
+
+end

@@ -1,0 +1,19 @@
+counter: /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r1_visual/shots/desk-c1-counter.png
+CLIPPED TEXT:
+  
+ANTE 1/8 WARM-UP 36 / 400 4 TARGETS · hit one = combo FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 36 JACKPOTS 0 · RATTLES 2 +1 WINNINGS NEW RUN PRIZES 1
+live TapNewRun,TapOpenShop
+file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/common/WaitTask.js:45
+            this.#timeoutError = new TimeoutError(`Waiting failed: ${options.timeout}ms exceeded`);
+                                 ^
+
+TimeoutError: Waiting for selector `#hud [data-intent="undefined"]` failed: Waiting failed: 6000ms exceeded
+    at new WaitTask (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/common/WaitTask.js:45:34)
+    at IsolatedWorld.waitForFunction (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/api/Realm.js:22:26)
+    at CSSQueryHandler.waitFor (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/common/QueryHandler.js:175:95)
+    at async CdpFrame.waitForSelector (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/api/Frame.js:529:21)
+    at async CdpPage.waitForSelector (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/node_modules/puppeteer-core/lib/esm/puppeteer/api/Page.js:1369:20)
+    at async press (file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r1_visual/lib.mjs:46:3)
+    at async file:///Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r1_visual/counter.mjs:32:1
+
+Node.js v26.13.0
