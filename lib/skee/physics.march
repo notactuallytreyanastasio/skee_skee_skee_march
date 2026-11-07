@@ -90,7 +90,9 @@ mod Skee.Physics do
     let spin = or_zero(s.saved_spin)
     let skid = or_zero(s.saved_skid)
     match s.saved_speed do
-    Some(speed) -> launch_of_speed(k, speed, or_zero(s.saved_from), s.saved_aim, start, fold, spin, skid)
+    Some(speed) -> do
+      launch_of_speed(k, speed, or_zero(s.saved_from), s.saved_aim, start, fold, spin, skid)
+    end
     None -> launch_of_power(k, s.saved_power, s.saved_aim, start, fold, spin, skid)
     end
   end
@@ -305,7 +307,11 @@ mod Skee.Physics do
       if x < arg do
         sine_of(left, x)
       else
-        if arg < x do sine_of(right, x) else if x == arg do value else Math.sin(x) end end
+        if arg < x do
+          sine_of(right, x)
+        else
+          if x == arg do value else Math.sin(x) end
+        end
       end
     end
     end
@@ -806,7 +812,6 @@ mod Skee.Physics do
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
   pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : ShotSim needs () do
     let rng0 = Skee.Rng.seed(seed)
-    -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
     let blank : ShotSim =
       {
         t: 0.0,
@@ -840,6 +845,7 @@ mod Skee.Physics do
     end
   end
 
+  -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
   pfn sin_cos(x : Float) : SinCos needs () do
     { sine: Math.sin(x), cosine: Math.cos(x) }
   end

@@ -193,7 +193,8 @@ mod Skee.Stroke do
             let unit_accel = peak /. flick_time
             let snap = ieee_div(k, a_up, unit_accel)
             let base = tn.release_weight *. release +. (1.0 -. tn.release_weight) *. peak
-            let speed = base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, snap)))
+            let speed =
+              base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, snap)))
             let rms = rms_jerk(List.filter(j, fn e -> e.tt >= start_t))
             let jerk = rms *. flick_time *. flick_time /. peak
             let skid = (jerk -. tn.smooth_jerk) *. tn.skid_per_jerk

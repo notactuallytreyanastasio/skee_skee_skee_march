@@ -47,15 +47,11 @@ mod PhysicsSuite do
   end
 
   fn dead_curve_case(rows : List(List(String))) : Outcome do
-    all(List.map(GoldenIo.of_kind(rows, "deadcurve"), fn row ->
-      GoldenIo.expect_float(Skee.Physics.release_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "release_speed on a dead lane")
-    ))
+    all(List.map(GoldenIo.of_kind(rows, "deadcurve"), fn row -> GoldenIo.expect_float(Skee.Physics.release_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "release_speed on a dead lane")))
   end
 
   fn dead_inverse_case(rows : List(List(String))) : Outcome do
-    all(List.map(GoldenIo.of_kind(rows, "deadinverse"), fn row ->
-      GoldenIo.expect_float(Skee.Physics.power_for_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "power_for_speed on a dead lane")
-    ))
+    all(List.map(GoldenIo.of_kind(rows, "deadinverse"), fn row -> GoldenIo.expect_float(Skee.Physics.power_for_speed(consts(), dead_lane(row), at(row, 4)), token(row, 5), "power_for_speed on a dead lane")))
   end
 
   fn angle_case(rows : List(List(String))) : Outcome do
@@ -527,30 +523,36 @@ mod PhysicsSuite do
     { sine: at(row, i), cosine: at(row, i + 1) }
   end
 
-  fn book_from(n : Int, entries : List(List(String))) : (Skee.Physics.SineBook, List(List(String))) do
-    if n == 0 do
-      (NoSines, entries)
-    else
-      do
-        let half = n / 2
-        let (left, rest) = book_from(half, entries)
-        match rest do
-        Cons(entry, more) -> do
-          let (right, after) = book_from(n - half - 1, more)
-          (SineNode(left, at(entry, 0), at(entry, 1), right), after)
-        end
-        Nil -> panic("golden sines ran out")
-        end
+  fn book_node(left : Skee.Physics.SineBook, entry : List(String), right : Skee.Physics.SineBook) : Skee.Physics.SineBook do
+    SineNode(left, at(entry, 0), at(entry, 1), right)
+  end
+
+  -- One round of joining neighbours. There is one more tree than entries, and each
+  -- round halves them.
+  fn book_round(trees : List(Skee.Physics.SineBook), entries : List(List(String)), joined : List(Skee.Physics.SineBook), kept : List(List(String))) : Skee.Physics.SineBook do
+    match (trees, entries) do
+    (Cons(left, Cons(right, rest)), Cons(entry, Cons(gap, more))) -> do
+      book_round(rest, more, Cons(book_node(left, entry, right), joined), Cons(gap, kept))
+    end
+    (Cons(left, Cons(right, _)), Cons(entry, Nil)) -> do
+      book_round(List.reverse(Cons(book_node(left, entry, right), joined)), List.reverse(kept), [], [])
+    end
+    (Cons(left, Nil), Nil) -> do
+      match (joined, kept) do
+      (Nil, Nil) -> left
+      _ -> book_round(List.reverse(Cons(left, joined)), List.reverse(kept), [], [])
       end
+    end
+    _ -> panic("golden sines do not fit the book")
     end
   end
 
-  -- The rows are sorted by argument.
-  -- An argument not in the book asks libm: a bean's height on an unrecorded step,
-  -- whose result nothing keeps. Any other miss would show in the replay.
+  -- The rows are sorted by argument. An argument not in the book asks libm: a bean's
+  -- height on an unrecorded step, whose result nothing keeps. Any other miss would
+  -- show in the replay.
   fn sine_book(rows : List(List(String))) : Skee.Physics.SineBook do
     let entries = GoldenIo.of_kind(rows, "sine")
-    Tuple.first(book_from(List.length(entries), entries))
+    book_round(Cons(NoSines, List.map(entries, fn _ -> NoSines)), entries, [], [])
   end
 
   fn swift_trig(book : Skee.Physics.SineBook, row : List(String)) : Skee.Physics.ShotTrig do
@@ -611,17 +613,26 @@ mod PhysicsSuite do
     List.map(List.filter(GoldenIo.of_kind(rows, "shot"), replayable), fn row -> replayed(k, tables, book, row))
   end
 
-  -- The limit on a shot as shipped, in metres: one millimetre, which nobody can see
-  -- on a board a metre long. It is a limit, not a bound on what libm can do. Bounces
-  -- multiply a last-bit difference, and nothing stops that from growing past any
-  -- number. What proves the port is the replay above, with no tolerance at all. This
-  -- only says a shipped shot has not visibly left Swift's. It covers position values
-  -- and the mean gap of the path sums. Holes, events, phases, every time, sample
-  -- counts, Some against None and NaN against a number get no tolerance, on JS or
-  -- natively, and natively a shot gets none unless its pair differs.
-  -- Measured: see the DIVERGENCE line the runner prints.
+  -- ---- A shot as shipped ----
+  -- What proves the port is the replay above, with no tolerance at all. A shot as
+  -- shipped runs on this target's libm, so it can differ from Swift's, and no number
+  -- bounds by how much: bounces multiply a last-bit difference, and a ball can end up
+  -- on another path. So there is no claim of a bound here, only two stated limits on
+  -- what a player could notice, with the measured figures printed beside them.
+  --
+  -- A shot has parted from Swift when its hole, events, phases, times, sample count
+  -- or anything else but a distance differs, or a position is further off than
+  -- `visible_gap`: one millimetre, on a board a metre long. Short of that it has
+  -- drifted. A parted shot is excused only by a cause: on JS, V8's libm; natively, a
+  -- pair of Swift's that plain sin and cos do not reproduce. `parted_budget` then
+  -- caps how many: one throw in a thousand.
+  -- Measured: see the DIVERGENCE and BULK lines the runner prints.
   fn visible_gap() : Float do
     0.001
+  end
+
+  fn parted_budget() : Int do
+    1000
   end
 
   fn describe(v : ShotVerdict) : String do
@@ -642,6 +653,25 @@ mod PhysicsSuite do
         Mismatch(describe(v))
       end
     end
+  end
+
+  fn parted(v : ShotVerdict) : Bool do
+    !shape_ok(v) || v.check.gap > visible_gap()
+  end
+
+  fn has_a_cause(v : ShotVerdict) : Bool do
+    Harness.on_js() || v.pair_differs
+  end
+
+  -- Every shot but the parted ones with a cause, which the budget judges.
+  fn shipped_case(vs : List(ShotVerdict)) : Outcome do
+    all(List.map(List.filter(vs, fn v -> !(parted(v) && has_a_cause(v))), outcome_of))
+  end
+
+  fn parted_case(vs : List(ShotVerdict), bulk : BulkRun) : Outcome do
+    let n = count_if(vs, parted) + bulk.parted
+    let total = List.length(vs) + bulk.compared
+    expect(n * parted_budget() <= total, int_to_string(n) ++ " of " ++ int_to_string(total) ++ " shots parted from Swift")
   end
 
   -- A replay shares every libm value with Swift, so nothing may differ at all.
@@ -669,7 +699,7 @@ mod PhysicsSuite do
   doc """The measured divergence from Swift over every golden shot, as one line."""
   fn divergence_line(vs : List(ShotVerdict)) : String do
     let n = fn p -> int_to_string(count_if(vs, p))
-    "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " pairs_differ=" ++ n(fn v -> v.pair_differs) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
+    "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " pairs_differ=" ++ n(fn v -> v.pair_differs) ++ " parted=" ++ n(parted) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
   end
 
   -- ---- What counts as drift ----
@@ -729,7 +759,48 @@ mod PhysicsSuite do
     match outcome_of({ v with pair_differs: false }) do
     Mismatch(text) -> if Harness.on_js() do Mismatch(text) else Passed(1) end
     Passed(_) -> Mismatch("a gap was passed")
-    Drifted(_, _, _) -> if Harness.on_js() do Passed(1) else Mismatch("a gap with no cause drifted on native") end
+    Drifted(_, _, _) -> do
+      if Harness.on_js() do
+        Passed(1)
+      else
+        Mismatch("a gap with no cause drifted on native")
+      end
+    end
+    end
+  end
+
+  -- Parting takes a difference that is not a distance, or a distance past the limit.
+  fn parting_is_judged() : Outcome do
+    let v = verdict_of(fine())
+    let far = verdict_of(position(1.0, zero_bits()))
+    let near = verdict_of(position(0.000000001, zero_bits()))
+    all([expect(parted({ v with hole_ok: false }), "another hole has parted"), expect(parted(far), "a metre off has parted"), expect(!parted(near), "a nanometre off has not parted"), expect(!parted(v), "the same shot has not parted")])
+  end
+
+  -- Natively, a parted shot needs a pair to blame. On JS, V8's libm is always one.
+  fn parting_needs_a_cause() : Outcome do
+    let far = verdict_of(position(1.0, zero_bits()))
+    let blameless = { far with pair_differs: false }
+    expect(has_a_cause(blameless) == Harness.on_js(), "a parted shot with no cause was excused")
+  end
+
+  fn bulk_of(compared : Int, parted_shots : Int) : BulkRun do
+    {
+      rng_now: Skee.Rng.seed(Skee.U64.make(0, 0)),
+      position: 0,
+      compared: compared,
+      parted: parted_shots,
+      differing: []
+    }
+  end
+
+  -- One in a thousand is in. One more is out.
+  fn budget_is_kept() : Outcome do
+    let inside = parted_case([], bulk_of(2000, 2))
+    let outside = parted_case([], bulk_of(2000, 3))
+    match (inside, outside) do
+    (Passed(_), Mismatch(_)) -> Passed(1)
+    _ -> Mismatch("the budget is not one in a thousand")
     end
   end
 
@@ -751,7 +822,7 @@ mod PhysicsSuite do
     let zero = zero_bits()
     let k = consts()
     let sums = sums_row(zero, zero, zero, zero)
-    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance"), needs_a_cause(position(0.000000001, zero)), replay_is_exact()])
+    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance"), needs_a_cause(position(0.000000001, zero)), replay_is_exact(), parting_is_judged(), parting_needs_a_cause(), budget_is_kept()])
   end
 
   fn agreement_is_not_difference() : Outcome do
@@ -780,28 +851,29 @@ mod PhysicsSuite do
     (hole_name(res.hole) ++ "." ++ int_to_string(List.length(res.events)) ++ "." ++ int_to_string(List.length(res.path)), r7)
   end
 
+  -- `parted` have a cause, as for a shot: V8's libm, or a pair plain sin and cos do
+  -- not reproduce. `differing` have none.
   type BulkRun = {
     rng_now : Skee.Rng.Rng,
     position : Int,
     compared : Int,
+    parted : Int,
     differing : List(String)
   }
 
-  fn bulk_step(k : Skee.Consts.Consts, tables : List(Table), combos : List(List(String)), b : BulkRun, want : String) : BulkRun do
+  fn bulk_step(k : Skee.Consts.Consts, tables : List(Table), combos : List(List(String)), pairs : List(Int), b : BulkRun, want : String) : BulkRun do
     let combo = List.nth(combos, b.position % List.length(combos))
     let (got, r) = bulk_shot(k, tables, combo, b.rng_now)
-    let bad =
-      if got == want do
-        b.differing
+    let next = { b with rng_now: r, position: b.position + 1, compared: b.compared + 1 }
+    if got == want do
+      next
+    else
+      if Harness.on_js() || List.any(pairs, fn n -> n == b.position) do
+        { next with parted: b.parted + 1 }
       else
-        Cons(int_to_string(b.position) ++ " " ++ got ++ " want " ++ want, b.differing)
+        { next with differing: Cons(int_to_string(b.position) ++ " " ++ got ++ " want " ++ want, b.differing) }
       end
-    {
-      rng_now: r,
-      position: b.position + 1,
-      compared: b.compared + 1,
-      differing: bad
-    }
+    end
   end
 
   fn bulk_result(rows : List(List(String))) : BulkRun do
@@ -811,20 +883,27 @@ mod PhysicsSuite do
     let seed = token(List.nth(GoldenIo.of_kind(rows, "bulkseed"), 0), 0)
     let wanted =
       List.flat_map(GoldenIo.of_kind(rows, "bulk"), fn row -> String.split(token(row, 0), ","))
+    let pairs =
+      List.map(GoldenIo.of_kind(rows, "bulkpair"), fn row -> GoldenIo.int(token(row, 0)))
     let start =
       {
         rng_now: Skee.Rng.seed(GoldenIo.u64(seed)),
         position: 0,
         compared: 0,
+        parted: 0,
         differing: []
       }
-    List.fold_left(wanted, start, fn (b, want) -> bulk_step(k, tables, combos, b, want))
+    List.fold_left(wanted, start, fn (b, want) -> bulk_step(k, tables, combos, pairs, b, want))
   end
 
   fn bulk_outcome(b : BulkRun) : Outcome do
     if List.is_empty(b.differing) do
       if b.compared > 0 do
-        Passed(b.compared)
+        if b.parted > 0 do
+          Drifted(b.compared, b.parted, 0)
+        else
+          Passed(b.compared)
+        end
       else
         Mismatch("compared nothing")
       end
@@ -835,7 +914,7 @@ mod PhysicsSuite do
 
   doc """The hole, event count and path length of every bulk shot, as one line."""
   fn bulk_line(b : BulkRun) : String do
-    "BULK shots=" ++ int_to_string(b.compared) ++ " differ=" ++ int_to_string(List.length(b.differing))
+    "BULK shots=" ++ int_to_string(b.compared) ++ " parted=" ++ int_to_string(b.parted) ++ " differ=" ++ int_to_string(List.length(b.differing))
   end
 
   -- ---- Flicks ----
@@ -1509,7 +1588,8 @@ mod PhysicsSuite do
       case("board geometry", fn () -> board_case(rows)),
       case("golden shots on Swift's libm values, every bit", fn () -> replay_case(exact)),
       case("the goldens hold shots whose pair is not plain sin and cos", fn () -> expect(count_if(shots, fn v -> v.pair_differs) > 0, "no such shot: were these built without optimisation?")),
-      case("golden shots as shipped", fn () -> all(List.map(shots, outcome_of))),
+      case("golden shots as shipped", fn () -> shipped_case(shots)),
+      case("few shots part from Swift", fn () -> parted_case(shots, bulk)),
       case("bulk golden shots", fn () -> bulk_outcome(bulk)),
       case("lane start", fn () -> lane_start_case(rows)),
       case("golden flicks", fn () -> flick_case(rows)),
