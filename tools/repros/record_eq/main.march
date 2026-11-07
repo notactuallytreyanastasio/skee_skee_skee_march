@@ -1,0 +1,31 @@
+-- COMPILER BUG, native only, silent: `==` on records in a library module. Every
+-- record type mangles to the same name, so one `__march_eq_Ptr`, generated for
+-- the first record seen, serves them all. Depending on layouts the answer is
+-- wrong or the program segfaults in march_string_eq.
+--   MARCH_LIB_PATH=tools/repros/record_eq march tools/repros/record_eq/main.march
+--     true true false true true false       (also what JS prints)
+--   the same with --compile prints
+--     true true true false true false
+mod Main do
+  needs IO.Console
+
+  fn say(x : Bool) : () do
+    println(if x do "true" else "false" end)
+  end
+
+  fn p1() : P do { i: 1, j: 2 } end
+  fn q1() : Q do { x: 1.0, y: 2.0, z: 3.0 } end
+  fn q2() : Q do { x: 1.0, y: 2.0, z: 9.0 } end
+  fn r1() : R(String) do { u: "a", v: "b" } end
+  fn r2() : R(Int) do { u: 1, v: 2 } end
+  fn r3() : R(Int) do { u: 1, v: 3 } end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    say(p1() == p1())
+    say(q1() == q1())
+    say(q1() == q2())
+    say(r1() == r1())
+    say(r2() == r2())
+    say(r2() == r3())
+  end
+end

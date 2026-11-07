@@ -10,7 +10,7 @@ mod Skee.Rng do
 
   type Rng = { word : U64 }
 
-  derive Eq, Show for Rng
+  derive Show for Rng
 
   fn seed(s : U64) : Rng needs () do
     { word: s }

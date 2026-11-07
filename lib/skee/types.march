@@ -13,6 +13,10 @@ mod Skee.Types do
   -- Where Swift used an array of a fixed length, the port uses Three or a named
   -- record. Parallel arrays became one list of pairs (ShotResult.events).
   --
+  -- No record derives Eq, and neither does anything holding one: native `==` on
+  -- records silently gives wrong answers (tools/repros/record_eq), so the
+  -- compiler must reject it. Compare records field by field in a named function.
+  --
   -- Constructors are unique across this file, even where the Swift reuses a
   -- name, so a bare constructor always means one thing.
   cap pure
@@ -37,7 +41,7 @@ mod Skee.Types do
     pocket_right : a
   }
 
-  derive Eq, Show for PerHole
+  derive Show for PerHole
 
   -- One value per hole that has a reel: every Hole but the gutter.
   type PerReel(a) = {
@@ -50,17 +54,17 @@ mod Skee.Types do
     reel_right : a
   }
 
-  derive Eq, Show for PerReel
+  derive Show for PerReel
 
   -- One value per RoundKind.
   type PerRound(a) = { warmup : a, feature : a, boss_round : a }
 
-  derive Eq, Show for PerRound
+  derive Show for PerRound
 
   -- One value per JackpotTier.
   type PerTier(a) = { mini : a, minor : a, major : a, grand : a }
 
-  derive Eq, Show for PerTier
+  derive Show for PerTier
 
   -- One value per Room.
   type PerRoom(a) = {
@@ -70,7 +74,7 @@ mod Skee.Types do
     penthouse : a
   }
 
-  derive Eq, Show for PerRoom
+  derive Show for PerRoom
 
   -- ---- Units ----
   -- The four quantities a frame moves between. Swift holds all of them in Int,
@@ -129,7 +133,7 @@ mod Skee.Types do
   -- An event and when it happened, in seconds from release.
   type TimedEvent = { event : ShotEvent, at : Float }
 
-  derive Eq, Show for TimedEvent
+  derive Show for TimedEvent
 
   type PathPhase = OnLane | InAir | OnBoard
 
@@ -146,7 +150,7 @@ mod Skee.Types do
     height : Float
   }
 
-  derive Eq, Show for PathSample
+  derive Show for PathSample
 
   -- Everything the player controls about one ball, already normalised. Build one
   -- only with the constructors in Skee.Physics: they do the clamping, and fields
@@ -162,7 +166,7 @@ mod Skee.Types do
     skid : Float
   }
 
-  derive Eq, Show for Launch
+  derive Show for Launch
 
   type ShotResult = {
     launch : Launch,
@@ -175,7 +179,7 @@ mod Skee.Types do
     duration : Float
   }
 
-  derive Eq, Show for ShotResult
+  derive Show for ShotResult
 
   type LaneSpec = {
     length : Float,
@@ -192,20 +196,20 @@ mod Skee.Types do
     skid_loss : Float
   }
 
-  derive Eq, Show for LaneSpec
+  derive Show for LaneSpec
 
   type HingeSpec = { base_angle : Float, fold_gain : Float, carry : Float }
 
-  derive Eq, Show for HingeSpec
+  derive Show for HingeSpec
 
   type Pocket = { pocket_hole : Hole, center : Vec2, radius : Float }
 
-  derive Eq, Show for Pocket
+  derive Show for Pocket
 
   -- Swift's two-element pockets array: left first, the order they are tested in.
   type Pockets = { left : Pocket, right : Pocket }
 
-  derive Eq, Show for Pockets
+  derive Show for Pockets
 
   -- Swift's ringWalls array, smallest first: inside `wall40` is the 40 cup.
   type RingWalls = {
@@ -215,7 +219,7 @@ mod Skee.Types do
     wall10 : Float
   }
 
-  derive Eq, Show for RingWalls
+  derive Show for RingWalls
 
   type BoardSpec = {
     board_width : Float,
@@ -243,7 +247,7 @@ mod Skee.Types do
     ring_hole_radius : Float
   }
 
-  derive Eq, Show for BoardSpec
+  derive Show for BoardSpec
 
   type Table = {
     lane : LaneSpec,
@@ -254,7 +258,7 @@ mod Skee.Types do
     max_duration : Float
   }
 
-  derive Eq, Show for Table
+  derive Show for Table
 
   -- ---- Scoring ----
   -- Board symbols. Every hole carries one; a frame's three balls read as a payline.
@@ -299,7 +303,7 @@ mod Skee.Types do
     multiplier : Int
   }
 
-  derive Eq, Show for LineWin
+  derive Show for LineWin
 
   -- Whose machine a pull is on. Compare with Skee.Units.room_rank.
   type Room = Boardwalk | NeonLounge | HighRoller | Penthouse
@@ -309,22 +313,22 @@ mod Skee.Types do
   -- One pull of the lever. `stops` is each reel's top visible stop on its strip.
   type Pull = { stops : Three(Int), bet : Bet, free : Bool, pull_room : Room }
 
-  derive Eq, Show for Pull
+  derive Show for Pull
 
   -- The progressive meters over the machine, kept between runs.
   type Progressive = { meters : PerTier(Winnings) }
 
-  derive Eq, Show for Progressive
+  derive Show for Progressive
 
   -- The player's reels and gilding. A hole's first symbol is its home symbol.
   type BoardSetup = { reels : PerReel(List(Symbol)), gild : PerReel(Chips) }
 
-  derive Eq, Show for BoardSetup
+  derive Show for BoardSetup
 
   -- The frame's targets: the centre row of the last pull.
   type TopSlot = { targets : Three(Symbol) }
 
-  derive Eq, Show for TopSlot
+  derive Show for TopSlot
 
   type BallKind = Marshmallow | ClassicBall | JumpingBean | Wobbler | Comet
 
@@ -344,7 +348,7 @@ mod Skee.Types do
     hot : Bool
   }
 
-  derive Eq, Show for BallRecord
+  derive Show for BallRecord
 
   type Charm =
     LuckyPenny
@@ -373,7 +377,7 @@ mod Skee.Types do
     context_pull : Option(Pull)
   }
 
-  derive Eq, Show for ScoringContext
+  derive Show for ScoringContext
 
   -- What a score step came from. Ball and slot carry the ball's index in the frame.
   type ScoreSource =
@@ -401,7 +405,7 @@ mod Skee.Types do
 
   type ScoreStep = { source : ScoreSource, effect : ScoreEffect }
 
-  derive Eq, Show for ScoreStep
+  derive Show for ScoreStep
 
   type FrameScore = {
     balls : List(BallRecord),
@@ -413,7 +417,7 @@ mod Skee.Types do
     streak_after : Int
   }
 
-  derive Eq, Show for FrameScore
+  derive Show for FrameScore
 
   -- What a charm is allowed to look at.
   type FrameView = {
@@ -422,7 +426,7 @@ mod Skee.Types do
     view_streak_after : Int
   }
 
-  derive Eq, Show for FrameView
+  derive Show for FrameView
 
   -- ---- Items and the counter ----
   type PowerUp = GoldenBall | Feather | Magnet | WildBall | Hold
@@ -442,7 +446,7 @@ mod Skee.Types do
   -- None marks a slot already bought this visit.
   type PrizeCounter = { offers : List(Option(Offer)), reroll_cost : Tickets }
 
-  derive Eq, Show for PrizeCounter
+  derive Show for PrizeCounter
 
   type Boss =
     TallLips
@@ -480,7 +484,7 @@ mod Skee.Types do
     offer_count : Int
   }
 
-  derive Eq, Show for RunConfig
+  derive Show for RunConfig
 
   -- One round: a target, a number of three-ball frames, and the balls so far.
   type RoundState = {
@@ -498,11 +502,11 @@ mod Skee.Types do
     last_bet : Bet
   }
 
-  derive Eq, Show for RoundState
+  derive Show for RoundState
 
   type Phase = Throwing | AtCounter(PrizeCounter) | Lost | Won
 
-  derive Eq, Show for Phase
+  derive Show for Phase
 
   type RunStats = {
     stat_balls : Int,
@@ -517,7 +521,7 @@ mod Skee.Types do
     rounds_cleared : Int
   }
 
-  derive Eq, Show for RunStats
+  derive Show for RunStats
 
   -- The whole run as a value. Its seed and actions reproduce it exactly.
   type RunState = {
@@ -541,7 +545,7 @@ mod Skee.Types do
     stats : RunStats
   }
 
-  derive Eq, Show for RunState
+  derive Show for RunState
 
   type Action =
     PullLever(Bet)
@@ -554,7 +558,7 @@ mod Skee.Types do
     | Sell(Int)
     | LeaveCounter
 
-  derive Eq, Show for Action
+  derive Show for Action
 
   type ActionError =
     WrongPhase
@@ -572,7 +576,7 @@ mod Skee.Types do
 
   type Payout = { base : Tickets, overkill : Tickets, interest : Tickets }
 
-  derive Eq, Show for Payout
+  derive Show for Payout
 
   -- Things the shell should show or play, in the order they happened.
   type GameEvent =
@@ -595,12 +599,12 @@ mod Skee.Types do
     | AnteStarted(Int, Boss)
     | RunWon
 
-  derive Eq, Show for GameEvent
+  derive Show for GameEvent
 
   -- Swift's Step: the field is `run` because `state` is a March keyword.
   type Step = { run : RunState, step_events : List(GameEvent) }
 
-  derive Eq, Show for Step
+  derive Show for Step
 
   -- ---- Between runs ----
   type Prize =
@@ -647,7 +651,7 @@ mod Skee.Types do
     credit : Winnings
   }
 
-  derive Eq, Show for Comp
+  derive Show for Comp
 
   -- Winnings carried between runs, and the shelf they bought. `rooms` is Swift's
   -- Set(Room), `comps` its optional dictionary by room.
@@ -663,12 +667,12 @@ mod Skee.Types do
     host_visits : Int
   }
 
-  derive Eq, Show for Wallet
+  derive Show for Wallet
 
   -- ---- Input ----
   type FlickSample = { sample_t : Float, sample_x : Float, sample_y : Float }
 
-  derive Eq, Show for FlickSample
+  derive Show for FlickSample
 
   type FlickGeometry = {
     crease_y : Float,
@@ -677,11 +681,11 @@ mod Skee.Types do
     foul_give : Float
   }
 
-  derive Eq, Show for FlickGeometry
+  derive Show for FlickGeometry
 
   type StrokeOutcome = NoThrow | StrokeFoul | Release(Launch)
 
-  derive Eq, Show for StrokeOutcome
+  derive Show for StrokeOutcome
 
   type FlickTuning = {
     slowest : Float,
@@ -694,13 +698,13 @@ mod Skee.Types do
     line_reach : Float
   }
 
-  derive Eq, Show for FlickTuning
+  derive Show for FlickTuning
 
   -- ---- Bots ----
   -- How shaky a bot's hand is: Gaussian noise on power and aim.
   type Skill = { skill_name : String, power_sigma : Float, aim_sigma : Float }
 
-  derive Eq, Show for Skill
+  derive Show for Skill
 
   -- ---- Default spec values ----
   -- Functions, not module-level lets: a `let` in a library module is broken on

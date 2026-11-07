@@ -200,12 +200,16 @@ mod FoundationSuite do
     all([expect(Skee.Units.hole_rank(Gutter) < Skee.Units.hole_rank(Ring10), "gutter is the lowest hole"), expect(Skee.Units.hole_rank(Ring50) < Skee.Units.hole_rank(PocketLeft), "a pocket beats the 50"), expect(Skee.Units.hole_rank(PocketLeft) < Skee.Units.hole_rank(PocketRight), "pockets order by name"), expect(Skee.Units.bet_rank(BetOne) < Skee.Units.bet_rank(BetFive), "bets are ordered"), expect(Skee.Units.tier_rank(Mini) < Skee.Units.tier_rank(Grand), "tiers are ordered"), expect(Skee.Units.room_rank(Boardwalk) < Skee.Units.room_rank(Penthouse), "rooms are ordered")])
   end
 
+  fn all_x(m : PerReel(String)) : Bool do
+    List.all(Skee.HoleMap.reel_holes(), fn h -> Skee.HoleMap.reel_at(m, h) == Some("x"))
+  end
+
   fn hole_map() : Outcome do
     let m = Skee.HoleMap.fill(0)
     let m2 = Skee.HoleMap.put(Skee.HoleMap.put(m, Gutter, 1), PocketRight, 2)
     let r = Skee.HoleMap.fill_reels("x")
     let r2 = Skee.HoleMap.reel_put(r, Ring30, "y")
-    all([expect_int(Skee.HoleMap.at(m2, Gutter), 1, "gutter slot"), expect_int(Skee.HoleMap.at(m2, PocketRight), 2, "pocket slot"), expect_int(Skee.HoleMap.at(m2, Ring10), 0, "untouched slot"), expect(Skee.HoleMap.reel_at(r2, Ring30) == Some("y"), "reel slot"), expect(Skee.HoleMap.reel_at(r2, Ring40) == Some("x"), "untouched reel"), expect(Skee.HoleMap.reel_at(r2, Gutter) == None, "the gutter has no reel"), expect(Skee.HoleMap.reel_put(r, Gutter, "y") == r, "writing the gutter's reel is a no-op"), expect(Skee.HoleMap.reel_holes() == [Ring10, Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight], "reel hole order")])
+    all([expect_int(Skee.HoleMap.at(m2, Gutter), 1, "gutter slot"), expect_int(Skee.HoleMap.at(m2, PocketRight), 2, "pocket slot"), expect_int(Skee.HoleMap.at(m2, Ring10), 0, "untouched slot"), expect(Skee.HoleMap.reel_at(r2, Ring30) == Some("y"), "reel slot"), expect(Skee.HoleMap.reel_at(r2, Ring40) == Some("x"), "untouched reel"), expect(Skee.HoleMap.reel_at(r2, Gutter) == None, "the gutter has no reel"), expect(all_x(Skee.HoleMap.reel_put(r, Gutter, "y")), "writing the gutter's reel is a no-op"), expect(Skee.HoleMap.reel_holes() == [Ring10, Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight], "reel hole order")])
   end
 
   fn flag() : Outcome do

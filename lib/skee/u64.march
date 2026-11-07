@@ -11,7 +11,7 @@ mod Skee.U64 do
 
   type U64 = { hi : Int, lo : Int }
 
-  derive Eq, Show for U64
+  derive Show for U64
 
   -- 2^32 and 2^32-1, spelled as products as stdlib/random.march does.
   pfn two32() : Int needs () do
@@ -20,6 +20,11 @@ mod Skee.U64 do
 
   pfn mask32(x : Int) : Int needs () do
     int_and(x, two32() - 1)
+  end
+
+  doc """Equality. U64 is a record, and records do not derive Eq: see Skee.Types."""
+  fn equal(a : U64, b : U64) : Bool needs () do
+    a.hi == b.hi && a.lo == b.lo
   end
 
   doc """A value from its two limbs. Each limb is reduced to 32 bits."""

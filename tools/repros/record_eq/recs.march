@@ -1,0 +1,8 @@
+mod Recs do
+  type P = { i : Int, j : Int }
+  derive Eq, Show for P
+  type Q = { x : Float, y : Float, z : Float }
+  derive Eq, Show for Q
+  type R(a) = { u : a, v : a }
+  derive Eq, Show for R
+end

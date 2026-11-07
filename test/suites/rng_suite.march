@@ -105,7 +105,7 @@ mod RngSuite do
   fn vec_examples() : Outcome do
     let v =
       Skee.Maths.add(Skee.Maths.vec2(1.0, 2.0), Skee.Maths.vec2(3.0, 0.0 -. 1.0))
-    all([expect(v == Skee.Maths.vec2(4.0, 1.0), "add and scale: sum"), expect(Skee.Maths.scale(v, 2.0) == Skee.Maths.vec2(8.0, 2.0), "add and scale: product"), expect(Skee.Maths.length(Skee.Maths.vec2(3.0, 4.0)) == 5.0, "length of 3,4"), expect(Skee.Maths.dot(Skee.Maths.vec2(1.0, 0.0), Skee.Maths.vec2(0.0, 1.0)) == 0.0, "perpendicular dot"), expect(Skee.Maths.normalized(Skee.Maths.vec2(3.0, 4.0)) == Skee.Maths.vec2(0.6, 0.8), "normalized 3,4")])
+    all([expect(Skee.Maths.equal(v, Skee.Maths.vec2(4.0, 1.0)), "add and scale: sum"), expect(Skee.Maths.equal(Skee.Maths.scale(v, 2.0), Skee.Maths.vec2(8.0, 2.0)), "add and scale: product"), expect(Skee.Maths.length(Skee.Maths.vec2(3.0, 4.0)) == 5.0, "length of 3,4"), expect(Skee.Maths.dot(Skee.Maths.vec2(1.0, 0.0), Skee.Maths.vec2(0.0, 1.0)) == 0.0, "perpendicular dot"), expect(Skee.Maths.equal(Skee.Maths.normalized(Skee.Maths.vec2(3.0, 4.0)), Skee.Maths.vec2(0.6, 0.8)), "normalized 3,4")])
   end
 
   -- Replay one kind of row in file order. Rows of one seed are contiguous, and
@@ -258,7 +258,7 @@ mod RngSuite do
 
   fn first_value() : Outcome do
     let (v, _) = Skee.Rng.next(Skee.Rng.seed(Skee.U64.make(0, 0)))
-    expect(v == Skee.U64.make(3793791033, 2065550767), "reference value 0xE220A8397B1DCDAF")
+    expect(Skee.U64.equal(v, Skee.U64.make(3793791033, 2065550767)), "reference value 0xE220A8397B1DCDAF")
   end
 
   -- A comparator that cannot fail proves nothing, so prove this one can.
@@ -274,7 +274,7 @@ mod RngSuite do
         Passed(_) -> false
         Drifted(_, _, _) -> false
         end
-    all([expect(zero != minus_zero, "0.0 and -0.0 have different bits"), expect(is_mismatch(GoldenIo.expect_float(next_up, "3ff0000000000000", "control")), "one ulp is a mismatch"), expect(GoldenIo.float_bits(one) == GoldenIo.u64("3ff0000000000000"), "1.0 reads back")])
+    all([expect(!Skee.U64.equal(zero, minus_zero), "0.0 and -0.0 have different bits"), expect(is_mismatch(GoldenIo.expect_float(next_up, "3ff0000000000000", "control")), "one ulp is a mismatch"), expect(Skee.U64.equal(GoldenIo.float_bits(one), GoldenIo.u64("3ff0000000000000")), "1.0 reads back")])
   end
 
   fn cases() : List(Case) do

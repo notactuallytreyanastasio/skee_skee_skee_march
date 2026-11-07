@@ -23,10 +23,17 @@ case "$target" in
   native)
     march --compile --opt 0 -o "$out_dir/$suite" "$entry" >"$out_dir/build.log" 2>&1
     built=$?
+    # Native == on a record reuses one comparison for every record type and
+    # answers wrongly. The types forbid it; this catches anything that slips by.
+    bad_eq=$(grep -c '@__march_eq_[A-Za-z0-9_]*Ptr' "test/mains/${suite}_main.ll" 2>/dev/null)
     rm -f "test/mains/${suite}_main.ll"
     if [ "$built" -ne 0 ]; then
       cat "$out_dir/build.log"
       echo "BUILD FAILED: $suite ($target)"
+      exit 1
+    fi
+    if [ "${bad_eq:-0}" -ne 0 ]; then
+      echo "RED: $suite on native uses == on a record, which is unsound natively. See docs/PORT.md."
       exit 1
     fi
     "$out_dir/$suite" >"$log" 2>&1
