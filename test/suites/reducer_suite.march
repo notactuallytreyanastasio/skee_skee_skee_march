@@ -1114,7 +1114,9 @@ mod ReducerSuite do
     match (t.live, row) do
     (_, Cons("run", Cons(label, Cons(seed, Cons(room, Cons(extra, Cons(cfg, Cons(digest, Nil)))))))) -> started(k, configs, t, label, seed, room, extra, cfg, digest)
     (Some(l), Cons("s", Cons(token, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))) -> accepted(k, t, l, token, state_digest, event_digest, balls)
-    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))))) -> thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest, balls)
+    (Some(l), Cons("t", Cons(token, Cons(shot, Cons(detail, Cons(state_digest, Cons(event_digest, Cons(balls, Nil)))))))) -> do
+      thrown(k, mode, t, l, token, shot, detail, state_digest, event_digest, balls)
+    end
     (Some(l), Cons("e", Cons(token, Cons(want, Nil)))) -> refused(k, t, l, token, want)
     (None, Cons("s", _)) -> t
     (None, Cons("t", _)) -> t
@@ -1200,7 +1202,11 @@ mod ReducerSuite do
 
   -- ---- table(for:) ----
   fn power_of(token : String) : Option(PowerUp) do
-    if token == "n" do None else Some(List.nth(Skee.Items.all_power_ups(), GoldenIo.int(token))) end
+    if token == "n" do
+      None
+    else
+      Some(List.nth(Skee.Items.all_power_ups(), GoldenIo.int(token)))
+    end
   end
 
   fn table_for_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do

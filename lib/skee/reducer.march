@@ -108,7 +108,7 @@ mod Skee.Reducer do
       end
     let armed =
       match s.round.armed do
-      Some(p) -> Skee.Items.modify_for_power_up(p, tightened)
+      Some(p) -> Skee.Items.modify_for_power_up(p, bossed)
       None -> bossed
       end
     Skee.Items.modify_for_ball(s.ball, armed)
