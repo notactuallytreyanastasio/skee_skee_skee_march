@@ -1,9 +1,659 @@
 mod ItemsSuite do
 
-  -- Owned by the items piece. Add cases here; see docs/PORT.md.
-  -- Add `import Harness` with the first case: it brings in case, all and expect.
+  -- BallKind, Charm, PowerUp, Offer, Boss, difficulty_table and target against
+  -- the real Swift. Every row of test/golden/items.march is read here; the
+  -- `coverage` case fails if a row kind stops being read.
+  import Harness
+  import Skee.Items
+
+  fn golden_rows() : List(List(String)) do
+    GoldenIo.rows(Golden.Items.chunks())
+  end
+
+  fn rows(k : String) : List(List(String)) do
+    GoldenIo.of_kind(golden_rows(), k)
+  end
+
+  -- The golden writes spaces in display text as underscores.
+  fn text(s : String) : String do
+    String.replace_all(s, " ", "_")
+  end
+
+  fn bool_token(x : Bool) : String do
+    if x do "1" else "0" end
+  end
+
+  -- Each entry of a catalogue must meet its row, in order: allCases order is
+  -- what the RNG indexes into.
+  fn in_order(items : List(a), want : List(List(String)), check : a -> List(String) -> Outcome, what : String) : Outcome do
+    if List.length(items) == List.length(want) do
+      all(List.map(List.zip(items, want), fn pair -> check(Tuple.first(pair), Tuple.second(pair))))
+    else
+      Mismatch(what ++ ": " ++ int_to_string(List.length(items)) ++ " items, " ++ int_to_string(List.length(want)) ++ " rows")
+    end
+  end
+
+  -- ---- Swift rawValues ----
+  fn ball_raw(b : BallKind) : String do
+    match b do
+    Marshmallow -> "marshmallow"
+    ClassicBall -> "classic"
+    JumpingBean -> "bean"
+    Wobbler -> "wobbler"
+    Comet -> "comet"
+    end
+  end
+
+  fn ball_row(b : BallKind, row : List(String)) : Outcome do
+    match row do
+    Cons(raw, Cons(name, Cons(short, Cons(blurb, Cons(pay, Cons(label, Cons(random, Cons(speed, Cons(drawn, Nil))))))))) -> do
+      let what = ball_raw(b)
+      all([expect_string(ball_raw(b), raw, "order"), expect_string(text(ball_name(b)), name, what ++ " name"), expect_string(text(ball_short(b)), short, what ++ " short"), expect_string(text(ball_blurb(b)), blurb, what ++ " blurb"), GoldenIo.expect_float(Skee.Items.pay(b), pay, what ++ " pay"), expect_string(text(pay_label(b)), label, what ++ " pay label"), expect_string(bool_token(is_random(b)), random, what ++ " random"), GoldenIo.expect_float(speed_scale(b), speed, what ++ " speed"), GoldenIo.expect_float(drawn_size(b), drawn, what ++ " drawn")])
+    end
+    _ -> Mismatch("bad ball row")
+    end
+  end
+
+  fn power_raw(p : PowerUp) : String do
+    match p do
+    GoldenBall -> "goldenBall"
+    Feather -> "feather"
+    Magnet -> "magnet"
+    WildBall -> "wildBall"
+    Hold -> "hold"
+    end
+  end
+
+  fn power_row(p : PowerUp, row : List(String)) : Outcome do
+    match row do
+    Cons(raw, Cons(name, Cons(blurb, Cons(cost, Nil)))) -> do
+      let what = power_raw(p)
+      all([expect_string(what, raw, "order"), expect_string(text(power_up_name(p)), name, what ++ " name"), expect_string(text(power_up_blurb(p)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(power_up_cost(p)), GoldenIo.int(cost), what ++ " cost")])
+    end
+    _ -> Mismatch("bad power row")
+    end
+  end
+
+  fn boss_raw(b : Boss) : String do
+    match b do
+    TallLips -> "tallLips"
+    SlickLane -> "slickLane"
+    Crosswind -> "crosswind"
+    Miser -> "miser"
+    ShortHand -> "shortHand"
+    TightPockets -> "tightPockets"
+    TheHouse -> "theHouse"
+    end
+  end
+
+  fn boss_row(b : Boss, row : List(String)) : Outcome do
+    match row do
+    Cons(raw, Cons(name, Cons(blurb, Cons(delta, Cons(pairs, Nil))))) -> do
+      let what = boss_raw(b)
+      all([expect_string(what, raw, "order"), expect_string(text(boss_name(b)), name, what ++ " name"), expect_string(text(boss_blurb(b)), blurb, what ++ " blurb"), expect_int(frame_delta(b), GoldenIo.int(delta), what ++ " frame delta"), expect_string(bool_token(pairs_pay(b)), pairs, what ++ " pairs pay")])
+    end
+    _ -> Mismatch("bad boss row")
+    end
+  end
+
+  fn boss_chips_row(row : List(String)) : Outcome do
+    match row do
+    Cons(boss, Cons(hole, Cons(base, Cons(want, Nil)))) -> do
+      let b = lookup(all_bosses(), boss_raw, boss)
+      let h = lookup(Skee.HoleMap.all_holes(), hole_raw, hole)
+      let got = boss_chips(b, h, Chips(GoldenIo.int(base)))
+      expect_int(Skee.Units.chips_int(got), GoldenIo.int(want), boss ++ " " ++ hole ++ " " ++ base)
+    end
+    _ -> Mismatch("bad boss_chips row")
+    end
+  end
+
+  fn charm_raw(c : Charm) : String do
+    match c do
+    LuckyPenny -> "luckyPenny"
+    HotStreak -> "hotStreak"
+    HeavyHand -> "heavyHand"
+    GutterRat -> "gutterRat"
+    EvenSteven -> "evenSteven"
+    Ladder -> "ladder"
+    CornerOffice -> "cornerOffice"
+    NearMiss -> "nearMiss"
+    MultBall -> "multBall"
+    GlassCannon -> "glassCannon"
+    TicketMuncher -> "ticketMuncher"
+    HingeWhisperer -> "hingeWhisperer"
+    BellRinger -> "bellRinger"
+    SevenSeas -> "sevenSeas"
+    ExtraBall -> "extraBall"
+    end
+  end
+
+  fn charm_row(c : Charm, row : List(String)) : Outcome do
+    match row do
+    Cons(raw, Cons(name, Cons(blurb, Cons(cost, Nil)))) -> do
+      let what = charm_raw(c)
+      all([expect_string(what, raw, "order"), expect_string(text(charm_name(c)), name, what ++ " name"), expect_string(text(charm_blurb(c)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(charm_cost(c)), GoldenIo.int(cost), what ++ " cost")])
+    end
+    _ -> Mismatch("bad charm row")
+    end
+  end
+
+  fn symbol_raw(s : Symbol) : String do
+    match s do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  fn all_symbols() : List(Symbol) do
+    [Blank, Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover]
+  end
+
+  fn symbol_of(token : String) : Symbol do
+    lookup(all_symbols(), symbol_raw, token)
+  end
+
+  fn payline_of(token : String) : Payline do
+    match String.split(token, ":") do
+    Cons("none", Nil) -> NoLine
+    Cons("pair", Cons(s, Nil)) -> Pair(symbol_of(s))
+    Cons("triple", Cons(s, Nil)) -> Triple(symbol_of(s))
+    _ -> panic("bad payline token: " ++ token)
+    end
+  end
+
+  fn ball_of(token : String) : BallRecord do
+    match String.split(token, ":") do
+    Cons(hole, Cons(symbol, Cons(rattles, Cons(fold, Cons(foul, Nil))))) -> do
+      {
+        record_hole: lookup(Skee.HoleMap.all_holes(), hole_raw, hole),
+        record_symbol: symbol_of(symbol),
+        record_chips: Chips(0),
+        rattles: GoldenIo.int(rattles),
+        record_fold: GoldenIo.float_of_bits(fold),
+        foul: foul == "1",
+        slot_hits: 0,
+        record_combo: 0,
+        record_ball: ClassicBall,
+        hot: false
+      }
+    end
+    _ -> panic("bad ball token: " ++ token)
+    end
+  end
+
+  fn balls_of(token : String) : List(BallRecord) do
+    if token == "-" do [] else List.map(String.split(token, "/"), ball_of) end
+  end
+
+  fn effect_matches(e : ScoreEffect, token : String, what : String) : Outcome do
+    match (e, String.split(token, ":")) do
+    (AddMult(m), Cons("m", Cons(bits, Nil))) -> GoldenIo.expect_float(m, bits, what)
+    (TimesMult(m), Cons("x", Cons(bits, Nil))) -> GoldenIo.expect_float(m, bits, what)
+    (AddChips(c), Cons("c", Cons(n, Nil))) -> expect_int(Skee.Units.chips_int(c), GoldenIo.int(n), what)
+    (AddTickets(t), Cons("t", Cons(n, Nil))) -> expect_int(Skee.Units.tickets_int(t), GoldenIo.int(n), what)
+    (Note(s), Cons("n", Cons(note, Nil))) -> expect_string(text(s), note, what)
+    _ -> Mismatch(what ++ ": got " ++ show(e) ++ ", want " ++ token)
+    end
+  end
+
+  fn charm_on_frame(c : Charm, view : FrameView, token : String, what : String) : Outcome do
+    let label = what ++ " " ++ charm_raw(c)
+    let got = charm_effects(c, view)
+    let want = if token == "-" do [] else String.split(token, ",") end
+    if List.length(got) == List.length(want) do
+      match got do
+      Nil -> Passed(1)
+      Cons(_, _) -> do
+        all(List.map(List.zip(got, want), fn pair -> effect_matches(Tuple.first(pair), Tuple.second(pair), label)))
+      end
+      end
+    else
+      Mismatch(label ++ ": got " ++ show(got) ++ ", want " ++ token)
+    end
+  end
+
+  fn frame_row(row : List(String)) : Outcome do
+    match row do
+    Cons(streak, Cons(payline, Cons(balls, effects))) -> do
+      let view =
+        {
+          view_balls: balls_of(balls),
+          view_payline: payline_of(payline),
+          view_streak_after: GoldenIo.int(streak)
+        }
+      let what = streak ++ " " ++ payline ++ " " ++ balls
+      if List.length(effects) == List.length(all_charms()) do
+        all(List.map(List.zip(all_charms(), effects), fn pair -> charm_on_frame(Tuple.first(pair), view, Tuple.second(pair), what)))
+      else
+        Mismatch("frame row has the wrong number of charms: " ++ what)
+      end
+    end
+    _ -> Mismatch("bad frame row")
+    end
+  end
+
+  -- ---- Offers ----
+  fn offer_of(kind : String, arg : String) : Offer do
+    match kind do
+    "charm" -> OfferCharm(lookup(all_charms(), charm_raw, arg))
+    "stamp" -> OfferStamp(symbol_of(arg))
+    "gild" -> OfferGild
+    "purge" -> OfferPurge
+    "power" -> OfferPowerUp(lookup(all_power_ups(), power_raw, arg))
+    _ -> panic("bad offer token: " ++ kind)
+    end
+  end
+
+  fn offer_row(row : List(String)) : Outcome do
+    match row do
+    Cons(kind, Cons(arg, Cons(cost, Cons(target, Nil)))) -> do
+      let o = offer_of(kind, arg)
+      let what = kind ++ " " ++ arg
+      all([expect_int(Skee.Units.tickets_int(offer_cost(o)), GoldenIo.int(cost), what ++ " cost"), expect_string(bool_token(offer_needs_target(o)), target, what ++ " target")])
+    end
+    _ -> Mismatch("bad offer row")
+    end
+  end
+
+  fn gild_row(row : List(String)) : Outcome do
+    match row do
+    Cons(n, Nil) -> do
+      expect_int(Skee.Units.chips_int(gild_amount()), GoldenIo.int(n), "gild amount")
+    end
+    _ -> Mismatch("bad gild_amount row")
+    end
+  end
+
+  -- ---- Rounds and targets ----
+  fn round_raw(k : RoundKind) : String do
+    match k do
+    Warmup -> "warmup"
+    Feature -> "feature"
+    BossRound -> "boss"
+    end
+  end
+
+  fn round_token(k : Option(RoundKind)) : String do
+    match k do
+    Some(next) -> round_raw(next)
+    None -> "-"
+    end
+  end
+
+  fn round_row(k : RoundKind, row : List(String)) : Outcome do
+    match row do
+    Cons(raw, Cons(title, Cons(next, Nil))) -> do
+      let what = round_raw(k)
+      all([expect_string(what, raw, "order"), expect_string(text(round_title(k)), title, what ++ " title"), expect_string(round_token(round_next(k)), next, what ++ " next")])
+    end
+    _ -> Mismatch("bad round row")
+    end
+  end
+
+  fn target_matches(c : RunConfig, ante : String, kind : String, want : String) : Outcome do
+    let what = "ante " ++ ante ++ " " ++ kind ++ " at scale " ++ show(c.target_scale)
+    match target(c, GoldenIo.int(ante), lookup(all_round_kinds(), round_raw, kind)) do
+    Some(p) -> expect_int(Skee.Units.points_int(p), GoldenIo.int(want), what)
+    None -> Mismatch(what ++ ": no target")
+    end
+  end
+
+  fn target_std_row(row : List(String)) : Outcome do
+    match row do
+    Cons(ante, Cons(kind, Cons(want, Nil))) -> target_matches(Skee.Types.standard_config(), ante, kind, want)
+    _ -> Mismatch("bad target_std row")
+    end
+  end
+
+  fn target_row(row : List(String)) : Outcome do
+    match row do
+    Cons(scale, Cons(warmup, Cons(feature, Cons(boss, Cons(bases, Cons(ante, Cons(kind, Cons(want, Nil)))))))) -> do
+      let c =
+        { Skee.Types.standard_config() with target_scale: GoldenIo.float_of_bits(scale), kind_scale: { warmup: GoldenIo.float_of_bits(warmup), feature: GoldenIo.float_of_bits(feature), boss_round: GoldenIo.float_of_bits(boss) }, ante_base: List.map(String.split(bases, ","), fn n -> Points(GoldenIo.int(n))) }
+      target_matches(c, ante, kind, want)
+    end
+    _ -> Mismatch("bad target row")
+    end
+  end
+
+  -- Swift traps on an empty anteBase, so no golden can exist. The port's
+  -- answer is None, for any ante and any kind.
+  fn no_antes_no_target() : Outcome do
+    let c = { Skee.Types.standard_config() with ante_base: [] }
+    all(List.map(all_round_kinds(), fn kind -> expect(Option.is_none(target(c, 1, kind)), "an empty ante list has no target")))
+  end
+
+  fn hole_raw(h : Hole) : String do
+    match h do
+    Gutter -> "gutter"
+    Ring10 -> "ring10"
+    Ring20 -> "ring20"
+    Ring30 -> "ring30"
+    Ring40 -> "ring40"
+    Ring50 -> "ring50"
+    PocketLeft -> "pocketLeft"
+    PocketRight -> "pocketRight"
+    end
+  end
+
+  -- The catalogue entry a golden token names.
+  fn lookup(items : List(a), raw : a -> String, token : String) : a do
+    match List.find(items, fn x -> raw(x) == token) do
+    Some(x) -> x
+    None -> panic("golden names an unknown item: " ++ token)
+    end
+  end
+
+  -- ---- Tables ----
+  -- Every Float of a table, in the order main.swift's `fields` writes them.
+  fn table_floats(t : Table) : List((String, Float)) do
+    let l = t.lane
+    let h = t.hinge
+    let d = t.board
+    let w = d.ring_walls
+    let left = d.pockets.left
+    let right = d.pockets.right
+    [
+      ("lane.length", l.length),
+      ("lane.width", l.width),
+      ("lane.incline", l.incline),
+      ("lane.rolling_friction", l.rolling_friction),
+      ("lane.rail_restitution", l.rail_restitution),
+      ("lane.min_speed", l.min_speed),
+      ("lane.scoring_speed", l.scoring_speed),
+      ("lane.max_speed", l.max_speed),
+      ("lane.knee", l.knee),
+      ("lane.max_aim_angle", l.max_aim_angle),
+      ("lane.hook", l.hook),
+      ("lane.skid_loss", l.skid_loss),
+      ("hinge.base_angle", h.base_angle),
+      ("hinge.fold_gain", h.fold_gain),
+      ("hinge.carry", h.carry),
+      ("board.width", d.board_width),
+      ("board.height", d.board_height),
+      ("board.tilt", d.tilt),
+      ("board.ring_center.x", d.ring_center.x),
+      ("board.ring_center.y", d.ring_center.y),
+      ("board.center_hole_offset.x", d.center_hole_offset.x),
+      ("board.center_hole_offset.y", d.center_hole_offset.y),
+      ("board.center_hole_radius", d.center_hole_radius),
+      ("board.capture_speed", d.capture_speed),
+      ("board.lip_min_fall", d.lip_min_fall),
+      ("board.wall40", w.wall40),
+      ("board.wall30", w.wall30),
+      ("board.wall20", w.wall20),
+      ("board.wall10", w.wall10),
+      ("board.left.x", left.center.x),
+      ("board.left.y", left.center.y),
+      ("board.left.radius", left.radius),
+      ("board.right.x", right.center.x),
+      ("board.right.y", right.center.y),
+      ("board.right.radius", right.radius),
+      ("board.lip_height", d.lip_height),
+      ("board.ball_radius", d.ball_radius),
+      ("board.lip_band", d.lip_band),
+      ("board.bounce", d.bounce),
+      ("board.lip_bounce", d.lip_bounce),
+      ("board.lip_kick", d.lip_kick),
+      ("board.wall_restitution", d.wall_restitution),
+      ("board.backwall_restitution", d.backwall_restitution),
+      ("board.rolling_friction", d.board_rolling_friction),
+      ("board.landing_grip", d.landing_grip),
+      ("board.wind.x", d.wind.x),
+      ("board.wind.y", d.wind.y),
+      ("board.ring_hole_radius", d.ring_hole_radius),
+      ("gravity", t.gravity),
+      ("dt", t.dt),
+      ("max_duration", t.max_duration)
+    ]
+  end
+
+  fn table_matches(t : Table, tokens : List(String), what : String) : Outcome do
+    let d = t.board
+    match tokens do
+    Cons(flight, Cons(left, Cons(right, floats))) -> do
+      let want = table_floats(t)
+      if List.length(want) == List.length(floats) do
+        let kinds = [
+          expect_string(bool_token(d.pockets_need_flight), flight, what ++ " flight"),
+          expect_string(hole_raw(d.pockets.left.pocket_hole), left, what ++ " left"),
+          expect_string(hole_raw(d.pockets.right.pocket_hole), right, what ++ " right")
+        ]
+        all(List.append(kinds, List.map(List.zip(want, floats), fn pair -> field_matches(pair, what))))
+      else
+        Mismatch(what ++ ": row has " ++ int_to_string(List.length(floats)) ++ " floats")
+      end
+    end
+    _ -> Mismatch("bad table row")
+    end
+  end
+
+  fn field_matches(pair : ((String, Float), String), what : String) : Outcome do
+    match pair do
+    ((name, value), token) -> GoldenIo.expect_float(value, token, what ++ " " ++ name)
+    end
+  end
+
+  fn float_at(tokens : List(String), n : Int) : Float do
+    match List.drop(tokens, n) do
+    Cons(token, _) -> GoldenIo.float_of_bits(token)
+    Nil -> panic("alt_table row is too short")
+    end
+  end
+
+  -- The `alt_table` row as a table: the same fields as `fields`, read back.
+  fn alt_table() : Table do
+    match rows("alt_table") do
+    Cons(Cons(flight, Cons(_, Cons(_, f))), _) -> do
+      let x = fn n -> float_at(f, n)
+      {
+        lane: {
+          length: x(0),
+          width: x(1),
+          incline: x(2),
+          rolling_friction: x(3),
+          rail_restitution: x(4),
+          min_speed: x(5),
+          scoring_speed: x(6),
+          max_speed: x(7),
+          knee: x(8),
+          max_aim_angle: x(9),
+          hook: x(10),
+          skid_loss: x(11)
+        },
+        hinge: { base_angle: x(12), fold_gain: x(13), carry: x(14) },
+        board: {
+          board_width: x(15),
+          board_height: x(16),
+          tilt: x(17),
+          ring_center: { x: x(18), y: x(19) },
+          center_hole_offset: { x: x(20), y: x(21) },
+          center_hole_radius: x(22),
+          capture_speed: x(23),
+          pockets_need_flight: flight == "1",
+          lip_min_fall: x(24),
+          ring_walls: { wall40: x(25), wall30: x(26), wall20: x(27), wall10: x(28) },
+          pockets: { left: { pocket_hole: PocketLeft, center: { x: x(29), y: x(30) }, radius: x(31) }, right: { pocket_hole: PocketRight, center: { x: x(32), y: x(33) }, radius: x(34) } },
+          lip_height: x(35),
+          ball_radius: x(36),
+          lip_band: x(37),
+          bounce: x(38),
+          lip_bounce: x(39),
+          lip_kick: x(40),
+          wall_restitution: x(41),
+          backwall_restitution: x(42),
+          board_rolling_friction: x(43),
+          landing_grip: x(44),
+          wind: { x: x(45), y: x(46) },
+          ring_hole_radius: x(47)
+        },
+        gravity: x(48),
+        dt: x(49),
+        max_duration: x(50)
+      }
+    end
+    _ -> panic("no alt_table row")
+    end
+  end
+
+  fn with_ball(t : Table, token : String) : Table do
+    if token == "-" do
+      t
+    else
+      modify_for_ball(lookup(all_balls(), ball_raw, token), t)
+    end
+  end
+
+  fn with_power(t : Table, token : String) : Table do
+    if token == "-" do
+      t
+    else
+      modify_for_power_up(lookup(all_power_ups(), power_raw, token), t)
+    end
+  end
+
+  fn with_boss(t : Table, token : String) : Table do
+    if token == "-" do
+      t
+    else
+      modify_for_boss(lookup(all_bosses(), boss_raw, token), t)
+    end
+  end
+
+  fn with_ante(t : Table, ante : String, antes : String) : Table do
+    if ante == "-" do
+      t
+    else
+      difficulty_table(GoldenIo.int(ante), t, GoldenIo.int(antes))
+    end
+  end
+
+  -- Modifiers apply in the order Swift's table(for:) applies them.
+  fn stacked(base : Table, row : List(String)) : Option((Table, List(String))) do
+    match row do
+    Cons(_, Cons(ante, Cons(antes, Cons(boss, Cons(power, Cons(ball, rest)))))) -> do
+      Some((with_ball(with_power(with_boss(with_ante(base, ante, antes), boss), power), ball), rest))
+    end
+    _ -> None
+    end
+  end
+
+  fn table_row(std : Table, alt : Table, row : List(String)) : Outcome do
+    let what = String.join(List.take(row, 6), " ")
+    let base = if List.take(row, 1) == ["alt"] do alt else std end
+    match stacked(base, row) do
+    Some((t, tokens)) -> table_matches(t, tokens, what)
+    None -> Mismatch("bad table row: " ++ what)
+    end
+  end
+
+  -- The rows whose ante, antes, boss, power and ball tokens satisfy `pick`.
+  fn table_rows(pick : List(String) -> Bool) : List(List(String)) do
+    List.filter(rows("table"), fn row -> pick(List.take(List.drop(row, 1), 5)))
+  end
+
+  fn only_ball(m : List(String)) : Bool do
+    match m do
+    Cons("-", Cons("8", Cons("-", Cons("-", Cons(ball, Nil))))) -> ball != "-"
+    _ -> false
+    end
+  end
+
+  fn only_power(m : List(String)) : Bool do
+    match m do
+    Cons("-", Cons("8", Cons("-", Cons(power, Cons("-", Nil))))) -> power != "-"
+    _ -> false
+    end
+  end
+
+  fn only_boss(m : List(String)) : Bool do
+    match m do
+    Cons("-", Cons("8", Cons(boss, Cons("-", Cons("-", Nil))))) -> boss != "-"
+    _ -> false
+    end
+  end
+
+  fn only_ante(m : List(String)) : Bool do
+    match m do
+    Cons(ante, Cons(_, Cons("-", Cons("-", Cons("-", Nil))))) -> ante != "-"
+    _ -> false
+    end
+  end
+
+  -- An ante and at least one item.
+  fn stacked_row(m : List(String)) : Bool do
+    match m do
+    Cons(ante, Cons(_, Cons(boss, Cons(power, Cons(ball, Nil))))) -> ante != "-" && (boss != "-" || power != "-" || ball != "-")
+    _ -> false
+    end
+  end
+
+  fn no_modifiers(m : List(String)) : Bool do
+    m == ["-", "8", "-", "-", "-"]
+  end
+
+  fn table_case(pick : List(String) -> Bool) : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    let alt = alt_table()
+    all(List.map(table_rows(pick), fn row -> table_row(std, alt, row)))
+  end
+
+  -- No golden row may go unread: the kinds above must account for every line,
+  -- and the table cases must partition the table rows.
+  fn coverage() : Outcome do
+    let kinds =
+      [
+        "ball",
+        "charm",
+        "power",
+        "boss",
+        "round",
+        "offer",
+        "gild_amount",
+        "boss_chips",
+        "alt_table",
+        "table",
+        "frame",
+        "target_std",
+        "target"
+      ]
+    let known = List.fold_left(kinds, 0, fn (acc, kind) -> acc + List.length(rows(kind)))
+    let picks = [no_modifiers, only_ball, only_power, only_boss, only_ante, stacked_row]
+    let split =
+      List.fold_left(picks, 0, fn (acc, pick) -> acc + List.length(table_rows(pick)))
+    all([expect_int(known, Golden.Items.line_count(), "rows of a known kind"), expect_int(split, List.length(rows("table")), "table rows in exactly one case")])
+  end
+
   fn cases() : List(Case) do
-    []
+    [
+      case("balls", fn () -> in_order(all_balls(), rows("ball"), ball_row, "balls")),
+      case("a table with no modifiers", fn () -> table_case(no_modifiers)),
+      case("ball tables", fn () -> table_case(only_ball)),
+      case("power-ups", fn () -> in_order(all_power_ups(), rows("power"), power_row, "power-ups")),
+      case("power-up tables", fn () -> table_case(only_power)),
+      case("bosses", fn () -> in_order(all_bosses(), rows("boss"), boss_row, "bosses")),
+      case("boss tables", fn () -> table_case(only_boss)),
+      case("boss chips", fn () -> all(List.map(rows("boss_chips"), boss_chips_row))),
+      case("difficulty tables", fn () -> table_case(only_ante)),
+      case("every item on every ante, and stacked", fn () -> table_case(stacked_row)),
+      case("charms", fn () -> in_order(all_charms(), rows("charm"), charm_row, "charms")),
+      case("charm effects on frames", fn () -> all(List.map(rows("frame"), frame_row))),
+      case("offers", fn () -> all(List.map(rows("offer"), offer_row))),
+      case("gild amount", fn () -> all(List.map(rows("gild_amount"), gild_row))),
+      case("round kinds", fn () -> in_order(all_round_kinds(), rows("round"), round_row, "round kinds")),
+      case("standard targets", fn () -> all(List.map(rows("target_std"), target_std_row))),
+      case("targets", fn () -> all(List.map(rows("target"), target_row))),
+      case("no antes, no target", fn () -> no_antes_no_target()),
+      case("every golden row is read", fn () -> coverage())
+    ]
   end
 
 end

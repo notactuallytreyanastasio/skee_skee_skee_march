@@ -1,8 +1,6 @@
 import GoldenSupport
-@testable import SkeeCore
 
-// Owned by the rooms piece. Emit goldens from the real Swift here; see the
-// "Adding golden cases" section of docs/PORT.md for the line format.
+// Owned by the rooms piece. The rows are written in room_golden.swift.
 var g = GoldenFile(module: "Rooms")
-g.line("stub", i(0))
+emitRoomGoldens(&g)
 try g.write()

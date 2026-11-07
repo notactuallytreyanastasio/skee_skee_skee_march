@@ -1,9 +1,9 @@
 mod ItemsTest do
 
-  -- Pending. When the first case exists, add:
-  --   test "items suite" do
-  --     assert (Harness.failures(ItemsSuite.cases()) == [])
-  --   end
   needs IO.Console
+
+  test "items suite" do
+    assert Harness.failures(ItemsSuite.cases()) == []
+  end
 
 end

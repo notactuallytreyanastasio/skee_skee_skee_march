@@ -1,7 +1,616 @@
 mod Skee.Items do
 
-  -- The items piece. See docs/PORT.md for what ports here, and for the rules every
-  -- module under lib/ follows. Replace this comment as the first behaviour lands.
+  -- BallKind, Charm, PowerUp, Offer, Boss, RoundKind (Items/*, Run/Boss.swift,
+  -- Run/Difficulty.swift and RunConfig.target in Run/Config.swift). Swift's
+  -- computed properties are functions here: a BallKind's `pay` is `pay(b)`.
   cap pure
+
+  -- ---- BallKind ----
+  doc """BallKind.allCases."""
+  fn all_balls() : List(BallKind) needs () do
+    [Marshmallow, ClassicBall, JumpingBean, Wobbler, Comet]
+  end
+
+  fn ball_name(b : BallKind) : String needs () do
+    match b do
+    Marshmallow -> "Marshmallow"
+    ClassicBall -> "Classic"
+    JumpingBean -> "Jumping Bean"
+    Wobbler -> "Wobbler"
+    Comet -> "Comet"
+    end
+  end
+
+  doc """A word that fits on a small button."""
+  fn ball_short(b : BallKind) : String needs () do
+    match b do
+    Marshmallow -> "SOFT"
+    ClassicBall -> "CLASSIC"
+    JumpingBean -> "BEAN"
+    Wobbler -> "WOBBLE"
+    Comet -> "COMET"
+    end
+  end
+
+  fn ball_blurb(b : BallKind) : String needs () do
+    match b do
+    Marshmallow -> "Big and soft. Drifts toward the middle."
+    ClassicBall -> "The good old ball."
+    JumpingBean -> "Hops around when it feels like it."
+    Wobbler -> "Snakes from side to side."
+    Comet -> "Blazing fast. Bounces off everything!"
+    end
+  end
+
+  doc """What a ball's chips are multiplied by."""
+  fn pay(b : BallKind) : Float needs () do
+    match b do
+    Marshmallow -> 1.1
+    ClassicBall -> 1.2
+    JumpingBean -> 2.0
+    Wobbler -> 2.0
+    Comet -> 3.0
+    end
+  end
+
+  fn pay_label(b : BallKind) : String needs () do
+    match b do
+    Marshmallow -> "x1.1"
+    ClassicBall -> "x1.2"
+    JumpingBean -> "x2"
+    Wobbler -> "x2"
+    Comet -> "x3"
+    end
+  end
+
+  doc """Its flight depends on a seed drawn from the run."""
+  fn is_random(b : BallKind) : Bool needs () do
+    match b do
+    Marshmallow -> false
+    ClassicBall -> false
+    JumpingBean -> true
+    Wobbler -> true
+    Comet -> false
+    end
+  end
+
+  doc """Released this much faster than the thumb asked."""
+  fn speed_scale(b : BallKind) : Float needs () do
+    match b do
+    Marshmallow -> 1.0
+    ClassicBall -> 1.0
+    JumpingBean -> 1.0
+    Wobbler -> 1.0
+    Comet -> 1.3
+    end
+  end
+
+  doc """
+  Drawn size against a classic ball. The physics radius does not change: only
+  the holes' welcome does. Swift holds this as a 32-bit Float, so 1.3 here is
+  the nearest Float32, written as a ratio of two exact values because it has
+  too many digits for a literal.
+  """
+  fn drawn_size(b : BallKind) : Float needs () do
+    match b do
+    Marshmallow -> 10905190.0 /. 8388608.0
+    ClassicBall -> 1.0
+    JumpingBean -> 1.0
+    Wobbler -> 1.0
+    Comet -> 1.0
+    end
+  end
+
+  -- Every pocket's radius times `k`, left first as Swift's map goes.
+  pfn scale_pockets(p : Pockets, k : Float) : Pockets needs () do
+    let left = p.left
+    let right = p.right
+    {
+      left: { left with radius: left.radius *. k },
+      right: { right with radius: right.radius *. k }
+    }
+  end
+
+  doc """
+  The table this ball is thrown on. A marshmallow's lips and bounce stay as they
+  are, softer as it looks: rattles fill the fever meter, and a gentler lip cut
+  fever frames by two thirds and made the easy ball the hard one.
+  """
+  fn modify_for_ball(b : BallKind, t : Table) : Table needs () do
+    let d = t.board
+    match b do
+    Marshmallow -> do
+      let board =
+        { d with center_hole_radius: d.center_hole_radius *. 1.5, capture_speed: d.capture_speed *. 1.6, pockets: scale_pockets(d.pockets, 1.5) }
+      { t with board: board }
+    end
+    Comet -> do
+      let lane = t.lane
+      let board =
+        { d with bounce: d.bounce *. 1.5, landing_grip: 0.95, lip_bounce: d.lip_bounce *. 1.3, wall_restitution: 1.05, backwall_restitution: 1.05 }
+      { t with lane: { lane with rail_restitution: 1.0 }, board: board }
+    end
+    ClassicBall -> t
+    JumpingBean -> t
+    Wobbler -> t
+    end
+  end
+
+  -- ---- PowerUp ----
+  doc """PowerUp.allCases."""
+  fn all_power_ups() : List(PowerUp) needs () do
+    [GoldenBall, Feather, Magnet, WildBall, Hold]
+  end
+
+  fn power_up_name(p : PowerUp) : String needs () do
+    match p do
+    GoldenBall -> "Golden Ball"
+    Feather -> "Feather Ball"
+    Magnet -> "Magnet Ball"
+    WildBall -> "Wild Ball"
+    Hold -> "Hold"
+    end
+  end
+
+  fn power_up_blurb(p : PowerUp) : String needs () do
+    match p do
+    GoldenBall -> "This ball's chips x3"
+    Feather -> "This ball passes over ring lips"
+    Magnet -> "Holes and pockets grab this ball from further away"
+    WildBall -> "This ball's symbol is a wild clover"
+    Hold -> "The reels don't spin after this ball"
+    end
+  end
+
+  fn power_up_cost(_p : PowerUp) : Tickets needs () do
+    Tickets(2)
+  end
+
+  fn modify_for_power_up(p : PowerUp, t : Table) : Table needs () do
+    let d = t.board
+    match p do
+    Feather -> { t with board: { d with lip_band: 0.0 } }
+    Magnet -> do
+      let board =
+        { d with center_hole_radius: d.center_hole_radius *. 1.6, capture_speed: d.capture_speed *. 1.5, pockets: scale_pockets(d.pockets, 1.6) }
+      { t with board: board }
+    end
+    GoldenBall -> t
+    WildBall -> t
+    Hold -> t
+    end
+  end
+
+  -- ---- Boss ----
+  doc """Boss.allCases. The run draws its boss by index into this list."""
+  fn all_bosses() : List(Boss) needs () do
+    [TallLips, SlickLane, Crosswind, Miser, ShortHand, TightPockets, TheHouse]
+  end
+
+  fn boss_name(b : Boss) : String needs () do
+    match b do
+    TallLips -> "Tall Lips"
+    SlickLane -> "Slick Lane"
+    Crosswind -> "Crosswind"
+    Miser -> "The Miser"
+    ShortHand -> "Short Hand"
+    TightPockets -> "Tight Pockets"
+    TheHouse -> "The House"
+    end
+  end
+
+  fn boss_blurb(b : Boss) : String needs () do
+    match b do
+    TallLips -> "Ring lips are taller and wider. Expect rattles."
+    SlickLane -> "The lane is waxed. Your usual power overshoots."
+    Crosswind -> "A steady wind pushes balls across the board."
+    Miser -> "The 50 hole pays no chips."
+    ShortHand -> "One frame fewer this round."
+    TightPockets -> "The 50 hole and the 100 pockets shrink."
+    TheHouse -> "Pairs pay nothing. Only three of a kind counts."
+    end
+  end
+
+  doc """Physical changes. Scoring and round-shape changes are read elsewhere."""
+  fn modify_for_boss(b : Boss, t : Table) : Table needs () do
+    let d = t.board
+    match b do
+    TallLips -> do
+      let board = { d with lip_height: d.lip_height *. 1.6, lip_band: d.lip_band +. 0.2 }
+      { t with board: board }
+    end
+    SlickLane -> do
+      let lane = t.lane
+      let hinge = t.hinge
+      { t with lane: { lane with rolling_friction: 0.0 }, hinge: { hinge with carry: 1.04 } }
+    end
+    Crosswind -> { t with board: { d with wind: Skee.Maths.vec2(0.4, 0.0) } }
+    TightPockets -> do
+      let board =
+        { d with center_hole_radius: d.center_hole_radius *. 0.85, pockets: scale_pockets(d.pockets, 0.75) }
+      { t with board: board }
+    end
+    Miser -> t
+    ShortHand -> t
+    TheHouse -> t
+    end
+  end
+
+  doc """Added to the frames of a boss round."""
+  fn frame_delta(b : Boss) : Int needs () do
+    match b do
+    TallLips -> 0
+    SlickLane -> 0
+    Crosswind -> 0
+    Miser -> 0
+    ShortHand -> -1
+    TightPockets -> 0
+    TheHouse -> 0
+    end
+  end
+
+  fn pairs_pay(b : Boss) : Bool needs () do
+    match b do
+    TallLips -> true
+    SlickLane -> true
+    Crosswind -> true
+    Miser -> true
+    ShortHand -> true
+    TightPockets -> true
+    TheHouse -> false
+    end
+  end
+
+  pfn miser_chips(h : Hole, base : Chips) : Chips needs () do
+    match h do
+    Ring50 -> Chips(0)
+    Gutter -> base
+    Ring10 -> base
+    Ring20 -> base
+    Ring30 -> base
+    Ring40 -> base
+    PocketLeft -> base
+    PocketRight -> base
+    end
+  end
+
+  doc """What a hole pays under this boss, given what it would pay otherwise."""
+  fn boss_chips(b : Boss, h : Hole, base : Chips) : Chips needs () do
+    match b do
+    Miser -> miser_chips(h, base)
+    TallLips -> base
+    SlickLane -> base
+    Crosswind -> base
+    ShortHand -> base
+    TightPockets -> base
+    TheHouse -> base
+    end
+  end
+
+  -- ---- Difficulty ----
+  -- Swift's clamp on Ints. Not Skee.Maths.clamp_int: when hi < lo that one (it is
+  -- Math.clamp_int) can return lo, where min(max(x, lo), hi) is always hi.
+  pfn clamp_swift(x : Int, lo : Int, hi : Int) : Int needs () do
+    Math.min_int(Math.max_int(x, lo), hi)
+  end
+
+  doc """
+  The table tightens as the run goes on: smaller 50 hole and pockets, wider lips,
+  holes that only catch slower balls. Each knob moves linearly from ante 1 to the
+  last ante and stops there. Swift's defaults are `Skee.Types.standard_table(k)`
+  and 8 antes.
+  """
+  fn difficulty_table(ante : Int, base : Table, antes : Int) : Table needs () do
+    let t =
+      int_to_float(clamp_swift(ante, 1, antes) - 1) /. int_to_float(Math.max_int(antes - 1, 1))
+    let d = base.board
+    let left = d.pockets.left
+    let right = d.pockets.right
+    let board =
+      { d with lip_band: d.lip_band +. 0.25 *. t, center_hole_radius: d.center_hole_radius -. 0.005 *. t, capture_speed: d.capture_speed -. 0.3 *. t, pockets: { left: { left with radius: left.radius -. 0.006 *. t }, right: { right with radius: right.radius -. 0.006 *. t } } }
+    { base with board: board }
+  end
+
+  -- ---- Charm ----
+  doc """Charm.allCases."""
+  fn all_charms() : List(Charm) needs () do
+    [
+      LuckyPenny,
+      HotStreak,
+      HeavyHand,
+      GutterRat,
+      EvenSteven,
+      Ladder,
+      CornerOffice,
+      NearMiss,
+      MultBall,
+      GlassCannon,
+      TicketMuncher,
+      HingeWhisperer,
+      BellRinger,
+      SevenSeas,
+      ExtraBall
+    ]
+  end
+
+  fn charm_name(c : Charm) : String needs () do
+    match c do
+    LuckyPenny -> "Lucky Penny"
+    HotStreak -> "Hot Streak"
+    HeavyHand -> "Heavy Hand"
+    GutterRat -> "Gutter Rat"
+    EvenSteven -> "Even Steven"
+    Ladder -> "Ladder"
+    CornerOffice -> "Corner Office"
+    NearMiss -> "Near Miss"
+    MultBall -> "Mult Ball"
+    GlassCannon -> "Glass Cannon"
+    TicketMuncher -> "Ticket Muncher"
+    HingeWhisperer -> "Hinge Whisperer"
+    BellRinger -> "Bell Ringer"
+    SevenSeas -> "Seven Seas"
+    ExtraBall -> "Extra Ball"
+    end
+  end
+
+  fn charm_blurb(c : Charm) : String needs () do
+    match c do
+    LuckyPenny -> "+2 mult for each cherry in the frame"
+    HotStreak -> "+1 mult for each scoring ball in a row this round"
+    HeavyHand -> "+40 chips for each 50"
+    GutterRat -> "Gutter balls are worth 25 chips"
+    EvenSteven -> "x2 mult if all three balls hit the same hole"
+    Ladder -> "x3 mult for three rings in a row, like 30-40-50"
+    CornerOffice -> "x1.5 mult for each 100 pocket"
+    NearMiss -> "+15 chips for every lip rattle"
+    MultBall -> "+4 mult"
+    GlassCannon -> "x3 mult. A gutter ball shatters the frame to 0"
+    TicketMuncher -> "+1 ticket for each 50 or 100"
+    HingeWhisperer -> "+3 mult for each ball thrown with the hinge half folded"
+    BellRinger -> "+3 mult if the frame has a bell"
+    SevenSeas -> "+1 mult per 7 in the frame, x2 on a pair or better of 7s"
+    ExtraBall -> "+1 frame (3 balls) every round"
+    end
+  end
+
+  doc """Price at the prize counter. Sells for half, rounded down."""
+  fn charm_cost(c : Charm) : Tickets needs () do
+    match c do
+    LuckyPenny -> Tickets(3)
+    GutterRat -> Tickets(3)
+    HeavyHand -> Tickets(4)
+    NearMiss -> Tickets(4)
+    MultBall -> Tickets(4)
+    BellRinger -> Tickets(4)
+    HotStreak -> Tickets(5)
+    TicketMuncher -> Tickets(5)
+    HingeWhisperer -> Tickets(5)
+    SevenSeas -> Tickets(5)
+    EvenSteven -> Tickets(6)
+    Ladder -> Tickets(6)
+    CornerOffice -> Tickets(6)
+    GlassCannon -> Tickets(7)
+    ExtraBall -> Tickets(8)
+    end
+  end
+
+  -- How many of the frame's balls satisfy `pick`: FrameView.count.
+  pfn count_balls(f : FrameView, pick : BallRecord -> Bool) : Int needs () do
+    List.length(List.filter(f.view_balls, pick))
+  end
+
+  pfn is_pocket(h : Hole) : Bool needs () do
+    match h do
+    PocketLeft -> true
+    PocketRight -> true
+    Gutter -> false
+    Ring10 -> false
+    Ring20 -> false
+    Ring30 -> false
+    Ring40 -> false
+    Ring50 -> false
+    end
+  end
+
+  -- BallRecord.scored.
+  pfn scored(b : BallRecord) : Bool needs () do
+    b.record_hole != Gutter
+  end
+
+  -- A hole's place in Swift's ladder list; None for holes that are not rings.
+  pfn ring_index(h : Hole) : Option(Int) needs () do
+    match h do
+    Ring10 -> Some(0)
+    Ring20 -> Some(1)
+    Ring30 -> Some(2)
+    Ring40 -> Some(3)
+    Ring50 -> Some(4)
+    Gutter -> None
+    PocketLeft -> None
+    PocketRight -> None
+    end
+  end
+
+  -- Three rings in a row, in any throwing order.
+  pfn is_ring_run(f : FrameView) : Bool needs () do
+    let rings = List.filter_map(f.view_balls, fn b -> ring_index(b.record_hole))
+    match List.sort_by(rings, fn (a, b) -> a <= b) do
+    Cons(a, Cons(b, Cons(c, Nil))) -> b == a + 1 && c == b + 1
+    Cons(_, Cons(_, Cons(_, Cons(_, _)))) -> false
+    Cons(_, Cons(_, Nil)) -> false
+    Cons(_, Nil) -> false
+    Nil -> false
+    end
+  end
+
+  -- Exactly three balls, all in one hole.
+  pfn all_three_alike(f : FrameView) : Bool needs () do
+    match f.view_balls do
+    Cons(a, Cons(b, Cons(c, Nil))) -> a.record_hole == b.record_hole && b.record_hole == c.record_hole
+    Cons(_, Cons(_, Cons(_, Cons(_, _)))) -> false
+    Cons(_, Cons(_, Nil)) -> false
+    Cons(_, Nil) -> false
+    Nil -> false
+    end
+  end
+
+  -- `effect` when `n` is positive, otherwise nothing: the charms that pay per ball.
+  pfn when_any(n : Int, effect : ScoreEffect) : List(ScoreEffect) needs () do
+    if n > 0 do [effect] else [] end
+  end
+
+  pfn add_mult(n : Int) : ScoreEffect needs () do
+    AddMult(int_to_float(n))
+  end
+
+  pfn seven_seas(f : FrameView) : List(ScoreEffect) needs () do
+    let n = count_balls(f, fn b -> b.record_symbol == Seven)
+    let doubled = f.view_payline == Pair(Seven) || f.view_payline == Triple(Seven)
+    List.concat([when_any(n, add_mult(n)), if doubled do [TimesMult(2.0)] else [] end])
+  end
+
+  doc """What this charm does to a finished frame, in the order it applies."""
+  fn charm_effects(c : Charm, f : FrameView) : List(ScoreEffect) needs () do
+    match c do
+    LuckyPenny -> do
+      let n = count_balls(f, fn b -> b.record_symbol == Cherry)
+      when_any(n, add_mult(2 * n))
+    end
+    HotStreak -> when_any(f.view_streak_after, add_mult(f.view_streak_after))
+    HeavyHand -> do
+      let n = count_balls(f, fn b -> b.record_hole == Ring50)
+      when_any(n, AddChips(Chips(40 * n)))
+    end
+    GutterRat -> do
+      let n = count_balls(f, fn b -> b.record_hole == Gutter && !b.foul)
+      when_any(n, AddChips(Chips(25 * n)))
+    end
+    EvenSteven -> if all_three_alike(f) do [TimesMult(2.0)] else [] end
+    Ladder -> if is_ring_run(f) do [TimesMult(3.0)] else [] end
+    CornerOffice -> do
+      let pockets = List.filter(f.view_balls, fn b -> is_pocket(b.record_hole))
+      List.map(pockets, fn _b -> TimesMult(1.5))
+    end
+    NearMiss -> do
+      let n = List.fold_left(f.view_balls, 0, fn (acc, b) -> acc + b.rattles)
+      when_any(n, AddChips(Chips(15 * n)))
+    end
+    MultBall -> [AddMult(4.0)]
+    GlassCannon -> do
+      if List.all(f.view_balls, scored) do
+        [TimesMult(3.0)]
+      else
+        [TimesMult(0.0), Note("shattered")]
+      end
+    end
+    TicketMuncher -> do
+      let n =
+        count_balls(f, fn b -> b.record_hole == Ring50 || is_pocket(b.record_hole))
+      when_any(n, AddTickets(Tickets(n)))
+    end
+    HingeWhisperer -> do
+      let n = count_balls(f, fn b -> b.record_fold >= 0.5)
+      when_any(n, add_mult(3 * n))
+    end
+    BellRinger -> do
+      if List.any(f.view_balls, fn b -> b.record_symbol == Bell) do
+        [AddMult(3.0)]
+      else
+        []
+      end
+    end
+    SevenSeas -> seven_seas(f)
+    ExtraBall -> []
+    end
+  end
+
+  -- ---- Offer ----
+  pfn stamp_cost(s : Symbol) : Tickets needs () do
+    match s do
+    Seven -> Tickets(4)
+    Diamond -> Tickets(4)
+    Clover -> Tickets(4)
+    Blank -> Tickets(3)
+    Cherry -> Tickets(3)
+    Lemon -> Tickets(3)
+    Bell -> Tickets(3)
+    BarSym -> Tickets(3)
+    end
+  end
+
+  fn offer_cost(o : Offer) : Tickets needs () do
+    match o do
+    OfferCharm(c) -> charm_cost(c)
+    OfferStamp(s) -> stamp_cost(s)
+    OfferGild -> Tickets(3)
+    OfferPurge -> Tickets(3)
+    OfferPowerUp(p) -> power_up_cost(p)
+    end
+  end
+
+  doc """Stamps, gilds and purges must name a hole."""
+  fn offer_needs_target(o : Offer) : Bool needs () do
+    match o do
+    OfferStamp(_) -> true
+    OfferGild -> true
+    OfferPurge -> true
+    OfferCharm(_) -> false
+    OfferPowerUp(_) -> false
+    end
+  end
+
+  doc """Chips a gild adds to a hole, permanently."""
+  fn gild_amount() : Chips needs () do
+    Chips(10)
+  end
+
+  -- ---- RoundKind and RunConfig ----
+  doc """RoundKind.allCases."""
+  fn all_round_kinds() : List(RoundKind) needs () do
+    [Warmup, Feature, BossRound]
+  end
+
+  fn round_title(k : RoundKind) : String needs () do
+    match k do
+    Warmup -> "Warm-up"
+    Feature -> "Feature Game"
+    BossRound -> "Boss Machine"
+    end
+  end
+
+  doc """The round after this one in the ante. None after the boss."""
+  fn round_next(k : RoundKind) : Option(RoundKind) needs () do
+    match k do
+    Warmup -> Some(Feature)
+    Feature -> Some(BossRound)
+    BossRound -> None
+    end
+  end
+
+  doc """Swift's kindScale[kind] and roundTickets[kind]: every key exists here."""
+  fn per_round_at(m : PerRound(a), k : RoundKind) : a needs () do
+    match k do
+    Warmup -> m.warmup
+    Feature -> m.feature
+    BossRound -> m.boss_round
+    end
+  end
+
+  doc """
+  The score a round must reach. The ante is clamped to the list; None only when
+  `ante_base` is empty, a config Swift traps on. The product groups left to right
+  and rounds half away from zero, as Swift's does.
+  """
+  fn target(c : RunConfig, ante : Int, kind : RoundKind) : Option(Points) needs () do
+    let index = clamp_swift(ante, 1, List.length(c.ante_base)) - 1
+    match List.drop(c.ante_base, index) do
+    Cons(base, _) -> do
+      let raw =
+        int_to_float(Skee.Units.points_int(base)) *. per_round_at(c.kind_scale, kind) *. c.target_scale
+      Some(Points(float_round(raw)))
+    end
+    Nil -> None
+    end
+  end
 
 end

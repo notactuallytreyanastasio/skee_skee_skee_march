@@ -1,9 +1,1058 @@
 mod ScoringSuite do
 
-  -- Owned by the scoring piece. Add cases here; see docs/PORT.md.
-  -- Add `import Harness` with the first case: it brings in case, all and expect.
+  -- Owned by the scoring piece. The ported Swift tests, and the goldens that
+  -- tools/golden/Sources/golden-scoring writes from the real Swift.
+  import Harness
+  import Skee.Scoring
+
+  fn all_symbols() : List(Symbol) do
+    [Blank, Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover]
+  end
+
+  fn symbol_name(s : Symbol) : String do
+    match s do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  -- Reading is searching the writer's table, so the two cannot disagree.
+  fn named(xs : List(a), name_of : a -> String, token : String) : a do
+    match List.find(xs, fn x -> name_of(x) == token) do
+    Some(x) -> x
+    None -> panic("unknown golden name: " ++ token)
+    end
+  end
+
+  fn symbol_of(token : String) : Symbol do
+    named(all_symbols(), symbol_name, token)
+  end
+
+  fn bit(flag : Bool) : String do
+    if flag do "1" else "0" end
+  end
+
+  fn symbol_row(row : List(String)) : Outcome do
+    match row do
+    [name, flat, pair, triple, wild] -> do
+      let s = symbol_of(name)
+      all([
+        expect_int(Skee.Units.chips_int(flat_chips(s)), GoldenIo.int(flat), "flat " ++ name),
+        GoldenIo.expect_float(pair_mult(s), pair, "pair " ++ name),
+        GoldenIo.expect_float(triple_mult(s), triple, "triple " ++ name),
+        expect_string(bit(is_wild(s)), wild, "wild " ++ name)
+      ])
+    end
+    _ -> Mismatch("bad symbol row")
+    end
+  end
+
+  -- Tokens are the names of a comma list, or "-" for the empty list.
+  fn names(token : String) : List(String) do
+    if token == "-" do [] else String.split(token, ",") end
+  end
+
+  fn symbols_of(token : String) : List(Symbol) do
+    List.map(names(token), symbol_of)
+  end
+
+  fn payline_kind(p : Payline) : (String, String) do
+    match p do
+    NoLine -> ("none", "")
+    Pair(s) -> ("pair", symbol_name(s))
+    Triple(s) -> ("triple", symbol_name(s))
+    end
+  end
+
+  -- A golden payline names every symbol Swift may pick, "pair:cherry|lemon",
+  -- when the answer depends on Swift's per-process hash seed. The port picks
+  -- one and must pick one of those.
+  fn payline_matches(p : Payline, token : String) : Bool do
+    let (kind, name) = payline_kind(p)
+    match String.split(token, ":") do
+    ["none"] -> kind == "none"
+    [want, allowed] -> want == kind && List.member(String.split(allowed, "|"), name)
+    _ -> false
+    end
+  end
+
+  fn expect_payline(p : Payline, want : Payline, what : String) : Outcome do
+    let (kind, name) = payline_kind(p)
+    let (want_kind, want_name) = payline_kind(want)
+    expect_string(kind ++ ":" ++ name, want_kind ++ ":" ++ want_name, what)
+  end
+
+  fn payline_row(row : List(String)) : Outcome do
+    match row do
+    [symbols, token, added] -> do
+      let p = evaluate(symbols_of(symbols))
+      all([
+        expect(payline_matches(p, token), symbols ++ ": want " ++ token),
+        GoldenIo.expect_float(added_mult(p), added, "added " ++ symbols)
+      ])
+    end
+    _ -> Mismatch("bad payline row")
+    end
+  end
+
+  -- PaylineTests in ScoringTests.swift.
+  fn payline_cases() : List(Case) do
+    [
+      case("three of a kind", fn -> expect_payline(evaluate([Seven, Seven, Seven]), Triple(Seven), "7s")),
+      case("pair anywhere", fn -> expect_payline(evaluate([Bell, Cherry, Bell]), Pair(Bell), "bell")),
+      case("clover is wild", fn -> all([
+        expect_payline(evaluate([Clover, BarSym, BarSym]), Triple(BarSym), "triple"),
+        expect_payline(evaluate([Clover, BarSym, Lemon]), Pair(BarSym), "pair")
+      ])),
+      case("wild prefers the best symbol", fn -> expect_payline(evaluate([Clover, Lemon, Seven]), Pair(Seven), "seven")),
+      case("blanks never match", fn -> all([
+        expect_payline(evaluate([Blank, Blank, Blank]), NoLine, "blanks"),
+        expect_payline(evaluate([Blank, Clover, Blank]), NoLine, "one clover")
+      ])),
+      case("three clovers are triple clover", fn -> expect_payline(evaluate([Clover, Clover, Clover]), Triple(Clover), "clovers"))
+    ]
+  end
+
+  fn three_of(xs : List(a)) : Three(a) do
+    match xs do
+    [a, b, c] -> Three(a, b, c)
+    _ -> panic("golden list is not three long")
+    end
+  end
+
+  fn slot(a : Symbol, b : Symbol, c : Symbol) : TopSlot do
+    { targets: Three(a, b, c) }
+  end
+
+  fn hits_row(row : List(String)) : Outcome do
+    match row do
+    [window, ball, want] -> do
+      let t = { targets: three_of(symbols_of(window)) }
+      expect_int(hits(t, symbol_of(ball)), GoldenIo.int(want), window ++ " hit by " ++ ball)
+    end
+    _ -> Mismatch("bad hits row")
+    end
+  end
+
+  fn combo_row(row : List(String)) : Outcome do
+    match row do
+    [slot_hits, level, want] -> do
+      let got = combo_mult(GoldenIo.int(slot_hits), GoldenIo.int(level))
+      GoldenIo.expect_float(got, want, "combo " ++ slot_hits ++ " at " ++ level)
+    end
+    _ -> Mismatch("bad combo row")
+    end
+  end
+
+  fn consts_row(row : List(String)) : Outcome do
+    match row do
+    [level, tickets, free] -> all([
+      expect_int(max_level(), GoldenIo.int(level), "max level"),
+      expect_int(Skee.Units.tickets_int(jackpot_tickets()), GoldenIo.int(tickets), "jackpot tickets"),
+      expect_int(free_games_awarded(), GoldenIo.int(free), "free games")
+    ])
+    _ -> Mismatch("bad consts row")
+    end
+  end
+
+  fn expect_float_is(actual : Float, want : Float, what : String) : Outcome do
+    expect(actual == want, what ++ ": got " ++ float_to_string(actual))
+  end
+
+  -- TopSlotTests.swift, up to the tests that need a run.
+  fn top_slot_cases() : List(Case) do
+    [
+      case("counts reels matching the ball", fn -> do
+        let t = slot(Bell, Bell, Lemon)
+        all([
+          expect_int(hits(t, Bell), 2, "bell"),
+          expect_int(hits(t, Lemon), 1, "lemon"),
+          expect_int(hits(t, Seven), 0, "seven"),
+          expect_int(hits(t, Blank), 0, "blank")
+        ])
+      end),
+      case("clover on a reel matches any ball but blank", fn -> do
+        let t = slot(Clover, Bell, Cherry)
+        all([expect_int(hits(t, Bell), 2, "bell"), expect_int(hits(t, Blank), 0, "blank")])
+      end),
+      case("clover ball takes the best symbol showing", fn -> all([
+        expect_int(hits(slot(BarSym, BarSym, Cherry), Clover), 2, "bars"),
+        expect_int(hits(slot(Clover, Clover, Clover), Clover), 3, "clovers")
+      ])),
+      case("combo mult grows with hits and level and caps", fn -> all([
+        expect_float_is(combo_mult(0, 3), 0.0, "no hits"),
+        expect_float_is(combo_mult(1, 1), 0.5, "one"),
+        expect_float_is(combo_mult(2, 3), 3.0, "two at three"),
+        expect_float_is(combo_mult(1, 99), combo_mult(1, max_level()), "capped")
+      ])),
+      case("a wild ball ignores blank targets", fn -> expect_int(hits(slot(Blank, BarSym, Blank), Clover), 1, "bar")),
+      case("an empty slot matches nothing", fn -> expect_int(hits(empty_slot(), Clover), 0, "clover"))
+    ]
+  end
+
+  fn all_reel_symbols() : List(ReelSymbol) do
+    [ReelCherry, ReelLemon, ReelBell, ReelBar, ReelSeven, ReelDiamond, ReelWild, ReelX2, ReelX3, ReelBonus]
+  end
+
+  fn reel_name(s : ReelSymbol) : String do
+    match s do
+    ReelCherry -> "cherry"
+    ReelLemon -> "lemon"
+    ReelBell -> "bell"
+    ReelBar -> "bar"
+    ReelSeven -> "seven"
+    ReelDiamond -> "diamond"
+    ReelWild -> "wild"
+    ReelX2 -> "x2"
+    ReelX3 -> "x3"
+    ReelBonus -> "bonus"
+    end
+  end
+
+  fn reel_of(token : String) : ReelSymbol do
+    named(all_reel_symbols(), reel_name, token)
+  end
+
+  fn all_bets() : List(Bet) do
+    [BetOne, BetThree, BetFive]
+  end
+
+  fn bet_of(token : String) : Bet do
+    named(all_bets(), fn b -> int_to_string(Skee.Units.bet_rank(b)), token)
+  end
+
+  fn all_tiers() : List(JackpotTier) do
+    [Mini, Minor, Major, Grand]
+  end
+
+  fn tier_name(t : JackpotTier) : String do
+    match t do
+    Mini -> "mini"
+    Minor -> "minor"
+    Major -> "major"
+    Grand -> "grand"
+    end
+  end
+
+  fn tier_of(token : String) : JackpotTier do
+    named(all_tiers(), tier_name, token)
+  end
+
+  fn reel_row(row : List(String)) : Outcome do
+    match row do
+    [name, wild, mult, pay, target] -> do
+      let s = reel_of(name)
+      all([
+        expect_string(bit(reel_is_wild(s)), wild, "wild " ++ name),
+        expect_int(line_multiplier(s), GoldenIo.int(mult), "multiplier " ++ name),
+        expect_int(Skee.Units.chips_int(line_pay(s)), GoldenIo.int(pay), "pay " ++ name),
+        expect_string(symbol_name(reel_target(s)), target, "target " ++ name)
+      ])
+    end
+    _ -> Mismatch("bad reel row")
+    end
+  end
+
+  fn bet_row(row : List(String)) : Outcome do
+    match row do
+    [raw, lines, cost, max] -> do
+      let b = bet_of(raw)
+      all([
+        expect_int(bet_lines(b), GoldenIo.int(lines), "lines " ++ raw),
+        expect_int(Skee.Units.tickets_int(bet_cost(b)), GoldenIo.int(cost), "cost " ++ raw),
+        expect_string(bit(bet_is_max(b)), max, "max " ++ raw)
+      ])
+    end
+    _ -> Mismatch("bad bet row")
+    end
+  end
+
+  fn tier_row(row : List(String)) : Outcome do
+    match row do
+    [name, title, seed, growth] -> do
+      let t = tier_of(name)
+      all([
+        expect_string(tier_title(t), title, "title " ++ name),
+        expect_int(Skee.Units.winnings_int(tier_seed(t)), GoldenIo.int(seed), "seed " ++ name),
+        expect_int(Skee.Units.winnings_int(tier_growth(t)), GoldenIo.int(growth), "growth " ++ name)
+      ])
+    end
+    _ -> Mismatch("bad tier row")
+    end
+  end
+
+  fn line_win_token(w : Option(LineWin)) : String do
+    match w do
+    None -> "none"
+    Some(x) -> do
+      let chips = Skee.Units.chips_int(x.line_chips)
+      int_to_string(x.line) ++ ":" ++ reel_name(x.symbol) ++ ":" ++ int_to_string(chips) ++ ":" ++ int_to_string(x.multiplier)
+    end
+    end
+  end
+
+  fn line_win_row(row : List(String)) : Outcome do
+    match row do
+    [symbols, want, line] -> do
+      let s = three_of(List.map(names(symbols), reel_of))
+      expect_string(line_win_token(line_win(s, GoldenIo.int(line))), want, symbols)
+    end
+    _ -> Mismatch("bad line win row")
+    end
+  end
+
+  fn chips_of(w : Option(LineWin)) : Int do
+    match w do
+    Some(x) -> Skee.Units.chips_int(x.line_chips)
+    None -> 0
+    end
+  end
+
+  fn meters_token(p : Progressive) : String do
+    String.join(List.map(all_tiers(), fn t -> int_to_string(Skee.Units.winnings_int(amount(p, t)))), ",")
+  end
+
+  -- One row of the chain: apply it, compare, carry the meters on.
+  fn meters_step(acc : (Progressive, List(Outcome)), row : List(String)) : (Progressive, List(Outcome)) do
+    let (p, outcomes) = acc
+    match row do
+    ["hit", tier, won, want] -> do
+      let (paid, after) = hit(p, tier_of(tier))
+      let checks = [
+        expect_int(Skee.Units.winnings_int(paid), GoldenIo.int(won), "won"),
+        expect_string(meters_token(after), want, "after hit")
+      ]
+      (after, List.append(checks, outcomes))
+    end
+    ["feed", bet, _, want] -> do
+      let after = feed(p, bet_of(bet))
+      (after, Cons(expect_string(meters_token(after), want, "after feed"), outcomes))
+    end
+    _ -> (p, Cons(Mismatch("bad meters row"), outcomes))
+    end
+  end
+
+  fn meters_chain(meter_rows : List(List(String))) : Outcome do
+    let (_, outcomes) = List.fold_left(meter_rows, (new_progressive(), []), meters_step)
+    all(outcomes)
+  end
+
+  -- From PullTests.swift, the tests that need no strips.
+  fn line_cases() : List(Case) do
+    [
+      case("wilds stand in and multipliers multiply", fn -> all([
+        expect_int(chips_of(line_win(Three(ReelSeven, ReelWild, ReelSeven), 0)), 100, "wild"),
+        expect_int(chips_of(line_win(Three(ReelSeven, ReelX2, ReelX3), 0)), 600, "x2 x3"),
+        expect_string(line_win_token(line_win(Three(ReelWild, ReelWild, ReelWild), 0)), "0:wild:250:1", "all wild"),
+        expect_string(line_win_token(line_win(Three(ReelSeven, ReelBell, ReelSeven), 0)), "none", "mixed"),
+        expect_string(line_win_token(line_win(Three(ReelBonus, ReelWild, ReelWild), 0)), "none", "bonus")
+      ])),
+      case("progressive meters grow with the bet and reset on a hit", fn -> do
+        let p = feed(new_progressive(), BetFive)
+        let (won, after) = hit(p, Grand)
+        let seed = Skee.Units.winnings_int(tier_seed(Grand))
+        all([
+          expect_int(Skee.Units.winnings_int(amount(p, Grand)), seed + 2 * Skee.Units.winnings_int(tier_growth(Grand)), "fed"),
+          expect(Skee.Units.winnings_int(won) > seed, "won more than the seed"),
+          expect_int(Skee.Units.winnings_int(amount(after, Grand)), seed, "reset")
+        ])
+      end)
+    ]
+  end
+
+  fn room_name(r : Room) : String do
+    match r do
+    Boardwalk -> "boardwalk"
+    NeonLounge -> "neonLounge"
+    HighRoller -> "highRoller"
+    Penthouse -> "penthouse"
+    end
+  end
+
+  fn room_of(token : String) : Room do
+    named(Skee.Rooms.all_rooms(), room_name, token)
+  end
+
+  fn hole_name(h : Hole) : String do
+    match h do
+    Gutter -> "gutter"
+    Ring10 -> "ring10"
+    Ring20 -> "ring20"
+    Ring30 -> "ring30"
+    Ring40 -> "ring40"
+    Ring50 -> "ring50"
+    PocketLeft -> "pocketLeft"
+    PocketRight -> "pocketRight"
+    end
+  end
+
+  fn hole_of(token : String) : Hole do
+    named(Skee.HoleMap.all_holes(), hole_name, token)
+  end
+
+  fn comma(xs : List(String)) : String do
+    match xs do
+    Nil -> "-"
+    Cons(_, _) -> String.join(xs, ",")
+    end
+  end
+
+  fn expect_board(setup : BoardSetup, h : Hole, want_reel : String, want_home : String, want_chips : String) : Outcome do
+    all([
+      expect_string(comma(List.map(reel(setup, h), symbol_name)), want_reel, "reel"),
+      expect_string(symbol_name(home_symbol(setup, h)), want_home, "home"),
+      expect_int(Skee.Units.chips_int(hole_chips(setup, h)), GoldenIo.int(want_chips), "chips")
+    ])
+  end
+
+  fn board_row(row : List(String)) : Outcome do
+    match row do
+    [room, hole, want_reel, home, chips] -> do
+      expect_board(Skee.Rooms.setup(room_of(room)), hole_of(hole), want_reel, home, chips)
+    end
+    _ -> Mismatch("bad board row")
+    end
+  end
+
+  -- The hole's reel emptied and 25 gilded on, as golden-scoring does.
+  fn changed_setup(setup : BoardSetup, h : Hole) : BoardSetup do
+    let gild = match Skee.HoleMap.reel_at(setup.gild, h) do
+    Some(g) -> Skee.Units.add_chips(g, Chips(25))
+    None -> Chips(0)
+    end
+    { reels: Skee.HoleMap.reel_put(setup.reels, h, []), gild: Skee.HoleMap.reel_put(setup.gild, h, gild) }
+  end
+
+  fn board_changed_row(row : List(String)) : Outcome do
+    match row do
+    [room, hole, want_reel, home, chips] -> do
+      let h = hole_of(hole)
+      expect_board(changed_setup(Skee.Rooms.setup(room_of(room)), h), h, want_reel, home, chips)
+    end
+    _ -> Mismatch("bad changed board row")
+    end
+  end
+
+  fn stop_for(strip : List(ReelSymbol), want : ReelSymbol) : Int do
+    let n = List.length(strip)
+    let hit_at = List.find(List.range(0, n), fn i -> List.nth_opt(strip, (i + 1) % n) == Some(want))
+    match hit_at do
+    Some(i) -> i
+    None -> panic("no such symbol on the strip")
+    end
+  end
+
+  -- PullTests' `pull(centre:)`: a pull whose centre row shows these, found by
+  -- searching the Boardwalk strips.
+  fn pull_showing(a : ReelSymbol, b : ReelSymbol, c : ReelSymbol, bet : Bet, free : Bool) : Pull do
+    match Skee.Rooms.base_strips() do
+    Three(x, y, z) -> {
+      stops: Three(stop_for(x, a), stop_for(y, b), stop_for(z, c)),
+      bet: bet,
+      free: free,
+      pull_room: Boardwalk
+    }
+    end
+  end
+
+  fn three_list(t : Three(a)) : List(a) do
+    match t do
+    Three(a, b, c) -> [a, b, c]
+    end
+  end
+
+  fn reel_three(t : Three(ReelSymbol)) : String do
+    comma(List.map(three_list(t), reel_name))
+  end
+
+  fn tier_token(t : Option(JackpotTier)) : String do
+    match t do
+    None -> "none"
+    Some(x) -> tier_name(x)
+    end
+  end
+
+  fn pull_cases() : List(Case) do
+    [
+      case("the centre row is the frame's targets", fn -> do
+        let p = pull_showing(ReelBell, ReelX3, ReelBonus, BetFive, false)
+        all([
+          expect_string(reel_three(centre(p)), "bell,x3,bonus", "centre"),
+          expect_string(comma(List.map(three_list(targets(p)), symbol_name)), "bell,clover,blank", "targets")
+        ])
+      end),
+      case("three alike on the centre line pays", fn -> do
+        let p = pull_showing(ReelBar, ReelBar, ReelBar, BetOne, false)
+        expect_string(line_win_token(List.head_opt(line_wins(p))), "0:bar:60:1", "first win")
+      end),
+      case("a one line bet only plays the centre", fn -> do
+        let p = { stops: Three(0, 0, 0), bet: BetOne, free: false, pull_room: Boardwalk }
+        all([
+          expect(List.all(line_wins(p), fn w -> w.line == 0), "other lines paid"),
+          expect_int(List.length(active_lines({ p with bet: BetFive })), 5, "five lines")
+        ])
+      end),
+      case("three bonus anywhere starts free games", fn -> do
+        let p = pull_showing(ReelBonus, ReelBonus, ReelBonus, BetOne, false)
+        all([expect(scatters(p) >= 3, "scatters"), expect(triggers_free_games(p), "trigger")])
+      end),
+      case("jackpots need max bet and a paid pull", fn -> all([
+        expect_string(tier_token(jackpot(pull_showing(ReelSeven, ReelSeven, ReelSeven, BetFive, false))), "minor", "sevens"),
+        expect_string(tier_token(jackpot(pull_showing(ReelSeven, ReelSeven, ReelSeven, BetThree, false))), "none", "three lines"),
+        expect_string(tier_token(jackpot(pull_showing(ReelSeven, ReelSeven, ReelSeven, BetFive, true))), "none", "free"),
+        expect_string(tier_token(jackpot(pull_showing(ReelDiamond, ReelWild, ReelDiamond, BetFive, false))), "major", "diamonds"),
+        expect_string(tier_token(jackpot(pull_showing(ReelWild, ReelWild, ReelWild, BetFive, false))), "grand", "wilds")
+      ]))
+    ]
+  end
+
+  fn line_def_outcome(i : Int, want : List(String)) : Outcome do
+    match want do
+    [token] -> expect_string(comma(List.map(three_list(line_rows(i)), fn r -> int_to_string(row_index(r)))), token, "line")
+    _ -> Mismatch("bad line row")
+    end
+  end
+
+  fn pull_row(row : List(String)) : Outcome do
+    match row do
+    [room, bet, free, before, after, stops, grid_token, centre_token, targets_token, active, wins, chips, scattered, trigger, tier] -> do
+      let (p, rng) = spin(Skee.Rng.seed(GoldenIo.u64(before)), bet_of(bet), free == "1", room_of(room))
+      let rows_shown = List.flat_map(three_list(grid(p)), three_list)
+      all([
+        GoldenIo.expect_u64(Skee.Rng.word(rng), after, "rng after"),
+        expect_string(comma(List.map(three_list(p.stops), int_to_string)), stops, "stops"),
+        expect_string(comma(List.map(rows_shown, reel_name)), grid_token, "grid"),
+        expect_string(reel_three(centre(p)), centre_token, "centre"),
+        expect_string(comma(List.map(three_list(targets(p)), symbol_name)), targets_token, "targets"),
+        expect_string(comma(List.map(active_lines(p), int_to_string)), active, "active lines"),
+        expect_string(wins_token(line_wins(p)), wins, "wins"),
+        expect_int(Skee.Units.chips_int(line_chips(p)), GoldenIo.int(chips), "line chips"),
+        expect_int(scatters(p), GoldenIo.int(scattered), "scatters"),
+        expect_string(bit(triggers_free_games(p)), trigger, "trigger"),
+        expect_string(tier_token(jackpot(p)), tier, "jackpot")
+      ])
+    end
+    _ -> Mismatch("bad pull row")
+    end
+  end
+
+  fn wins_token(wins : List(LineWin)) : String do
+    match wins do
+    Nil -> "-"
+    Cons(_, _) -> String.join(List.map(wins, fn w -> line_win_token(Some(w))), ";")
+    end
+  end
+
+  type Sweep = {
+    chips : Int,
+    scattered : Int,
+    triggered : Int,
+    won : Int,
+    hash : Int,
+    tiers : List(Int)
+  }
+
+  fn bump_tier(tiers : List(Int), t : Option(JackpotTier)) : List(Int) do
+    match t do
+    None -> tiers
+    Some(x) -> List.map(List.enumerate(tiers), fn pair -> do
+      let (i, n) = pair
+      if i == Skee.Units.tier_rank(x) do n + 1 else n end
+    end)
+    end
+  end
+
+  fn tier_hash(t : Option(JackpotTier)) : Int do
+    match t do
+    None -> 0
+    Some(x) -> Skee.Units.tier_rank(x) + 1
+    end
+  end
+
+  fn sweep_step(acc : Sweep, p : Pull) : Sweep do
+    let wins = line_wins(p)
+    let chips = Skee.Units.chips_int(line_chips(p))
+    let scattered = scatters(p)
+    let tier = jackpot(p)
+    let hash = (acc.hash * 131 + chips + 7 * scattered + 17 * tier_hash(tier) + 3 * List.length(wins)) % 1000000007
+    {
+      chips: acc.chips + chips,
+      scattered: acc.scattered + scattered,
+      triggered: acc.triggered + (if triggers_free_games(p) do 1 else 0 end),
+      won: acc.won + List.length(wins),
+      hash: hash,
+      tiers: bump_tier(acc.tiers, tier)
+    }
+  end
+
+  -- Every window of a room, last reel fastest.
+  fn all_pulls(room : Room, bet : Bet, free : Bool) : List(Pull) do
+    let (x, y, z) = match Skee.Rooms.strips(room) do
+    Three(a, b, c) -> (List.length(a), List.length(b), List.length(c))
+    end
+    List.flat_map(List.range(0, x), fn i ->
+      List.flat_map(List.range(0, y), fn j ->
+        List.map(List.range(0, z), fn l -> { stops: Three(i, j, l), bet: bet, free: free, pull_room: room })
+      )
+    )
+  end
+
+  fn windows_row(row : List(String)) : Outcome do
+    match row do
+    [room, bet, free, chips, scattered, triggered, won, hash, tiers] -> do
+      let start = { chips: 0, scattered: 0, triggered: 0, won: 0, hash: 0, tiers: [0, 0, 0, 0] }
+      let s = List.fold_left(all_pulls(room_of(room), bet_of(bet), free == "1"), start, sweep_step)
+      all([
+        expect_int(s.chips, GoldenIo.int(chips), "chips " ++ room),
+        expect_int(s.scattered, GoldenIo.int(scattered), "scatters " ++ room),
+        expect_int(s.triggered, GoldenIo.int(triggered), "triggers " ++ room),
+        expect_int(s.won, GoldenIo.int(won), "wins " ++ room),
+        expect_int(s.hash, GoldenIo.int(hash), "hash " ++ room),
+        expect_string(comma(List.map(s.tiers, int_to_string)), tiers, "tiers " ++ room)
+      ])
+    end
+    _ -> Mismatch("bad windows row")
+    end
+  end
+
+  -- PullTests.ratesOverEveryWindow: the strips are tuned by measurement.
+  fn rates() : Outcome do
+    let windows = all_pulls(Boardwalk, BetFive, false)
+    let count = fn pred -> int_to_float(List.length(List.filter(windows, pred)))
+    let total = int_to_float(List.length(windows))
+    let free_rate = count(triggers_free_games) /. total
+    let win_rate = count(fn p -> List.any(line_wins(p), fn w -> w.line == 0)) /. total
+    let grand = List.length(List.filter(windows, fn p -> tier_token(jackpot(p)) == "grand"))
+    all([
+      expect(free_rate > 1.0 /. 120.0 && free_rate < 1.0 /. 40.0, "free rate"),
+      expect(win_rate > 0.04 && win_rate < 0.15, "win rate"),
+      expect_int(grand, 1, "grand windows")
+    ])
+  end
+
+  -- ---- Frames ----
+  fn ball(h : Hole) : BallRecord do
+    let setup = standard_setup()
+    ball_record(h, home_symbol(setup, h), hole_chips(setup, h))
+  end
+
+  fn with_context(charms : List(Charm), streak : Int) : ScoringContext do
+    let c = default_context()
+    { c with context_charms: charms, streak_before: streak }
+  end
+
+  fn fevered() : ScoringContext do
+    let c = default_context()
+    { c with context_fever: true }
+  end
+
+  fn pulled(p : Pull) : ScoringContext do
+    let c = default_context()
+    { c with context_pull: Some(p) }
+  end
+
+  fn housed() : ScoringContext do
+    let c = default_context()
+    { c with pairs_pay: false }
+  end
+
+  fn score(balls : List(BallRecord), charms : List(Charm), streak : Int) : FrameScore do
+    score_frame(balls, with_context(charms, streak))
+  end
+
+  fn plain(balls : List(BallRecord)) : FrameScore do
+    score(balls, [], 0)
+  end
+
+  fn rattling(h : Hole, n : Int) : BallRecord do
+    let b = ball(h)
+    { b with rattles: n }
+  end
+
+  fn folding(h : Hole, fold : Float) : BallRecord do
+    let b = ball(h)
+    { b with record_fold: fold }
+  end
+
+  fn slot_ball(slot_count : Int, combo : Int) : BallRecord do
+    let b = ball_record(Ring30, Bell, Chips(30))
+    { b with slot_hits: slot_count, record_combo: combo }
+  end
+
+  fn mult_of(f : FrameScore) : Float do
+    f.mult
+  end
+
+  fn streak_of(f : FrameScore) : Int do
+    f.streak_after
+  end
+
+  fn chips_n(f : FrameScore) : Int do
+    Skee.Units.chips_int(f.frame_chips)
+  end
+
+  fn total_n(f : FrameScore) : Int do
+    Skee.Units.points_int(frame_total(f))
+  end
+
+  fn tickets_n(f : FrameScore) : Int do
+    Skee.Units.tickets_int(f.frame_tickets)
+  end
+
+  -- The fold, written out again here so the scorer's own cannot vouch for itself.
+  type Folded = { chips_f : Int, mult_f : Float, tickets_f : Int }
+
+  fn refold(acc : Folded, s : ScoreStep) : Folded do
+    match s.effect do
+    SetBase(c, m) -> { acc with chips_f: Skee.Units.chips_int(c), mult_f: m }
+    AddChips(c) -> { acc with chips_f: acc.chips_f + Skee.Units.chips_int(c) }
+    AddMult(m) -> { acc with mult_f: acc.mult_f +. m }
+    TimesMult(x) -> { acc with mult_f: acc.mult_f *. x }
+    AddTickets(t) -> { acc with tickets_f: acc.tickets_f + Skee.Units.tickets_int(t) }
+    Note(_) -> acc
+    end
+  end
+
+  fn expect_folds(f : FrameScore) : Outcome do
+    let got = List.fold_left(f.steps, { chips_f: 0, mult_f: 1.0, tickets_f: 0 }, refold)
+    let product = int_to_float(got.chips_f) *. got.mult_f
+    all([
+      expect_int(got.chips_f, chips_n(f), "folded chips"),
+      expect_float_is(got.mult_f, f.mult, "folded mult"),
+      expect_int(got.tickets_f, tickets_n(f), "folded tickets"),
+      expect(int_to_float(total_n(f)) <= product && product < int_to_float(total_n(f) + 1), "total is the floor of the fold")
+    ])
+  end
+
+  fn step_is(f : FrameScore, source : ScoreSource, effect : ScoreEffect) : Bool do
+    List.any(f.steps, fn s -> s.source == source && s.effect == effect)
+  end
+
+  fn frame_cases() : List(Case) do
+    [
+      case("plain frame is chips times one", fn -> do
+        let f = plain([ball(Ring10), ball(Ring20), ball(Ring30)])
+        all([
+          expect_int(chips_n(f), 10 + 20 + 30 + Skee.Units.chips_int(flat_chips(Cherry)), "chips"),
+          expect_float_is(f.mult, 1.0, "mult"),
+          expect_int(total_n(f), chips_n(f), "total")
+        ])
+      end),
+      case("pair adds mult", fn -> do
+        let f = plain([ball(Ring30), ball(Ring30), ball(Ring20)])
+        all([expect_payline(f.payline, Pair(Bell), "payline"), expect_float_is(f.mult, 1.0 +. pair_mult(Bell), "mult")])
+      end),
+      case("jackpot triple sevens", fn -> do
+        let f = plain([ball(Ring50), ball(Ring50), ball(Ring50)])
+        all([
+          expect_payline(f.payline, Triple(Seven), "payline"),
+          expect_int(total_n(f), 150 * float_floor(1.0 +. triple_mult(Seven)), "total"),
+          expect(is_jackpot(f), "jackpot")
+        ])
+      end),
+      case("gutter is blank and zero", fn -> expect_int(total_n(plain([ball(Gutter), ball(Gutter), ball(Gutter)])), 0, "total")),
+      case("fever doubles the frame", fn -> do
+        let balls = [ball(Ring40), ball(Ring30), ball(Ring20)]
+        let hot = score_frame(balls, fevered())
+        expect_int(total_n(hot), total_n(plain(balls)) * 2, "total")
+      end),
+      case("steps explain the total", fn -> expect_folds(score([ball(Ring50), ball(Ring10), ball(Ring50)], [MultBall, HeavyHand], 0))),
+      case("a ball that hit the slot adds mult in the frame", fn -> do
+        let hit_ball = slot_ball(2, 3)
+        let miss = ball_record(Ring10, Cherry, Chips(10))
+        let f = plain([hit_ball, miss, miss])
+        all([
+          expect(step_is(f, FromSlot(0), AddMult(3.0)), "slot step"),
+          expect_float_is(f.mult, 1.0 +. 1.0 +. 3.0, "mult")
+        ])
+      end),
+      case("three of a kind on the slot hit pays tickets", fn -> do
+        let hit_ball = slot_ball(3, 1)
+        expect_int(tickets_n(plain([hit_ball])), Skee.Units.tickets_int(jackpot_tickets()), "tickets")
+      end),
+      case("a free game scores double", fn -> do
+        let p = pull_showing(ReelLemon, ReelCherry, ReelBell, BetOne, true)
+        let f = score_frame([ball_record(Ring10, Cherry, Chips(10))], pulled(p))
+        match List.reverse(f.steps) do
+        Cons(last, _) -> expect(last.source == FromFreeGame && last.effect == TimesMult(2.0), "last step")
+        Nil -> Mismatch("no steps")
+        end
+      end),
+      case("house keeps pairs", fn -> do
+        let f = score_frame([ball(Ring30), ball(Ring30), ball(Ring20)], housed())
+        all([
+          expect_payline(f.payline, Pair(Bell), "still read"),
+          expect(step_is(f, FromPayline, Note("the house keeps pairs")), "note"),
+          expect_float_is(f.mult, 1.0, "pays nothing")
+        ])
+      end)
+    ]
+  end
+
+  -- CharmTests in ScoringTests.swift.
+  fn charm_cases() : List(Case) do
+    let lucky = [ball(Ring10), ball(Ring10), ball(Ring30)]
+    let fifties = [ball(Ring50), ball(Ring50), ball(Ring10)]
+    let gutter = [ball(Gutter), ball(Ring10), ball(Ring10)]
+    let ladder = [ball(Ring40), ball(Ring30), ball(Ring50)]
+    let broken_ladder = [ball(Ring40), ball(Ring10), ball(Ring50)]
+    let rattled = [rattling(Ring30, 2), ball(Ring10), rattling(Ring10, 1)]
+    let bells = [ball(Ring30), ball(Ring30), ball(Ring30)]
+    let cracked = [ball(Ring30), ball(Gutter), ball(Ring30)]
+    let tens = [ball(Ring10), ball(Ring10), ball(Ring10)]
+    let broken_tens = [ball(Ring10), ball(Gutter), ball(Ring10)]
+    let folded = [folding(Ring10, 0.6), folding(Ring10, 0.2), folding(Ring10, 0.9)]
+    [
+      case("lucky penny adds mult per cherry", fn -> expect_float_is(mult_of(score(lucky, [LuckyPenny], 0)), mult_of(plain(lucky)) +. 4.0, "mult")),
+      case("heavy hand adds chips per fifty", fn -> expect_int(chips_n(score(fifties, [HeavyHand], 0)), chips_n(plain(fifties)) + 80, "chips")),
+      case("gutter rat pays for gutters", fn -> expect_int(chips_n(score(gutter, [GutterRat], 0)), chips_n(plain(gutter)) + 25, "chips")),
+      case("ladder triples consecutive rings", fn -> all([
+        expect_float_is(mult_of(score(ladder, [Ladder], 0)), mult_of(plain(ladder)) *. 3.0, "run"),
+        expect_float_is(mult_of(score(broken_ladder, [Ladder], 0)), mult_of(plain(broken_ladder)), "no run")
+      ])),
+      case("near miss pays for rattles", fn -> expect_int(chips_n(score(rattled, [NearMiss], 0)), chips_n(plain(rattled)) + 45, "chips")),
+      case("glass cannon shatters on a gutter", fn -> all([
+        expect_float_is(mult_of(score(bells, [GlassCannon], 0)), mult_of(plain(bells)) *. 3.0, "clean"),
+        expect_int(total_n(score(cracked, [GlassCannon], 0)), 0, "broken")
+      ])),
+      case("hot streak counts scoring balls in a row", fn -> do
+        let f = score(tens, [HotStreak], 4)
+        all([
+          expect_float_is(f.mult, mult_of(score(tens, [], 4)) +. 7.0, "mult"),
+          expect_int(f.streak_after, 7, "streak"),
+          expect_int(streak_of(score(broken_tens, [HotStreak], 4)), 1, "broken")
+        ])
+      end),
+      case("hinge whisperer rewards folding", fn -> expect_float_is(mult_of(score(folded, [HingeWhisperer], 0)), mult_of(plain(tens)) +. 6.0, "mult")),
+      case("ticket muncher pays tickets", fn -> expect_int(tickets_n(score([ball(Ring50), ball(PocketLeft), ball(Ring10)], [TicketMuncher], 0)), 2, "tickets")),
+      case("charms apply left to right", fn -> all([
+        expect_float_is(mult_of(score(ladder, [MultBall, Ladder], 0)), (1.0 +. 4.0) *. 3.0, "plus then times"),
+        expect_float_is(mult_of(score(ladder, [Ladder, MultBall], 0)), 1.0 *. 3.0 +. 4.0, "times then plus")
+      ]))
+    ]
+  end
+
+  fn ball_kind_name(b : BallKind) : String do
+    match b do
+    Marshmallow -> "marshmallow"
+    ClassicBall -> "classic"
+    JumpingBean -> "bean"
+    Wobbler -> "wobbler"
+    Comet -> "comet"
+    end
+  end
+
+  fn charm_name(c : Charm) : String do
+    match c do
+    LuckyPenny -> "luckyPenny"
+    HotStreak -> "hotStreak"
+    HeavyHand -> "heavyHand"
+    GutterRat -> "gutterRat"
+    EvenSteven -> "evenSteven"
+    Ladder -> "ladder"
+    CornerOffice -> "cornerOffice"
+    NearMiss -> "nearMiss"
+    MultBall -> "multBall"
+    GlassCannon -> "glassCannon"
+    TicketMuncher -> "ticketMuncher"
+    HingeWhisperer -> "hingeWhisperer"
+    BellRinger -> "bellRinger"
+    SevenSeas -> "sevenSeas"
+    ExtraBall -> "extraBall"
+    end
+  end
+
+  fn charm_of(token : String) : Charm do
+    named(Skee.Items.all_charms(), charm_name, token)
+  end
+
+  fn record_of(token : String) : BallRecord do
+    match String.split(token, ",") do
+    [hole, symbol, chips, rattled, fold, foul, slot_count, combo, kind, hot] -> {
+      record_hole: hole_of(hole),
+      record_symbol: symbol_of(symbol),
+      record_chips: Chips(GoldenIo.int(chips)),
+      rattles: GoldenIo.int(rattled),
+      record_fold: GoldenIo.float_of_bits(fold),
+      foul: foul == "1",
+      slot_hits: GoldenIo.int(slot_count),
+      record_combo: GoldenIo.int(combo),
+      record_ball: named(Skee.Items.all_balls(), ball_kind_name, kind),
+      hot: hot == "1"
+    }
+    _ -> panic("bad golden ball: " ++ token)
+    end
+  end
+
+  fn pull_of(token : String) : Option(Pull) do
+    match String.split(token, ",") do
+    [a, b, c, bet, free, room] -> Some({
+      stops: Three(GoldenIo.int(a), GoldenIo.int(b), GoldenIo.int(c)),
+      bet: bet_of(bet),
+      free: free == "1",
+      pull_room: room_of(room)
+    })
+    _ -> None
+    end
+  end
+
+  fn records_of(token : String) : List(BallRecord) do
+    if token == "-" do [] else List.map(String.split(token, ";"), record_of) end
+  end
+
+  fn hex_digit(n : Int) : String do
+    String.slice("0123456789abcdef", n, 1)
+  end
+
+  fn hex_word(n : Int, digits : Int) : String do
+    if digits == 0 do
+      ""
+    else
+      hex_word(n / 16, digits - 1) ++ hex_digit(n % 16)
+    end
+  end
+
+  fn bits_token(x : Float) : String do
+    let v = GoldenIo.float_bits(x)
+    hex_word(v.hi, 8) ++ hex_word(v.lo, 8)
+  end
+
+  fn source_token(s : ScoreSource) : String do
+    match s do
+    FromBase -> "base"
+    FromPull -> "pull"
+    FromBall(i) -> "ball:" ++ int_to_string(i)
+    FromSlot(i) -> "slot:" ++ int_to_string(i)
+    FromPayline -> "payline"
+    FromCharm(c) -> "charm:" ++ charm_name(c)
+    FromFever -> "fever"
+    FromFreeGame -> "freeGame"
+    end
+  end
+
+  fn effect_token(e : ScoreEffect) : String do
+    match e do
+    SetBase(c, m) -> "base:" ++ int_to_string(Skee.Units.chips_int(c)) ++ ":" ++ bits_token(m)
+    AddChips(c) -> "chips:" ++ int_to_string(Skee.Units.chips_int(c))
+    AddMult(m) -> "mult:" ++ bits_token(m)
+    TimesMult(x) -> "times:" ++ bits_token(x)
+    AddTickets(t) -> "tickets:" ++ int_to_string(Skee.Units.tickets_int(t))
+    Note(text) -> "note:" ++ String.replace_all(text, " ", "_")
+    end
+  end
+
+  fn step_token(s : ScoreStep) : String do
+    source_token(s.source) ++ "," ++ effect_token(s.effect)
+  end
+
+  fn steps_token(steps : List(ScoreStep)) : String do
+    match steps do
+    Nil -> "-"
+    Cons(_, _) -> String.join(List.map(steps, step_token), ";")
+    end
+  end
+
+  fn frame_of(row : List(String)) : Option(FrameScore) do
+    match List.take(row, 6) do
+    [balls, charms, streak, fever, pairs, pull] -> do
+      let context = {
+        context_charms: List.map(names(charms), charm_of),
+        streak_before: GoldenIo.int(streak),
+        context_fever: fever == "1",
+        pairs_pay: pairs == "1",
+        context_pull: pull_of(pull)
+      }
+      Some(score_frame(records_of(balls), context))
+    end
+    _ -> None
+    end
+  end
+
+  fn frame_row(row : List(String)) : Outcome do
+    match (frame_of(row), List.drop(row, 6)) do
+    (Some(f), [line, steps, chips, mult, tickets, streak_after, total, big]) -> all([
+      expect(payline_matches(f.payline, line), "payline: want " ++ line),
+      expect_string(steps_token(f.steps), steps, "steps"),
+      expect_int(chips_n(f), GoldenIo.int(chips), "chips"),
+      GoldenIo.expect_float(f.mult, mult, "mult"),
+      expect_int(tickets_n(f), GoldenIo.int(tickets), "tickets"),
+      expect_int(f.streak_after, GoldenIo.int(streak_after), "streak"),
+      expect_int(total_n(f), GoldenIo.int(total), "total"),
+      expect_string(bit(is_jackpot(f)), big, "is jackpot"),
+      expect_folds(f)
+    ])
+    _ -> Mismatch("bad frame row")
+    end
+  end
+
+  fn first_part(token : String) : String do
+    match String.split(token, ":") do
+    Cons(head, _) -> head
+    Nil -> token
+    end
+  end
+
+  fn shape_token(s : ScoreStep) : String do
+    first_part(source_token(s.source)) ++ "/" ++ first_part(effect_token(s.effect))
+  end
+
+  -- Every kind of step Swift produced, the port produced too.
+  fn coverage_outcome(frame_rows : List(List(String)), wanted : List(List(String))) : Outcome do
+    let seen = List.dedup(List.sort_by(
+      List.flat_map(List.filter_map(frame_rows, frame_of), fn f -> List.map(f.steps, shape_token)),
+      fn (a, b) -> a < b
+    ))
+    all(Cons(
+      expect_int(List.length(seen), List.length(wanted), "step kinds"),
+      List.map(wanted, fn row ->
+        match row do
+        [shape] -> expect(List.member(seen, shape), "never produced " ++ shape)
+        _ -> Mismatch("bad coverage row")
+        end
+      )
+    ))
+  end
+
   fn cases() : List(Case) do
-    []
+    let golden = GoldenIo.rows(Golden.Scoring.chunks())
+    let rows = fn kind -> GoldenIo.of_kind(golden, kind)
+    List.concat([
+      payline_cases(),
+      top_slot_cases(),
+      line_cases(),
+      pull_cases(),
+      frame_cases(),
+      charm_cases(),
+      [
+        case("rates over every window", fn -> rates()),
+        case("golden symbol table", fn -> all(List.map(rows("symbol"), symbol_row))),
+        case("golden paylines", fn -> all(List.map(rows("payline"), payline_row))),
+        case("golden top slot hits", fn -> all(List.map(rows("hits"), hits_row))),
+        case("golden combo mult", fn -> all(List.map(rows("combo"), combo_row))),
+        case("golden constants", fn -> all(List.map(rows("consts"), consts_row))),
+        case("golden reel symbols", fn -> all(List.map(rows("reel"), reel_row))),
+        case("golden bets", fn -> all(List.map(rows("bet"), bet_row))),
+        case("golden jackpot tiers", fn -> all(List.map(rows("tier"), tier_row))),
+        case("golden line wins", fn -> all(List.map(rows("linewin"), line_win_row))),
+        case("golden progressive chain", fn -> meters_chain(rows("meters"))),
+        case("golden board setups", fn -> all(List.map(rows("board"), board_row))),
+        case("golden changed board setups", fn -> all(List.map(rows("boardchanged"), board_changed_row))),
+        case("golden line definitions", fn -> all(List.map(List.enumerate(rows("linedef")), fn pair -> do
+          let (i, want) = pair
+          line_def_outcome(i, want)
+        end))),
+        case("golden seeded pulls", fn -> all(List.map(rows("pull"), pull_row))),
+        case("golden every window", fn -> all(List.map(rows("windows"), windows_row))),
+        case("golden frames", fn -> all(List.map(rows("frame"), frame_row))),
+        case("golden step coverage", fn -> coverage_outcome(rows("frame"), rows("coverage")))
+      ]
+    ])
   end
 
 end

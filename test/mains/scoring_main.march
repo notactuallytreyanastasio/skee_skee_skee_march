@@ -1,11 +1,9 @@
 mod ScoringMain do
 
-  -- Replace Harness.pending with Harness.report("scoring", ScoringSuite.cases()) when
-  -- the first case exists, and uncomment the test in test/scoring_test.march.
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.pending("scoring")
+    Harness.report("scoring", ScoringSuite.cases())
   end
 
 end

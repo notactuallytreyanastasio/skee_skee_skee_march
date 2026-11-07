@@ -1,7 +1,675 @@
 mod Skee.Rooms do
 
-  -- The rooms piece. See docs/PORT.md for what ports here, and for the rules every
-  -- module under lib/ follows. Replace this comment as the first behaviour lands.
+  -- Where you play (Meta/Room.swift), and the prize shelf and wallet that carry
+  -- between runs (Meta/PrizeShelf.swift). Every room has its own board, cabinet
+  -- reels, pull machine, prize counter and colours. The physics is the same
+  -- everywhere.
   cap pure
+
+  import Skee.Maths
+
+  -- Why the host sat down: Haggle.Visit. The rest of Haggle is not ported yet.
+  type HostVisit = VisitArrival | VisitNewRoom | VisitReturning
+
+  derive Eq, Show for HostVisit
+
+  -- A colour as 0xRRGGBB. Build one with `rgb`.
+  type Rgb = { packed : { Int | packed >= 0 && packed <= 16777215 } }
+
+  derive Show for Rgb
+
+  -- Ring zones, the 40 cup outward to the 10.
+  type ZoneColours = { zone40 : Rgb, zone30 : Rgb, zone20 : Rgb, zone10 : Rgb }
+
+  derive Show for ZoneColours
+
+  -- A room's colours. Same cel look everywhere; each room repaints the wood,
+  -- the rails and the rings. Swift keeps this in SkeeScene, but it is plain data.
+  type CabinetPalette = {
+    backdrop : Rgb,
+    rail : Rgb,
+    rail_dark : Rgb,
+    cabinet_body : Rgb,
+    zones : ZoneColours,
+    lip : Rgb,
+    hole_colour : Rgb,
+    felt : Rgb,
+    floor : Rgb
+  }
+
+  derive Show for CabinetPalette
+
+  doc """Room.allCases."""
+  fn all_rooms() : List(Room) needs () do
+    [Boardwalk, NeonLounge, HighRoller, Penthouse]
+  end
+
+  fn name(r : Room) : String needs () do
+    match r do
+    Boardwalk -> "The Boardwalk Arcade"
+    NeonLounge -> "The Neon Lounge"
+    HighRoller -> "The High Roller Suite"
+    Penthouse -> "The Penthouse"
+    end
+  end
+
+  fn blurb(r : Room) : String needs () do
+    match r do
+    Boardwalk -> "Where everyone starts. Sticky floors, honest machines."
+    NeonLounge -> do
+      "Rings set high and tight, pockets pulled in. The machine runs hot on wilds."
+    end
+    HighRoller -> do
+      "Small rings, pockets that pay 150, a machine heavy with sevens and diamonds."
+    end
+    Penthouse -> "A steep board and wide rings. The machine is full of 3X wilds."
+    end
+  end
+
+  fn next(r : Room) : Option(Room) needs () do
+    match r do
+    Boardwalk -> Some(NeonLounge)
+    NeonLounge -> Some(HighRoller)
+    HighRoller -> Some(Penthouse)
+    Penthouse -> None
+    end
+  end
+
+  doc """Lifetime winnings at which the host first offers to comp this room."""
+  fn comp_threshold(r : Room) : Winnings needs () do
+    match r do
+    Boardwalk -> Winnings(0)
+    NeonLounge -> Winnings(1500)
+    HighRoller -> Winnings(5000)
+    Penthouse -> Winnings(12000)
+    end
+  end
+
+  doc """How much more each room asks than the Boardwalk."""
+  fn target_scale(r : Room) : Float needs () do
+    match r do
+    Boardwalk -> 1.0
+    NeonLounge -> 1.3
+    HighRoller -> 1.0
+    Penthouse -> 1.4
+    end
+  end
+
+  fn pockets(x : Float, y : Float, radius : Float) : Pockets needs () do
+    {
+      left: { pocket_hole: PocketLeft, center: vec2(-x, y), radius: radius },
+      right: { pocket_hole: PocketRight, center: vec2(x, y), radius: radius }
+    }
+  end
+
+  fn walls(w40 : Float, w30 : Float, w20 : Float, w10 : Float) : RingWalls needs () do
+    { wall40: w40, wall30: w30, wall20: w20, wall10: w10 }
+  end
+
+  fn board(k : Skee.Consts.Consts, r : Room) : BoardSpec needs () do
+    let b = Skee.Types.standard_board(k)
+    match r do
+    Boardwalk -> b
+    NeonLounge -> do
+      { b with ring_center: vec2(0.0, 0.6), ring_walls: walls(0.095, 0.15, 0.21, 0.28), pockets: pockets(0.17, 0.88, 0.036) }
+    end
+    HighRoller -> do
+      { b with ring_walls: walls(0.085, 0.14, 0.2, 0.27), center_hole_offset: vec2(0.0, 0.035), pockets: pockets(0.22, 0.87, 0.033) }
+    end
+    Penthouse -> do
+      { b with tilt: degrees(k, 24.0), ring_center: vec2(0.0, 0.6), ring_walls: walls(0.11, 0.17, 0.23, 0.3), pockets: pockets(0.19, 0.88, 0.038) }
+    end
+    end
+  end
+
+  doc """The alley. Only the board moves; the lane and hinge are the same everywhere."""
+  fn table(k : Skee.Consts.Consts, r : Room) : Table needs () do
+    { Skee.Types.standard_table(k) with board: board(k, r) }
+  end
+
+  doc """The cabinet's reels: what each hole can show."""
+  fn setup(r : Room) : BoardSetup needs () do
+    let s = Skee.Types.standard_setup()
+    let reels = s.reels
+    match r do
+    Boardwalk -> s
+    NeonLounge -> do
+      { s with reels: { reels with reel10: [Lemon, Lemon, Cherry, Clover, Lemon], reel20: [Bell, Lemon, Bell, Cherry, Bell], reel50: [Seven, Clover, Seven, BarSym, Seven] } }
+    end
+    HighRoller -> do
+      let gild = s.gild
+      {
+        reels: { reels with reel30: [BarSym, Bell, BarSym, Seven, BarSym], reel40: [Seven, BarSym, Seven, Diamond, Seven], reel50: [Diamond, Seven, Diamond, BarSym, Diamond] },
+        gild: { gild with reel_left: Chips(50), reel_right: Chips(50) }
+      }
+    end
+    Penthouse -> do
+      { s with reels: { reels with reel10: [Bell, Bell, BarSym, Bell, Cherry], reel20: [BarSym, BarSym, Bell, Seven, BarSym], reel50: [Diamond, Clover, Diamond, Seven, Diamond], reel_left: [Clover, Diamond, Clover, Seven, Clover], reel_right: [Clover, Seven, Clover, Diamond, Clover] } }
+    end
+    end
+  end
+
+  doc """Pull.strips: the Boardwalk's three reels, and where every room starts."""
+  fn base_strips() : Three(List(ReelSymbol)) needs () do
+    Three([ReelCherry, ReelLemon, ReelBell, ReelBonus, ReelCherry, ReelBar, ReelLemon, ReelSeven, ReelCherry, ReelBell, ReelLemon, ReelWild, ReelBar, ReelCherry, ReelDiamond, ReelLemon, ReelBell, ReelBonus, ReelX2, ReelCherry], [ReelLemon, ReelCherry, ReelBar, ReelBell, ReelLemon, ReelSeven, ReelCherry, ReelWild, ReelBell, ReelLemon, ReelCherry, ReelBonus, ReelBar, ReelLemon, ReelX3, ReelCherry, ReelBell, ReelDiamond, ReelLemon, ReelCherry], [ReelBell, ReelCherry, ReelLemon, ReelBonus, ReelBar, ReelCherry, ReelBell, ReelLemon, ReelSeven, ReelCherry, ReelX2, ReelLemon, ReelBell, ReelCherry, ReelBonus, ReelDiamond, ReelLemon, ReelBar, ReelWild, ReelCherry])
+  end
+
+  -- The reel with its first `from` swapped, and whether there was one. `before`
+  -- holds the stops already passed, nearest first.
+  pfn swap_first(reel : List(ReelSymbol), from : ReelSymbol, to : ReelSymbol, before : List(ReelSymbol)) : (List(ReelSymbol), Bool) needs () do
+    match reel do
+    Nil -> (List.reverse(before), false)
+    Cons(x, rest) -> do
+      if x == from do
+        (List.append(List.reverse(before), Cons(to, rest)), true)
+      else
+        swap_first(rest, from, to, Cons(x, before))
+      end
+    end
+    end
+  end
+
+  -- One reel of Swift's swap: at most one stop, and only while any are left.
+  pfn swap_reel(reel : List(ReelSymbol), from : ReelSymbol, to : ReelSymbol, left : Int) : (List(ReelSymbol), Int) needs () do
+    if left > 0 do
+      do
+        let (swapped, found) = swap_first(reel, from, to, [])
+        (swapped, if found do left - 1 else left end)
+      end
+    else
+      (reel, left)
+    end
+  end
+
+  -- Swap up to `count` stops, the first on each reel in turn.
+  pfn swap(s : Three(List(ReelSymbol)), from : ReelSymbol, to : ReelSymbol, count : Int) : Three(List(ReelSymbol)) needs () do
+    match s do
+    Three(a, b, c) -> do
+      let (a2, left_a) = swap_reel(a, from, to, count)
+      let (b2, left_b) = swap_reel(b, from, to, left_a)
+      let (c2, _) = swap_reel(c, from, to, left_b)
+      Three(a2, b2, c2)
+    end
+    end
+  end
+
+  doc """The pull machine's strips: the same machine, with a different temper."""
+  fn strips(r : Room) : Three(List(ReelSymbol)) needs () do
+    let s = base_strips()
+    match r do
+    Boardwalk -> s
+    NeonLounge -> swap(swap(s, ReelCherry, ReelWild, 3), ReelLemon, ReelX2, 3)
+    HighRoller -> swap(swap(s, ReelCherry, ReelSeven, 3), ReelLemon, ReelDiamond, 3)
+    Penthouse -> swap(swap(s, ReelCherry, ReelX3, 3), ReelLemon, ReelBar, 3)
+    end
+  end
+
+  doc """Prize.allCases."""
+  fn all_prizes() : List(Prize) needs () do
+    [
+      Sticker,
+      RubberDuck,
+      Kazoo,
+      Yoyo,
+      Slinky,
+      PlushFrog,
+      LavaLamp,
+      Robot,
+      GiantBear,
+      Trophy,
+      GlowSticks,
+      RollerSkates,
+      DiscoBall,
+      NeonSign,
+      Jukebox,
+      ArcadeCabinet,
+      Cufflinks,
+      Champagne,
+      PearlNecklace,
+      GoldWatch,
+      Chandelier,
+      SportsCar,
+      GoldenFlamingo,
+      HotTub,
+      GrandPiano,
+      Yacht,
+      PrivateJet,
+      DiamondCrown
+    ]
+  end
+
+  doc """This room's prize counter, cheapest first."""
+  fn prizes(r : Room) : List(Prize) needs () do
+    match r do
+    Boardwalk -> do
+      [
+        Sticker,
+        RubberDuck,
+        Kazoo,
+        Yoyo,
+        Slinky,
+        PlushFrog,
+        LavaLamp,
+        Robot,
+        GiantBear,
+        Trophy
+      ]
+    end
+    NeonLounge -> [GlowSticks, RollerSkates, DiscoBall, NeonSign, Jukebox, ArcadeCabinet]
+    HighRoller -> [Cufflinks, Champagne, PearlNecklace, GoldWatch, Chandelier, SportsCar]
+    Penthouse -> [GoldenFlamingo, HotTub, GrandPiano, Yacht, PrivateJet, DiamondCrown]
+    end
+  end
+
+  doc """The room whose counter stocks this prize."""
+  fn prize_room(p : Prize) : Room needs () do
+    match p do
+    Sticker -> Boardwalk
+    RubberDuck -> Boardwalk
+    Kazoo -> Boardwalk
+    Yoyo -> Boardwalk
+    Slinky -> Boardwalk
+    PlushFrog -> Boardwalk
+    LavaLamp -> Boardwalk
+    Robot -> Boardwalk
+    GiantBear -> Boardwalk
+    Trophy -> Boardwalk
+    GlowSticks -> NeonLounge
+    RollerSkates -> NeonLounge
+    DiscoBall -> NeonLounge
+    NeonSign -> NeonLounge
+    Jukebox -> NeonLounge
+    ArcadeCabinet -> NeonLounge
+    Cufflinks -> HighRoller
+    Champagne -> HighRoller
+    PearlNecklace -> HighRoller
+    GoldWatch -> HighRoller
+    Chandelier -> HighRoller
+    SportsCar -> HighRoller
+    GoldenFlamingo -> Penthouse
+    HotTub -> Penthouse
+    GrandPiano -> Penthouse
+    Yacht -> Penthouse
+    PrivateJet -> Penthouse
+    DiamondCrown -> Penthouse
+    end
+  end
+
+  fn prize_name(p : Prize) : String needs () do
+    match p do
+    Sticker -> "Gold Star Sticker"
+    RubberDuck -> "Rubber Duck"
+    Kazoo -> "Kazoo"
+    Yoyo -> "Yo-yo"
+    Slinky -> "Slinky"
+    PlushFrog -> "Plush Frog"
+    LavaLamp -> "Lava Lamp"
+    Robot -> "Wind-up Robot"
+    GiantBear -> "Giant Bear"
+    Trophy -> "Golden Skee Trophy"
+    GlowSticks -> "Glow Sticks"
+    RollerSkates -> "Roller Skates"
+    DiscoBall -> "Disco Ball"
+    NeonSign -> "Neon Sign"
+    Jukebox -> "Jukebox"
+    ArcadeCabinet -> "Tiny Arcade Cabinet"
+    Cufflinks -> "Cufflinks"
+    Champagne -> "Champagne"
+    PearlNecklace -> "Pearl Necklace"
+    GoldWatch -> "Gold Watch"
+    Chandelier -> "Chandelier"
+    SportsCar -> "Toy Sports Car"
+    GoldenFlamingo -> "Golden Flamingo"
+    HotTub -> "Hot Tub"
+    GrandPiano -> "Grand Piano"
+    Yacht -> "Yacht"
+    PrivateJet -> "Private Jet"
+    DiamondCrown -> "Diamond Crown"
+    end
+  end
+
+  fn prize_price(p : Prize) : Winnings needs () do
+    match p do
+    Sticker -> Winnings(50)
+    RubberDuck -> Winnings(150)
+    Kazoo -> Winnings(250)
+    Yoyo -> Winnings(400)
+    Slinky -> Winnings(600)
+    PlushFrog -> Winnings(1000)
+    LavaLamp -> Winnings(1600)
+    Robot -> Winnings(2500)
+    GiantBear -> Winnings(5000)
+    Trophy -> Winnings(10000)
+    GlowSticks -> Winnings(300)
+    RollerSkates -> Winnings(900)
+    DiscoBall -> Winnings(1800)
+    NeonSign -> Winnings(3000)
+    Jukebox -> Winnings(6000)
+    ArcadeCabinet -> Winnings(12000)
+    Cufflinks -> Winnings(1500)
+    Champagne -> Winnings(3000)
+    PearlNecklace -> Winnings(6000)
+    GoldWatch -> Winnings(10000)
+    Chandelier -> Winnings(16000)
+    SportsCar -> Winnings(25000)
+    GoldenFlamingo -> Winnings(5000)
+    HotTub -> Winnings(12000)
+    GrandPiano -> Winnings(20000)
+    Yacht -> Winnings(35000)
+    PrivateJet -> Winnings(50000)
+    DiamondCrown -> Winnings(100000)
+    end
+  end
+
+  doc """The host's first offer: the room, one night, nothing else."""
+  fn comp_opening(r : Room) : Comp needs () do
+    { comp_room: r, nights: 1, comp_tickets: Tickets(0), credit: Winnings(0) }
+  end
+
+  doc """
+  What the deal is worth in winnings, by the casino's arithmetic: a ticket on a
+  night is worth 40, each night itself 60.
+  """
+  fn comp_value(c : Comp) : Winnings needs () do
+    let tickets = Skee.Units.tickets_int(c.comp_tickets)
+    Winnings(c.nights * 60 + c.nights * tickets * 40 + Skee.Units.winnings_int(c.credit))
+  end
+
+  doc """The most any host will put on the table for a room."""
+  fn comp_ceiling(r : Room) : Comp needs () do
+    let k = Skee.Units.room_rank(r)
+    {
+      comp_room: r,
+      nights: 3 + k,
+      comp_tickets: Tickets(2 + k),
+      credit: Winnings(300 * (k + 1))
+    }
+  end
+
+  doc """Every field held inside 0...ceiling, nights at least 1."""
+  fn comp_clamped(c : Comp) : Comp needs () do
+    let top = comp_ceiling(c.comp_room)
+    let tickets =
+      clamp_int(Skee.Units.tickets_int(c.comp_tickets), 0, Skee.Units.tickets_int(top.comp_tickets))
+    let credit =
+      clamp_int(Skee.Units.winnings_int(c.credit), 0, Skee.Units.winnings_int(top.credit))
+    {
+      comp_room: c.comp_room,
+      nights: clamp_int(c.nights, 1, top.nights),
+      comp_tickets: Tickets(tickets),
+      credit: Winnings(credit)
+    }
+  end
+
+  doc """Read a PerRoom record."""
+  fn room_at(m : PerRoom(a), r : Room) : a needs () do
+    match r do
+    Boardwalk -> m.boardwalk
+    NeonLounge -> m.neon_lounge
+    HighRoller -> m.high_roller
+    Penthouse -> m.penthouse
+    end
+  end
+
+  doc """Write a PerRoom record."""
+  fn room_put(m : PerRoom(a), r : Room, v : a) : PerRoom(a) needs () do
+    match r do
+    Boardwalk -> { m with boardwalk: v }
+    NeonLounge -> { m with neon_lounge: v }
+    HighRoller -> { m with high_roller: v }
+    Penthouse -> { m with penthouse: v }
+    end
+  end
+
+  -- Progressive(): every meter at its seed. Rooms comes before Scoring in the
+  -- module order, and a new wallet needs the meters.
+  fn seeded_progressive() : Progressive needs () do
+    {
+      meters: {
+        mini: Winnings(50),
+        minor: Winnings(150),
+        major: Winnings(600),
+        grand: Winnings(2500)
+      }
+    }
+  end
+
+  doc """Wallet(balance:lifetime:owned:). The Boardwalk is yours from the start."""
+  fn new_wallet(balance : Winnings, lifetime : Winnings, owned : List(Prize)) : Wallet needs () do
+    {
+      balance: balance,
+      lifetime: lifetime,
+      owned: owned,
+      progressive: seeded_progressive(),
+      rooms: {
+        boardwalk: true,
+        neon_lounge: false,
+        high_roller: false,
+        penthouse: false
+      },
+      wallet_room: Boardwalk,
+      comps: {
+        boardwalk: None,
+        neon_lounge: None,
+        high_roller: None,
+        penthouse: None
+      },
+      games_since_host: 0,
+      host_visits: 0
+    }
+  end
+
+  doc """Wallet()."""
+  fn empty_wallet() : Wallet needs () do
+    new_wallet(Winnings(0), Winnings(0), [])
+  end
+
+  fn credit(w : Wallet, amount : Winnings) : Wallet needs () do
+    { w with balance: Skee.Units.add_winnings(w.balance, amount), lifetime: Skee.Units.add_winnings(w.lifetime, amount) }
+  end
+
+  doc """
+  The next room the host is ready to comp, if your winnings have earned it: the
+  first one you don't have yet, once you're past its threshold.
+  """
+  fn comp_due(w : Wallet) : Option(Room) needs () do
+    match List.find(all_rooms(), fn r -> !room_at(w.rooms, r)) do
+    None -> None
+    Some(r) -> do
+      if Skee.Units.winnings_at_least(w.lifetime, comp_threshold(r)) do
+        Some(r)
+      else
+        None
+      end
+    end
+    end
+  end
+
+  doc """Games between the host's visits: three, then four, then three."""
+  fn host_interval(w : Wallet) : { Int | _ >= 3 && _ <= 4 } needs () do
+    if w.host_visits % 2 == 0 do 3 else 4 end
+  end
+
+  doc """A game ended, won, lost or walked away from."""
+  fn game_played(w : Wallet) : Wallet needs () do
+    { w with games_since_host: w.games_since_host + 1 }
+  end
+
+  doc """
+  The room the host wants to talk about, once enough games have gone by: the
+  next room if winnings have earned it, otherwise a comped stay where you are.
+  """
+  fn host_due(w : Wallet) : Option(Room) needs () do
+    if w.games_since_host >= host_interval(w) do
+      match comp_due(w) do
+      Some(r) -> Some(r)
+      None -> Some(w.wallet_room)
+      end
+    else
+      None
+    end
+  end
+
+  -- The deal to bank: nights left from an earlier deal stay, and the better
+  -- ticket perk applies to all of them.
+  pfn stay_after(deal : Comp, old : Option(Comp)) : Comp needs () do
+    match old do
+    None -> deal
+    Some(banked) -> do
+      let tickets =
+        Math.max_int(Skee.Units.tickets_int(deal.comp_tickets), Skee.Units.tickets_int(banked.comp_tickets))
+      { deal with nights: deal.nights + banked.nights, comp_tickets: Tickets(tickets) }
+    end
+    end
+  end
+
+  -- The first haggle at the door neither moves you nor counts as a host visit.
+  pfn after_visit(w : Wallet, deal : Comp, visit : HostVisit) : Wallet needs () do
+    match visit do
+    VisitArrival -> w
+    VisitNewRoom -> do
+      { w with wallet_room: deal.comp_room, games_since_host: 0, host_visits: w.host_visits + 1 }
+    end
+    VisitReturning -> do
+      { w with wallet_room: deal.comp_room, games_since_host: 0, host_visits: w.host_visits + 1 }
+    end
+    end
+  end
+
+  doc """
+  Wallet.close for a haggle that has finished: `deal` is Haggle.final. An open
+  haggle changes nothing, so it has no call here. The room is yours either way;
+  the deal's nights are banked and its credit paid.
+  """
+  fn close_deal(w : Wallet, deal : Comp, visit : HostVisit) : Wallet needs () do
+    let r = deal.comp_room
+    let stay = stay_after(deal, room_at(w.comps, r))
+    let banked =
+      { w with rooms: room_put(w.rooms, r, true), comps: room_put(w.comps, r, Some(stay)) }
+    after_visit(credit(banked, deal.credit), deal, visit)
+  end
+
+  -- Use one of the comp's nights; the last one spends the comp.
+  pfn spend_night(w : Wallet, c : Comp) : (Tickets, Wallet) needs () do
+    let left = c.nights - 1
+    let kept = if left > 0 do Some({ c with nights: left }) else None end
+    (c.comp_tickets, { w with comps: room_put(w.comps, w.wallet_room, kept) })
+  end
+
+  doc """
+  Start a run in the current room: use a comped night if one is left. Returns
+  the extra starting tickets and the wallet after.
+  """
+  fn check_in(w : Wallet) : (Tickets, Wallet) needs () do
+    match room_at(w.comps, w.wallet_room) do
+    None -> (Tickets(0), w)
+    Some(c) -> if c.nights > 0 do spend_night(w, c) else (Tickets(0), w) end
+    end
+  end
+
+  doc """Buy a prize. Owning it is checked before the price, as in Swift."""
+  fn buy(w : Wallet, p : Prize) : Result(Wallet, ShopError) needs () do
+    let price = prize_price(p)
+    if List.any(w.owned, fn x -> x == p) do
+      Err(AlreadyOwned)
+    else
+      if Skee.Units.winnings_at_least(w.balance, price) do
+        Ok({ w with balance: Skee.Units.sub_winnings(w.balance, price), owned: List.append(w.owned, [p]) })
+      else
+        Err(ShopCantAfford)
+      end
+    end
+  end
+
+  doc """
+  What a finished run pays to the shelf: a twentieth of every point scored, 20
+  per round cleared, 500 for beating the arcade.
+  """
+  fn winnings(stats : RunStats, won : Bool) : Winnings needs () do
+    let bonus = if won do 500 else 0 end
+    Winnings(Skee.Units.points_int(stats.points) / 20 + stats.rounds_cleared * 20 + bonus)
+  end
+
+  fn rgb(r : { Int | _ >= 0 && _ <= 255 }, g : { Int | _ >= 0 && _ <= 255 }, b : { Int | _ >= 0 && _ <= 255 }) : Rgb needs () do
+    { packed: r * 65536 + g * 256 + b }
+  end
+
+  doc """CabinetPalette.of(room)."""
+  fn palette(r : Room) : CabinetPalette needs () do
+    match r do
+    Boardwalk -> do
+      {
+        backdrop: rgb(255, 233, 246),
+        rail: rgb(155, 131, 242),
+        rail_dark: rgb(111, 85, 214),
+        cabinet_body: rgb(255, 111, 165),
+        zones: {
+          zone40: rgb(255, 216, 77),
+          zone30: rgb(95, 200, 255),
+          zone20: rgb(255, 127, 174),
+          zone10: rgb(126, 220, 122)
+        },
+        lip: rgb(255, 250, 240),
+        hole_colour: rgb(42, 29, 51),
+        felt: rgb(108, 91, 216),
+        floor: rgb(231, 184, 217)
+      }
+    end
+    NeonLounge -> do
+      {
+        backdrop: rgb(43, 35, 80),
+        rail: rgb(61, 227, 255),
+        rail_dark: rgb(30, 157, 191),
+        cabinet_body: rgb(255, 62, 165),
+        zones: {
+          zone40: rgb(255, 240, 77),
+          zone30: rgb(255, 62, 165),
+          zone20: rgb(61, 227, 255),
+          zone10: rgb(138, 92, 255)
+        },
+        lip: rgb(255, 255, 255),
+        hole_colour: rgb(18, 12, 36),
+        felt: rgb(42, 30, 92),
+        floor: rgb(58, 46, 110)
+      }
+    end
+    HighRoller -> do
+      {
+        backdrop: rgb(243, 230, 200),
+        rail: rgb(201, 160, 69),
+        rail_dark: rgb(140, 106, 34),
+        cabinet_body: rgb(46, 107, 74),
+        zones: {
+          zone40: rgb(255, 216, 77),
+          zone30: rgb(232, 194, 122),
+          zone20: rgb(158, 209, 168),
+          zone10: rgb(78, 156, 110)
+        },
+        lip: rgb(255, 246, 221),
+        hole_colour: rgb(29, 26, 20),
+        felt: rgb(31, 90, 60),
+        floor: rgb(140, 47, 58)
+      }
+    end
+    Penthouse -> do
+      {
+        backdrop: rgb(255, 217, 194),
+        rail: rgb(242, 184, 75),
+        rail_dark: rgb(194, 122, 44),
+        cabinet_body: rgb(255, 255, 255),
+        zones: {
+          zone40: rgb(255, 200, 61),
+          zone30: rgb(255, 138, 101),
+          zone20: rgb(255, 179, 193),
+          zone10: rgb(159, 214, 232)
+        },
+        lip: rgb(255, 253, 245),
+        hole_colour: rgb(42, 29, 51),
+        felt: rgb(232, 93, 111),
+        floor: rgb(233, 201, 168)
+      }
+    end
+    end
+  end
 
 end

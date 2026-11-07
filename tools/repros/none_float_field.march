@@ -1,0 +1,21 @@
+mod Repro do
+
+  -- Native segfault at drop time (addr 0x8): a record bound by an unannotated
+  -- `let` with `None` in an Option(Float) field. Prints 3, then SIGSEGV.
+  -- `let blank : A = ...` compiles to correct code. The interpreter and JS are fine.
+  --   march --compile --opt 0 -o /tmp/r tools/repros/none_float_field.march && /tmp/r
+  needs IO.Console
+
+  type A = { n : Int, o : Option(Float) }
+
+  fn start(s : Int) : A do
+    let blank = { n: s, o: None }
+    blank
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let a = start(3)
+    println(int_to_string(a.n))
+  end
+
+end

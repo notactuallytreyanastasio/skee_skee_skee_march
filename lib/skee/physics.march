@@ -1,7 +1,431 @@
 mod Skee.Physics do
 
-  -- The physics piece. See docs/PORT.md for what ports here, and for the rules every
-  -- module under lib/ follows. Replace this comment as the first behaviour lands.
+  -- One ball from release to rest, ported from Physics/*.swift. Pure: the same
+  -- Launch on the same Table and seed always gives the same ShotResult.
   cap pure
+
+  import Skee.Maths
+  import Skee.Types
+
+  doc """Ball speed for a power, up the curve with its knee at `lane.knee`."""
+  fn release_speed(lane : LaneSpec, power : Float) : Float needs () do
+    if power < lane.knee do
+      lane.min_speed +. power /. lane.knee *. (lane.scoring_speed -. lane.min_speed)
+    else
+      lane.scoring_speed +. (power -. lane.knee) /. (1.0 -. lane.knee) *. (lane.max_speed -. lane.scoring_speed)
+    end
+  end
+
+  doc """The inverse of `release_speed`, clamped to 0...1."""
+  fn power_for_speed(lane : LaneSpec, v : Float) : Float needs () do
+    let p =
+      if v < lane.scoring_speed do
+        (v -. lane.min_speed) /. (lane.scoring_speed -. lane.min_speed) *. lane.knee
+      else
+        lane.knee +. (v -. lane.scoring_speed) /. (lane.max_speed -. lane.scoring_speed) *. (1.0 -. lane.knee)
+      end
+    clamp(p, 0.0, 1.0)
+  end
+
+  doc """Launch angle above the board plane, flat open plus the fold's gain."""
+  fn launch_angle(hinge : HingeSpec, fold : Float) : Float needs () do
+    hinge.base_angle +. fold *. hinge.fold_gain
+  end
+
+  doc """A throw from the release line at a power. Clamps every input."""
+  fn launch_of_power(
+    k : Skee.Consts.Consts,
+    power : Float,
+    aim : Float,
+    start : Float,
+    fold : Float,
+    spin : Float,
+    skid : Float
+  ) : Launch needs () do
+    let clamped = clamp(power, 0.0, 1.0)
+    {
+      power: clamped,
+      speed: release_speed(standard_lane(k), clamped),
+      from: 0.0,
+      aim: clamp(aim, -1.0, 1.0),
+      start: clamp(start, -1.0, 1.0),
+      fold: clamp(fold, 0.0, 1.0),
+      spin: clamp(spin, -1.0, 1.0),
+      skid: clamp(skid, 0.0, 1.0)
+    }
+  end
+
+  doc """A throw let go mid-lane at a speed. Clamps every input."""
+  fn launch_of_speed(
+    k : Skee.Consts.Consts,
+    speed : Float,
+    from : Float,
+    aim : Float,
+    start : Float,
+    fold : Float,
+    spin : Float,
+    skid : Float
+  ) : Launch needs () do
+    let lane = standard_lane(k)
+    let clamped = clamp(speed, 0.0, lane.max_speed *. 1.3)
+    {
+      power: power_for_speed(lane, clamped),
+      speed: clamped,
+      from: clamp(from, 0.0, lane.length -. 0.05),
+      aim: clamp(aim, -1.0, 1.0),
+      start: clamp(start, -1.0, 1.0),
+      fold: clamp(fold, 0.0, 1.0),
+      spin: clamp(spin, -1.0, 1.0),
+      skid: clamp(skid, 0.0, 1.0)
+    }
+  end
+
+  doc """The left-right mirror image of a throw."""
+  fn mirrored_launch(k : Skee.Consts.Consts, l : Launch) : Launch needs () do
+    launch_of_speed(k, l.speed, l.from, -l.aim, -l.start, l.fold, -l.spin, l.skid)
+  end
+
+  doc """Printed face value, as on a real cabinet."""
+  fn face_value(h : Hole) : Int needs () do
+    match h do
+    Gutter -> 0
+    Ring10 -> 10
+    Ring20 -> 20
+    Ring30 -> 30
+    Ring40 -> 40
+    Ring50 -> 50
+    PocketLeft -> 100
+    PocketRight -> 100
+    end
+  end
+
+  doc """The hole hit by the left-right mirror image of a shot."""
+  fn mirrored(h : Hole) : Hole needs () do
+    match h do
+    PocketLeft -> PocketRight
+    PocketRight -> PocketLeft
+    Gutter -> Gutter
+    Ring10 -> Ring10
+    Ring20 -> Ring20
+    Ring30 -> Ring30
+    Ring40 -> Ring40
+    Ring50 -> Ring50
+    end
+  end
+
+  fn is_pocket(h : Hole) : Bool needs () do
+    match h do
+    PocketLeft -> true
+    PocketRight -> true
+    Gutter -> false
+    Ring10 -> false
+    Ring20 -> false
+    Ring30 -> false
+    Ring40 -> false
+    Ring50 -> false
+    end
+  end
+
+  doc """Where a Hot Spot can land. Never the 10: double nothing much is no treat."""
+  fn hot_spots() : List(Hole) needs () do
+    [Ring20, Ring30, Ring40, Ring50, PocketLeft, PocketRight]
+  end
+
+  doc """The 50 hole, near the top of the 40 cup."""
+  fn center_hole(b : BoardSpec) : Vec2 needs () do
+    add(b.ring_center, b.center_hole_offset)
+  end
+
+  -- A ring's own hole, one ball radius inside its outer wall.
+  pfn ring_hole(b : BoardSpec, wall : Float) : Vec2 needs () do
+    vec2(b.ring_center.x, b.ring_center.y -. (wall -. b.ball_radius))
+  end
+
+  doc """Where each hole sits on the board."""
+  fn hole_center(b : BoardSpec, h : Hole) : Vec2 needs () do
+    match h do
+    Ring50 -> center_hole(b)
+    Ring40 -> ring_hole(b, b.ring_walls.wall40)
+    Ring30 -> ring_hole(b, b.ring_walls.wall30)
+    Ring20 -> ring_hole(b, b.ring_walls.wall20)
+    Ring10 -> ring_hole(b, b.ring_walls.wall10)
+    PocketLeft -> b.pockets.left.center
+    PocketRight -> b.pockets.right.center
+    Gutter -> vec2(0.0, -0.1)
+    end
+  end
+
+  doc """Which ring zone a resting point is in, ignoring holes and pockets."""
+  fn zone(b : BoardSpec, p : Vec2) : Hole needs () do
+    let d = length(sub(p, b.ring_center))
+    let w = b.ring_walls
+    if d < w.wall40 do
+      Ring40
+    else
+      if d < w.wall30 do
+        Ring30
+      else
+        if d < w.wall20 do
+          Ring20
+        else
+          if d < w.wall10 do Ring10 else Gutter end
+        end
+      end
+    end
+  end
+
+  -- ---- The shot ----
+  -- Everything fixed for one shot.
+  type Shot = {
+    k : Skee.Consts.Consts,
+    throw : Launch,
+    table : Table,
+    ball : BallKind,
+    half_lane : Float,
+    hook_pull : Float,
+    slope_pull : Float,
+    lane_friction : Float
+  }
+
+  -- What every phase carries forward. `events` and `path` are newest first.
+  type Sim = {
+    t : Float,
+    step : Int,
+    events : List(TimedEvent),
+    path : List(PathSample),
+    hinge_speed : Option(Float),
+    first_landing : Option(Vec2),
+    peak : Float,
+    touched_wall : Bool,
+    rng : Skee.Rng.Rng,
+    next_hop : Float,
+    hop_until : Float,
+    hops : Int,
+    sway_phase : Float
+  }
+
+  -- The ball on the lane. `dud` is Swift's events.contains(.dud).
+  type LaneBall = { lx : Float, ls : Float, lvx : Float, lvs : Float, dud : Bool }
+
+  pfn is_bean(b : BallKind) : Bool needs () do
+    match b do
+    JumpingBean -> true
+    Marshmallow -> false
+    ClassicBall -> false
+    Wobbler -> false
+    Comet -> false
+    end
+  end
+
+  pfn is_wobbler(b : BallKind) : Bool needs () do
+    match b do
+    Wobbler -> true
+    Marshmallow -> false
+    ClassicBall -> false
+    JumpingBean -> false
+    Comet -> false
+    end
+  end
+
+  -- Sideways shove from a wobbler's sway, in m/s^2.
+  pfn sway(c : Shot, sim : Sim, strength : Float) : Float needs () do
+    if is_wobbler(c.ball) do
+      strength *. Math.sin(c.k.tau *. 1.6 *. sim.t +. sim.sway_phase)
+    else
+      0.0
+    end
+  end
+
+  -- How high a bean is on the lane right now: the path shows the hop.
+  pfn lane_height(c : Shot, sim : Sim) : Float needs () do
+    if sim.t < sim.hop_until do
+      0.035 *. Math.sin(c.k.pi *. (sim.hop_until -. sim.t) /. 0.14)
+    else
+      0.0
+    end
+  end
+
+  pfn sample(sim : Sim, phase : PathPhase, x : Float, along : Float, h : Float) : Sim needs () do
+    { sim with path: Cons({ t: sim.t, phase: phase, px: x, along: along, height: h }, sim.path) }
+  end
+
+  -- Record at 120 Hz (every 2nd 240 Hz step), so a 120 Hz display never
+  -- interpolates across a bounce.
+  pfn record(sim : Sim, phase : PathPhase, x : Float, along : Float, h : Float) : Sim needs () do
+    if sim.step % 2 == 0 do sample(sim, phase, x, along, h) else sim end
+  end
+
+  pfn emit(sim : Sim, e : ShotEvent) : Sim needs () do
+    { sim with events: Cons({ event: e, at: sim.t }, sim.events) }
+  end
+
+  pfn tick(c : Shot, sim : Sim) : Sim needs () do
+    { sim with t: sim.t +. c.table.dt, step: sim.step + 1 }
+  end
+
+  pfn finish(c : Shot, sim : Sim, hole : Hole) : ShotResult needs () do
+    {
+      launch: c.throw,
+      hole: hole,
+      events: List.reverse(sim.events),
+      path: List.reverse(sim.path),
+      hinge_speed: sim.hinge_speed,
+      first_landing: sim.first_landing,
+      peak_height: sim.peak,
+      duration: sim.t
+    }
+  end
+
+  -- A bean takes off on the lane: two draws, in this order.
+  pfn lane_hop(c : Shot, sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+    if is_bean(c.ball) && sim.t >= sim.next_hop && b.lvs > 0.0 do
+      do
+        let (shove, r1) = Skee.Rng.next_unit(c.k, sim.rng)
+        let (wait, r2) = Skee.Rng.next_unit(c.k, r1)
+        let hopped = emit({ sim with rng: r2, hop_until: sim.t +. 0.14, next_hop: sim.t +. 0.22 +. wait *. 0.2 }, ShotHop)
+        (hopped, { b with lvx: b.lvx +. (shove -. 0.5) *. 0.7 })
+      end
+    else
+      (sim, b)
+    end
+  end
+
+  -- One step of rolling up the incline, before the rails.
+  pfn lane_motion(c : Shot, sim : Sim, b : LaneBall) : LaneBall needs () do
+    let dt = c.table.dt
+    let speed = Math.sqrt(b.lvx *. b.lvx +. b.lvs *. b.lvs)
+    let f = if speed > 0.0 do c.lane_friction /. speed else 0.0 end
+    let vs = b.lvs +. (c.slope_pull -. f *. b.lvs) *. dt
+    let vx = b.lvx +. (-f *. b.lvx +. c.hook_pull +. sway(c, sim, 10.0)) *. dt
+    { b with lx: b.lx +. vx *. dt, ls: b.ls +. vs *. dt, lvx: vx, lvs: vs }
+  end
+
+  pfn lane_rails(c : Shot, sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+    if Math.abs(b.lx) > c.half_lane do
+      do
+        let x = if b.lx > 0.0 do c.half_lane else -c.half_lane end
+        let vx = -b.lvx *. c.table.lane.rail_restitution
+        (emit(sim, ShotRail), { b with lx: x, lvx: vx })
+      end
+    else
+      (sim, b)
+    end
+  end
+
+  -- The first time forward speed runs out, the ball is a dud.
+  pfn lane_stall(sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+    if b.lvs <= 0.0 && !b.dud do
+      (emit(sim, ShotDud), { b with dud: true })
+    else
+      (sim, b)
+    end
+  end
+
+  pfn run_lane(c : Shot, sim0 : Sim, b0 : LaneBall) : ShotResult needs () do
+    if b0.ls < c.table.lane.length do
+      do
+        let recorded = record(sim0, OnLane, b0.lx, b0.ls, lane_height(c, sim0))
+        let (hopped, b1) = lane_hop(c, recorded, b0)
+        let (railed, b2) = lane_rails(c, hopped, lane_motion(c, hopped, b1))
+        let (stalled, b3) = lane_stall(tick(c, railed), b2)
+        if b3.dud && (b3.ls <= 0.0 || stalled.t >= c.table.max_duration) do
+          do
+            let last = sample(stalled, OnLane, b3.lx, max_float(b3.ls, 0.0), 0.0)
+            finish(c, emit(last, ShotGutter), Gutter)
+          end
+        else
+          run_lane(c, stalled, b3)
+        end
+      end
+    else
+      finish(c, sim0, Gutter)
+    end
+  end
+
+  -- A bean's first hop and a wobbler's sway are drawn before anything moves.
+  pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : Sim needs () do
+    let rng0 = Skee.Rng.seed(seed)
+    -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
+    let blank : Sim = {
+      t: 0.0,
+      step: 0,
+      events: [],
+      path: [],
+      hinge_speed: None,
+      first_landing: None,
+      peak: 0.0,
+      touched_wall: false,
+      rng: rng0,
+      next_hop: 0.0,
+      hop_until: 0.0,
+      hops: 0,
+      sway_phase: 0.0
+    }
+    if is_bean(ball) do
+      do
+        let (u, r) = Skee.Rng.next_unit(k, rng0)
+        { blank with rng: r, next_hop: 0.08 +. u *. 0.12 }
+      end
+    else
+      if is_wobbler(ball) do
+        do
+          let (u, r) = Skee.Rng.next_unit(k, rng0)
+          { blank with rng: r, sway_phase: u *. 2.0 *. k.pi }
+        end
+      else
+        blank
+      end
+    end
+  end
+
+  doc """
+  One ball from release to rest. Random balls take their mischief from `seed`,
+  so the same throw with the same seed is still the same shot.
+  """
+  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
+    let lane = t.lane
+    let g = t.gravity
+    let half_lane = lane.width /. 2.0 -. t.board.ball_radius
+    let v0 = l.speed *. Skee.Items.speed_scale(ball) *. (1.0 -. lane.skid_loss *. l.skid)
+    let angle = l.aim *. lane.max_aim_angle
+    let c = {
+      k: k,
+      throw: l,
+      table: t,
+      ball: ball,
+      half_lane: half_lane,
+      hook_pull: l.spin *. lane.hook,
+      slope_pull: -g *. Math.sin(lane.incline),
+      lane_friction: lane.rolling_friction *. g *. Math.cos(lane.incline)
+    }
+    let b = {
+      lx: l.start *. half_lane,
+      ls: l.from,
+      lvx: v0 *. Math.sin(angle),
+      lvs: v0 *. Math.cos(angle),
+      dud: false
+    }
+    run_lane(c, start_sim(k, ball, seed), b)
+  end
+
+  doc """How many lips the ball rattled on: the near-miss count."""
+  fn rattles(r : ShotResult) : Int needs () do
+    List.length(List.filter(r.events, fn e -> is_lip(e.event)))
+  end
+
+  pfn is_lip(e : ShotEvent) : Bool needs () do
+    match e do
+    ShotLip(_) -> true
+    ShotDud -> false
+    ShotRail -> false
+    ShotLaunched -> false
+    ShotLanded -> false
+    ShotBackwall -> false
+    ShotHop -> false
+    ShotDropped(_) -> false
+    ShotSettled(_) -> false
+    ShotGutter -> false
+    end
+  end
 
 end

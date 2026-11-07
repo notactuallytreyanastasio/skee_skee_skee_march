@@ -1,9 +1,9 @@
 mod RoomsTest do
 
-  -- Pending. When the first case exists, add:
-  --   test "rooms suite" do
-  --     assert (Harness.failures(RoomsSuite.cases()) == [])
-  --   end
   needs IO.Console
+
+  test "rooms suite" do
+    assert Harness.failures(RoomsSuite.cases()) == []
+  end
 
 end

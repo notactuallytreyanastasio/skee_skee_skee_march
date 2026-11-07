@@ -1,9 +1,797 @@
 mod RoomsSuite do
 
-  -- Owned by the rooms piece. Add cases here; see docs/PORT.md.
-  -- Add `import Harness` with the first case: it brings in case, all and expect.
+  -- Everything here is checked against rows the real Swift wrote: see
+  -- tools/golden/Sources/golden-rooms/room_golden.swift.
+  import Harness
+
+  fn rows(kind : String) : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Rooms.chunks()), kind)
+  end
+
+  -- Golden text travels with `_` for a space.
+  fn spaced(token : String) : String do
+    String.replace_all(token, "_", " ")
+  end
+
+  fn room_token(r : Room) : String do
+    match r do
+    Boardwalk -> "boardwalk"
+    NeonLounge -> "neonLounge"
+    HighRoller -> "highRoller"
+    Penthouse -> "penthouse"
+    end
+  end
+
+  fn room_of(token : String) : Room do
+    match List.find(Skee.Rooms.all_rooms(), fn r -> room_token(r) == token) do
+    Some(r) -> r
+    None -> panic("bad golden room: " ++ token)
+    end
+  end
+
+  fn room_option_token(r : Option(Room)) : String do
+    match r do
+    Some(room) -> room_token(room)
+    None -> "-"
+    end
+  end
+
+  fn room_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(name, Cons(blurb, Cons(rank, Cons(next, Cons(threshold, Cons(scale, Nil))))))) -> do
+      let r = room_of(token)
+      all([expect_string(Skee.Rooms.name(r), spaced(name), token ++ " name"), expect_string(Skee.Rooms.blurb(r), spaced(blurb), token ++ " blurb"), expect_int(Skee.Units.room_rank(r), GoldenIo.int(rank), token ++ " rank"), expect_string(room_option_token(Skee.Rooms.next(r)), next, token ++ " next"), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_threshold(r)), GoldenIo.int(threshold), token ++ " threshold"), GoldenIo.expect_float(Skee.Rooms.target_scale(r), scale, token ++ " target scale")])
+    end
+    _ -> Mismatch("bad room row")
+    end
+  end
+
+  fn room_order() : Outcome do
+    let want = List.map(rows("room"), fn row -> String.join(List.take(row, 1), ""))
+    let got = List.map(Skee.Rooms.all_rooms(), room_token)
+    expect_string(String.join(got, ","), String.join(want, ","), "Room.allCases")
+  end
+
+  fn room_cases() : List(Case) do
+    [
+      case("every room, in Swift's order", fn () -> room_order()),
+      case("room names, ranks, thresholds and scales", fn () -> all(List.map(rows("room"), room_row)))
+    ]
+  end
+
+  -- The same labels and order as tableFields in room_golden.swift.
+  fn lane_fields(l : LaneSpec) : List((String, Float)) do
+    [
+      ("lane.length", l.length),
+      ("lane.width", l.width),
+      ("lane.incline", l.incline),
+      ("lane.rollingFriction", l.rolling_friction),
+      ("lane.railRestitution", l.rail_restitution),
+      ("lane.minSpeed", l.min_speed),
+      ("lane.scoringSpeed", l.scoring_speed),
+      ("lane.maxSpeed", l.max_speed),
+      ("lane.knee", l.knee),
+      ("lane.maxAimAngle", l.max_aim_angle),
+      ("lane.hook", l.hook),
+      ("lane.skidLoss", l.skid_loss)
+    ]
+  end
+
+  fn board_fields(b : BoardSpec) : List((String, Float)) do
+    [
+      ("board.width", b.board_width),
+      ("board.height", b.board_height),
+      ("board.tilt", b.tilt),
+      ("board.ringCenter.x", b.ring_center.x),
+      ("board.ringCenter.y", b.ring_center.y),
+      ("board.centerHoleOffset.x", b.center_hole_offset.x),
+      ("board.centerHoleOffset.y", b.center_hole_offset.y),
+      ("board.centerHoleRadius", b.center_hole_radius),
+      ("board.captureSpeed", b.capture_speed),
+      ("board.lipMinFall", b.lip_min_fall),
+      ("board.ringWalls.0", b.ring_walls.wall40),
+      ("board.ringWalls.1", b.ring_walls.wall30),
+      ("board.ringWalls.2", b.ring_walls.wall20),
+      ("board.ringWalls.3", b.ring_walls.wall10),
+      ("board.pockets.0.x", b.pockets.left.center.x),
+      ("board.pockets.0.y", b.pockets.left.center.y),
+      ("board.pockets.0.radius", b.pockets.left.radius),
+      ("board.pockets.1.x", b.pockets.right.center.x),
+      ("board.pockets.1.y", b.pockets.right.center.y),
+      ("board.pockets.1.radius", b.pockets.right.radius),
+      ("board.lipHeight", b.lip_height),
+      ("board.ballRadius", b.ball_radius),
+      ("board.lipBand", b.lip_band),
+      ("board.bounce", b.bounce),
+      ("board.lipBounce", b.lip_bounce),
+      ("board.lipKick", b.lip_kick),
+      ("board.wallRestitution", b.wall_restitution),
+      ("board.backwallRestitution", b.backwall_restitution),
+      ("board.rollingFriction", b.board_rolling_friction),
+      ("board.landingGrip", b.landing_grip),
+      ("board.wind.x", b.wind.x),
+      ("board.wind.y", b.wind.y),
+      ("board.ringHoleRadius", b.ring_hole_radius)
+    ]
+  end
+
+  fn table_fields(t : Table) : List((String, Float)) do
+    let hinge =
+      [
+        ("hinge.baseAngle", t.hinge.base_angle),
+        ("hinge.foldGain", t.hinge.fold_gain),
+        ("hinge.carry", t.hinge.carry)
+      ]
+    let rest = [("gravity", t.gravity), ("dt", t.dt), ("maxDuration", t.max_duration)]
+    List.concat([lane_fields(t.lane), hinge, board_fields(t.board), rest])
+  end
+
+  fn field_named(fields : List((String, Float)), label : String) : Option((String, Float)) do
+    List.find(fields, fn f ->
+      match f do
+      (l, _) -> l == label
+      end
+    )
+  end
+
+  fn table_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(label, Cons(bits, Nil))) -> do
+      match field_named(table_fields(Skee.Rooms.table(k, room_of(token))), label) do
+      Some((_, value)) -> GoldenIo.expect_float(value, bits, token ++ " " ++ label)
+      None -> Mismatch("no table field " ++ label)
+      end
+    end
+    _ -> Mismatch("bad table row")
+    end
+  end
+
+  -- Every golden table row names a field, and every field has a golden row.
+  fn table_covers_every_field(k : Skee.Consts.Consts) : Outcome do
+    let golden = List.length(rows("table"))
+    let fields = List.length(table_fields(Skee.Rooms.table(k, Boardwalk))) * 4
+    expect_int(golden, fields, "table rows")
+  end
+
+  fn hole_token(h : Hole) : String do
+    match h do
+    Gutter -> "gutter"
+    Ring10 -> "ring10"
+    Ring20 -> "ring20"
+    Ring30 -> "ring30"
+    Ring40 -> "ring40"
+    Ring50 -> "ring50"
+    PocketLeft -> "pocketLeft"
+    PocketRight -> "pocketRight"
+    end
+  end
+
+  fn bit(x : Bool) : String do
+    if x do "1" else "0" end
+  end
+
+  fn table_shape_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(walls, Cons(pockets, Cons(left, Cons(right, Cons(flight, Nil)))))) -> do
+      let t = Skee.Rooms.table(k, room_of(token))
+      all([expect_int(4, GoldenIo.int(walls), token ++ " ring walls"), expect_int(2, GoldenIo.int(pockets), token ++ " pockets"), expect_string(hole_token(t.board.pockets.left.pocket_hole), left, token ++ " left pocket"), expect_string(hole_token(t.board.pockets.right.pocket_hole), right, token ++ " right pocket"), expect_string(bit(t.board.pockets_need_flight), flight, token ++ " pockets need flight")])
+    end
+    _ -> Mismatch("bad table shape row")
+    end
+  end
+
+  fn table_cases() : List(Case) do
+    let k = Skee.Consts.make()
+    [
+      case("every table field, every room", fn () -> all(List.map(rows("table"), fn row -> table_row(k, row)))),
+      case("golden covers every table field", fn () -> table_covers_every_field(k)),
+      case("table shape", fn () -> all(List.map(rows("tableshape"), fn row -> table_shape_row(k, row))))
+    ]
+  end
+
+  fn hole_of(token : String) : Hole do
+    match List.find(Skee.HoleMap.all_holes(), fn h -> hole_token(h) == token) do
+    Some(h) -> h
+    None -> panic("bad golden hole: " ++ token)
+    end
+  end
+
+  fn symbol_token(x : Symbol) : String do
+    match x do
+    Blank -> "blank"
+    Cherry -> "cherry"
+    Lemon -> "lemon"
+    Bell -> "bell"
+    BarSym -> "bar"
+    Seven -> "seven"
+    Diamond -> "diamond"
+    Clover -> "clover"
+    end
+  end
+
+  fn reel_symbol_token(x : ReelSymbol) : String do
+    match x do
+    ReelCherry -> "cherry"
+    ReelLemon -> "lemon"
+    ReelBell -> "bell"
+    ReelBar -> "bar"
+    ReelSeven -> "seven"
+    ReelDiamond -> "diamond"
+    ReelWild -> "wild"
+    ReelX2 -> "x2"
+    ReelX3 -> "x3"
+    ReelBonus -> "bonus"
+    end
+  end
+
+  fn csv(tokens : List(String)) : String do
+    match tokens do
+    Nil -> "-"
+    Cons(_, _) -> String.join(tokens, ",")
+    end
+  end
+
+  fn reel_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(hole, Cons(symbols, Nil))) -> do
+      let setup = Skee.Rooms.setup(room_of(token))
+      match Skee.HoleMap.reel_at(setup.reels, hole_of(hole)) do
+      Some(reel) -> do
+        expect_string(csv(List.map(reel, symbol_token)), symbols, token ++ " reel " ++ hole)
+      end
+      None -> Mismatch("no reel at " ++ hole)
+      end
+    end
+    _ -> Mismatch("bad reel row")
+    end
+  end
+
+  fn gild_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(hole, Cons(chips, Nil))) -> do
+      let setup = Skee.Rooms.setup(room_of(token))
+      match Skee.HoleMap.reel_at(setup.gild, hole_of(hole)) do
+      Some(c) -> do
+        expect_int(Skee.Units.chips_int(c), GoldenIo.int(chips), token ++ " gild " ++ hole)
+      end
+      None -> Mismatch("no gild at " ++ hole)
+      end
+    end
+    _ -> Mismatch("bad gild row")
+    end
+  end
+
+  fn reel_of_three(s : Three(List(ReelSymbol)), n : Int) : List(ReelSymbol) do
+    match s do
+    Three(a, b, c) -> if n == 0 do a else if n == 1 do b else c end end
+    end
+  end
+
+  fn strip_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(n, Cons(symbols, Nil))) -> do
+      let strip = reel_of_three(Skee.Rooms.strips(room_of(token)), GoldenIo.int(n))
+      expect_string(csv(List.map(strip, reel_symbol_token)), symbols, token ++ " strip " ++ n)
+    end
+    _ -> Mismatch("bad strip row")
+    end
+  end
+
+  fn base_strip_row(row : List(String)) : Outcome do
+    match row do
+    Cons(n, Cons(symbols, Nil)) -> do
+      let strip = reel_of_three(Skee.Rooms.base_strips(), GoldenIo.int(n))
+      expect_string(csv(List.map(strip, reel_symbol_token)), symbols, "Pull.strips " ++ n)
+    end
+    _ -> Mismatch("bad base strip row")
+    end
+  end
+
+  -- RoomTests.roomsAreDifferentMachines, for the strips.
+  fn strip_text(r : Room) : String do
+    match Skee.Rooms.strips(r) do
+    Three(a, b, c) -> csv(List.map(List.concat([a, b, c]), reel_symbol_token))
+    end
+  end
+
+  -- List.dedup only drops neighbours, so it cannot stand in for Swift's Set.
+  fn distinct(xs : List(String)) : Int do
+    let kept =
+      List.fold_left(xs, [], fn (seen, x) -> if List.any(seen, fn y -> y == x) do seen else Cons(x, seen) end)
+    List.length(kept)
+  end
+
+  fn table_text(k : Skee.Consts.Consts, r : Room) : String do
+    let bits =
+      List.map(table_fields(Skee.Rooms.table(k, r)), fn f ->
+        match f do
+        (_, v) -> show(GoldenIo.float_bits(v))
+        end
+      )
+    String.join(bits, ",")
+  end
+
+  fn strip_lengths(s : Three(List(ReelSymbol))) : List(Int) do
+    match s do
+    Three(a, b, c) -> [List.length(a), List.length(b), List.length(c)]
+    end
+  end
+
+  fn same_strip_lengths(r : Room) : Outcome do
+    let want = strip_lengths(Skee.Rooms.base_strips())
+    expect(strip_lengths(Skee.Rooms.strips(r)) == want, room_token(r) ++ " strip lengths")
+  end
+
+  fn rooms_are_different_machines(k : Skee.Consts.Consts) : Outcome do
+    let rooms = Skee.Rooms.all_rooms()
+    all(List.concat([[expect_int(distinct(List.map(rooms, strip_text)), 4, "distinct strips"), expect_int(distinct(List.map(rooms, fn r -> table_text(k, r))), 4, "distinct boards")], List.map(rooms, same_strip_lengths)]))
+  end
+
+  -- RoomTests.thresholdsClimb: sorted, and no two the same.
+  fn thresholds_climb() : Outcome do
+    let t =
+      List.map(Skee.Rooms.all_rooms(), fn r -> Skee.Units.winnings_int(Skee.Rooms.comp_threshold(r)))
+    let steps = List.zip(t, List.drop(t, 1))
+    all(List.map(steps, fn s ->
+      match s do
+      (a, b) -> do
+        expect(a < b, "threshold " ++ int_to_string(a) ++ " before " ++ int_to_string(b))
+      end
+      end
+    ))
+  end
+
+  fn machine_cases() : List(Case) do
+    let k = Skee.Consts.make()
+    [
+      case("cabinet reels", fn () -> all(List.map(rows("reel"), reel_row))),
+      case("gilding", fn () -> all(List.map(rows("gild"), gild_row))),
+      case("Pull.strips", fn () -> all(List.map(rows("basestrip"), base_strip_row))),
+      case("each room's strips", fn () -> all(List.map(rows("strip"), strip_row))),
+      case("rooms are different machines", fn () -> rooms_are_different_machines(k)),
+      case("thresholds climb", fn () -> thresholds_climb())
+    ]
+  end
+
+  fn prize_token(p : Prize) : String do
+    match p do
+    Sticker -> "sticker"
+    RubberDuck -> "rubberDuck"
+    Kazoo -> "kazoo"
+    Yoyo -> "yoyo"
+    Slinky -> "slinky"
+    PlushFrog -> "plushFrog"
+    LavaLamp -> "lavaLamp"
+    Robot -> "robot"
+    GiantBear -> "giantBear"
+    Trophy -> "trophy"
+    GlowSticks -> "glowSticks"
+    RollerSkates -> "rollerSkates"
+    DiscoBall -> "discoBall"
+    NeonSign -> "neonSign"
+    Jukebox -> "jukebox"
+    ArcadeCabinet -> "arcadeCabinet"
+    Cufflinks -> "cufflinks"
+    Champagne -> "champagne"
+    PearlNecklace -> "pearlNecklace"
+    GoldWatch -> "goldWatch"
+    Chandelier -> "chandelier"
+    SportsCar -> "sportsCar"
+    GoldenFlamingo -> "goldenFlamingo"
+    HotTub -> "hotTub"
+    GrandPiano -> "grandPiano"
+    Yacht -> "yacht"
+    PrivateJet -> "privateJet"
+    DiamondCrown -> "diamondCrown"
+    end
+  end
+
+  fn prize_of(token : String) : Prize do
+    match List.find(Skee.Rooms.all_prizes(), fn p -> prize_token(p) == token) do
+    Some(p) -> p
+    None -> panic("bad golden prize: " ++ token)
+    end
+  end
+
+  fn prize_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(name, Cons(price, Cons(room, Nil)))) -> do
+      let p = prize_of(token)
+      all([expect_string(Skee.Rooms.prize_name(p), spaced(name), token ++ " name"), expect_int(Skee.Units.winnings_int(Skee.Rooms.prize_price(p)), GoldenIo.int(price), token ++ " price"), expect_string(room_token(Skee.Rooms.prize_room(p)), room, token ++ " room")])
+    end
+    _ -> Mismatch("bad prize row")
+    end
+  end
+
+  fn shelf_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(prizes, Nil)) -> do
+      expect_string(csv(List.map(Skee.Rooms.prizes(room_of(token)), prize_token)), prizes, token ++ " shelf")
+    end
+    _ -> Mismatch("bad shelf row")
+    end
+  end
+
+  fn prize_order() : Outcome do
+    let want = List.flat_map(rows("prize"), fn row -> List.take(row, 1))
+    expect_string(csv(List.map(Skee.Rooms.all_prizes(), prize_token)), csv(want), "Prize.allCases")
+  end
+
+  fn comp_of(room : String, nights : String, tickets : String, credit : String) : Comp do
+    {
+      comp_room: room_of(room),
+      nights: GoldenIo.int(nights),
+      comp_tickets: Tickets(GoldenIo.int(tickets)),
+      credit: Winnings(GoldenIo.int(credit))
+    }
+  end
+
+  fn comp_text(c : Comp) : String do
+    let t = Skee.Units.tickets_int(c.comp_tickets)
+    let credit = Skee.Units.winnings_int(c.credit)
+    String.join([room_token(c.comp_room), int_to_string(c.nights), int_to_string(t), int_to_string(credit)], ":")
+  end
+
+  fn expect_comp(c : Comp, room : String, nights : String, tickets : String, credit : String, value : String, what : String) : Outcome do
+    let want = comp_of(room, nights, tickets, credit)
+    all([expect_string(comp_text(c), comp_text(want), what), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(c)), GoldenIo.int(value), what ++ " value")])
+  end
+
+  fn opening_row(row : List(String)) : Outcome do
+    match row do
+    Cons(room, Cons(n, Cons(t, Cons(c, Cons(v, Nil))))) -> do
+      expect_comp(Skee.Rooms.comp_opening(room_of(room)), room, n, t, c, v, "opening")
+    end
+    _ -> Mismatch("bad opening row")
+    end
+  end
+
+  fn ceiling_row(row : List(String)) : Outcome do
+    match row do
+    Cons(room, Cons(n, Cons(t, Cons(c, Cons(v, Nil))))) -> do
+      expect_comp(Skee.Rooms.comp_ceiling(room_of(room)), room, n, t, c, v, "ceiling")
+    end
+    _ -> Mismatch("bad ceiling row")
+    end
+  end
+
+  fn comp_row(row : List(String)) : Outcome do
+    match row do
+    Cons(room, Cons(n, Cons(t, Cons(c, Cons(v, Cons(room2, Cons(n2, Cons(t2, Cons(c2, Cons(v2, Nil)))))))))) -> do
+      let comp = comp_of(room, n, t, c)
+      all([expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(comp)), GoldenIo.int(v), "value"), expect_comp(Skee.Rooms.comp_clamped(comp), room2, n2, t2, c2, v2, "clamped")])
+    end
+    _ -> Mismatch("bad comp row")
+    end
+  end
+
+  fn shelf_cases() : List(Case) do
+    [
+      case("every prize, in Swift's order", fn () -> prize_order()),
+      case("prize names, prices and rooms", fn () -> all(List.map(rows("prize"), prize_row))),
+      case("each room's shelf", fn () -> all(List.map(rows("shelf"), shelf_row))),
+      case("opening offers", fn () -> all(List.map(rows("opening"), opening_row))),
+      case("ceilings", fn () -> all(List.map(rows("ceiling"), ceiling_row))),
+      case("comp value and clamping", fn () -> all(List.map(rows("comp"), comp_row)))
+    ]
+  end
+
+  fn winnings_row(row : List(String)) : Outcome do
+    match row do
+    Cons(points, Cons(rounds, Cons(won, Cons(want, Nil)))) -> do
+      let stats =
+        { blank_stats() with points: Points(GoldenIo.int(points)), rounds_cleared: GoldenIo.int(rounds) }
+      let got = Skee.Rooms.winnings(stats, won == "1")
+      expect_int(Skee.Units.winnings_int(got), GoldenIo.int(want), "winnings " ++ points)
+    end
+    _ -> Mismatch("bad winnings row")
+    end
+  end
+
+  -- RunStats() in Swift: the score fields are all the winnings rule reads.
+  fn blank_stats() : RunStats do
+    {
+      stat_balls: 0,
+      stat_holes: Skee.HoleMap.fill(0),
+      jackpots: 0,
+      stat_rattles: 0,
+      best_frame: Points(0),
+      pulls: 0,
+      free_games: 0,
+      jackpot_tiers: { mini: 0, minor: 0, major: 0, grand: 0 },
+      points: Points(0),
+      rounds_cleared: 0
+    }
+  end
+
+  fn meters_row(row : List(String)) : Outcome do
+    let w = Skee.Rooms.empty_wallet()
+    let m = w.progressive.meters
+    match row do
+    Cons(mini, Cons(minor, Cons(major, Cons(grand, Nil)))) -> do
+      all([expect_int(Skee.Units.winnings_int(m.mini), GoldenIo.int(mini), "mini"), expect_int(Skee.Units.winnings_int(m.minor), GoldenIo.int(minor), "minor"), expect_int(Skee.Units.winnings_int(m.major), GoldenIo.int(major), "major"), expect_int(Skee.Units.winnings_int(m.grand), GoldenIo.int(grand), "grand")])
+    end
+    _ -> Mismatch("bad meters row")
+    end
+  end
+
+  fn visit_of(token : String) : HostVisit do
+    if token == "arrival" do
+      VisitArrival
+    else
+      if token == "newRoom" do
+        VisitNewRoom
+      else
+        if token == "returning" do
+          VisitReturning
+        else
+          panic("bad golden visit: " ++ token)
+        end
+      end
+    end
+  end
+
+  fn comp_option_token(c : Option(Comp)) : String do
+    match c do
+    Some(comp) -> comp_text(comp)
+    None -> "-"
+    end
+  end
+
+  -- The same tokens as walletTokens in room_golden.swift.
+  fn wallet_tokens(w : Wallet) : List(String) do
+    let rooms = Skee.Rooms.all_rooms()
+    [
+      int_to_string(Skee.Units.winnings_int(w.balance)),
+      int_to_string(Skee.Units.winnings_int(w.lifetime)),
+      csv(List.map(w.owned, prize_token)),
+      String.join(List.map(rooms, fn r -> bit(Skee.Rooms.room_at(w.rooms, r))), ""),
+      room_token(w.wallet_room),
+      String.join(List.map(rooms, fn r -> comp_option_token(Skee.Rooms.room_at(w.comps, r))), ","),
+      int_to_string(w.games_since_host),
+      int_to_string(w.host_visits),
+      room_option_token(Skee.Rooms.comp_due(w)),
+      int_to_string(Skee.Rooms.host_interval(w)),
+      room_option_token(Skee.Rooms.host_due(w))
+    ]
+  end
+
+  fn shop_token(e : ShopError) : String do
+    match e do
+    ShopCantAfford -> "cantAfford"
+    AlreadyOwned -> "alreadyOwned"
+    end
+  end
+
+  fn buy_step(w : Wallet, p : Prize) : (Wallet, String) do
+    match Skee.Rooms.buy(w, p) do
+    Ok(after) -> (after, "ok")
+    Err(e) -> (w, shop_token(e))
+    end
+  end
+
+  fn check_in_step(w : Wallet) : (Wallet, String) do
+    let (extra, after) = Skee.Rooms.check_in(w)
+    (after, int_to_string(Skee.Units.tickets_int(extra)))
+  end
+
+  fn int_winnings(token : String) : Winnings do
+    Winnings(GoldenIo.int(token))
+  end
+
+  fn wallet_of_args(balance : String, lifetime : String) : Wallet do
+    Skee.Rooms.new_wallet(int_winnings(balance), int_winnings(lifetime), [])
+  end
+
+  -- One Swift step, replayed. Returns the wallet and what the step returned.
+  fn replay(w : Wallet, name : String, args : List(String)) : (Wallet, String) do
+    match (name, args) do
+    ("new", Cons(balance, Cons(lifetime, Cons(_, Cons(_, Cons(_, Cons(_, Nil))))))) -> (wallet_of_args(balance, lifetime), "-")
+    ("credit", Cons(amount, Cons(_, Cons(_, Cons(_, Cons(_, Cons(_, Nil))))))) -> (Skee.Rooms.credit(w, int_winnings(amount)), "-")
+    ("played", _) -> (Skee.Rooms.game_played(w), "-")
+    ("checkin", _) -> check_in_step(w)
+    ("buy", Cons(prize, Cons(_, Cons(_, Cons(_, Cons(_, Cons(_, Nil))))))) -> buy_step(w, prize_of(prize))
+    ("goto", Cons(room, Cons(_, Cons(_, Cons(_, Cons(_, Cons(_, Nil))))))) -> ({ w with wallet_room: room_of(room) }, "-")
+    ("own", Cons(room, Cons(_, Cons(_, Cons(_, Cons(_, Cons(_, Nil))))))) -> ({ w with rooms: Skee.Rooms.room_put(w.rooms, room_of(room), true) }, "-")
+    ("close", Cons(room, Cons(n, Cons(t, Cons(c, Cons(visit, Cons(_, Nil))))))) -> (Skee.Rooms.close_deal(w, comp_of(room, n, t, c), visit_of(visit)), "-")
+    ("unsigned", _) -> (w, "-")
+    _ -> panic("bad golden wallet step: " ++ name)
+    end
+  end
+
+  type Replay = { wallet : Wallet, seen : List(Outcome) }
+
+  fn replay_row(acc : Replay, row : List(String)) : Replay do
+    let name = String.join(List.take(row, 1), "")
+    let args = List.take(List.drop(row, 1), 6)
+    let want = List.drop(row, 7)
+    let (after, result) = replay(acc.wallet, name, args)
+    let got = String.join(Cons(result, wallet_tokens(after)), " ")
+    let outcome =
+      expect_string(got, String.join(want, " "), "after " ++ String.join(row, " "))
+    { wallet: after, seen: Cons(outcome, acc.seen) }
+  end
+
+  fn wallet_replay() : Outcome do
+    let start = { wallet: Skee.Rooms.empty_wallet(), seen: [] }
+    let finished = List.fold_left(rows("wallet"), start, replay_row)
+    all(finished.seen)
+  end
+
+  -- Ported from CompTests and PrizeShelfTests. Each returns its expectations.
+  fn the_host_is_ready_once_winnings_pass_the_next_threshold() : Outcome do
+    let w0 = Skee.Rooms.empty_wallet()
+    let w1 = Skee.Rooms.credit(w0, Skee.Rooms.comp_threshold(NeonLounge))
+    let w2 = { w1 with rooms: Skee.Rooms.room_put(w1.rooms, NeonLounge, true) }
+    let w3 = Skee.Rooms.credit(w2, Skee.Rooms.comp_threshold(HighRoller))
+    all([expect_string(room_option_token(Skee.Rooms.comp_due(w0)), "-", "nothing due"), expect_string(room_option_token(Skee.Rooms.comp_due(w1)), "neonLounge", "lounge due"), expect_string(room_option_token(Skee.Rooms.comp_due(w2)), "-", "lounge owned"), expect_string(room_option_token(Skee.Rooms.comp_due(w3)), "highRoller", "suite due")])
+  end
+
+  fn play(w : Wallet, games : Int) : Wallet do
+    if games > 0 do play(Skee.Rooms.game_played(w), games - 1) else w end
+  end
+
+  fn the_host_comes_every_three_or_four_games(w : Wallet, expected : List(Int), seen : List(Outcome)) : List(Outcome) do
+    match expected do
+    Nil -> seen
+    Cons(n, rest) -> do
+      let almost = play(w, n - 1)
+      let due = play(almost, 1)
+      let closed =
+        Skee.Rooms.close_deal(due, Skee.Rooms.comp_opening(Boardwalk), VisitReturning)
+      let checks =
+        [
+          expect_int(Skee.Rooms.host_interval(w), n, "interval"),
+          expect_string(room_option_token(Skee.Rooms.host_due(almost)), "-", "not yet"),
+          expect_string(room_option_token(Skee.Rooms.host_due(due)), "boardwalk", "due"),
+          expect_string(room_option_token(Skee.Rooms.host_due(closed)), "-", "closed")
+        ]
+      the_host_comes_every_three_or_four_games(closed, rest, List.append(seen, checks))
+    end
+    end
+  end
+
+  fn a_second_deal_adds_to_the_nights_already_banked() : Outcome do
+    let banked =
+      {
+        comp_room: Boardwalk,
+        nights: 2,
+        comp_tickets: Tickets(2),
+        credit: Winnings(0)
+      }
+    let w0 = Skee.Rooms.empty_wallet()
+    let w1 = { w0 with comps: Skee.Rooms.room_put(w0.comps, Boardwalk, Some(banked)) }
+    let w2 =
+      Skee.Rooms.close_deal(w1, Skee.Rooms.comp_opening(Boardwalk), VisitReturning)
+    expect_string(comp_option_token(Skee.Rooms.room_at(w2.comps, Boardwalk)), "boardwalk:3:2:0", "banked")
+  end
+
+  fn a_signed_deal_banks_nights_and_pays_credit() : Outcome do
+    let deal =
+      {
+        comp_room: NeonLounge,
+        nights: 2,
+        comp_tickets: Tickets(1),
+        credit: Winnings(100)
+      }
+    let w0 = Skee.Rooms.close_deal(Skee.Rooms.empty_wallet(), deal, VisitNewRoom)
+    let (first, w1) = Skee.Rooms.check_in(w0)
+    let (second, w2) = Skee.Rooms.check_in(w1)
+    let (third, w3) = Skee.Rooms.check_in(w2)
+    all([expect(Skee.Rooms.room_at(w0.rooms, NeonLounge), "room owned"), expect_string(room_token(w0.wallet_room), "neonLounge", "moved in"), expect_int(Skee.Units.winnings_int(w0.balance), 100, "credit"), expect_int(Skee.Units.tickets_int(first), 1, "first night"), expect_int(Skee.Units.tickets_int(second), 1, "second night"), expect_int(Skee.Units.tickets_int(third), 0, "no night left"), expect_string(comp_option_token(Skee.Rooms.room_at(w3.comps, NeonLounge)), "-", "comp spent")])
+  end
+
+  fn shop_result(r : Result(Wallet, ShopError)) : String do
+    match r do
+    Ok(_) -> "ok"
+    Err(e) -> shop_token(e)
+    end
+  end
+
+  fn buying() : Outcome do
+    let rich = Skee.Rooms.new_wallet(Winnings(1000), Winnings(0), [])
+    let poor = Skee.Rooms.new_wallet(Winnings(10), Winnings(0), [])
+    let (after, _) = buy_step(rich, Sticker)
+    all([expect_int(Skee.Units.winnings_int(after.balance), 950, "balance after"), expect_string(csv(List.map(after.owned, prize_token)), "sticker", "shelved"), expect_string(shop_result(Skee.Rooms.buy(poor, GiantBear)), "cantAfford", "too dear"), expect_string(shop_result(Skee.Rooms.buy(after, Sticker)), "alreadyOwned", "only once")])
+  end
+
+  fn crediting() : Outcome do
+    let w =
+      Skee.Rooms.credit(Skee.Rooms.new_wallet(Winnings(5), Winnings(0), []), Winnings(120))
+    all([expect_int(Skee.Units.winnings_int(w.balance), 125, "balance"), expect_int(Skee.Units.winnings_int(w.lifetime), 120, "lifetime")])
+  end
+
+  fn prices_of(r : Room) : List(Int) do
+    List.map(Skee.Rooms.prizes(r), fn p -> Skee.Units.winnings_int(Skee.Rooms.prize_price(p)))
+  end
+
+  fn climbs(prices : List(Int)) : Outcome do
+    let steps = List.zip(prices, List.drop(prices, 1))
+    all(List.map(steps, fn s ->
+      match s do
+      (a, b) -> do
+        expect(a <= b, "price " ++ int_to_string(a) ++ " before " ++ int_to_string(b))
+      end
+      end
+    ))
+  end
+
+  fn prices_climb_on_every_shelf() : Outcome do
+    let shelved = List.flat_map(Skee.Rooms.all_rooms(), Skee.Rooms.prizes)
+    let names = List.map(Skee.Rooms.all_prizes(), Skee.Rooms.prize_name)
+    all(List.concat([List.map(Skee.Rooms.all_rooms(), fn r -> climbs(prices_of(r))), [expect_int(distinct(List.map(shelved, prize_token)), 28, "every prize is shelved"), expect_int(distinct(names), 28, "every name differs")]]))
+  end
+
+  fn wallet_cases() : List(Case) do
+    [
+      case("winnings", fn () -> all(List.map(rows("winnings"), winnings_row))),
+      case("a new wallet's meters", fn () -> all(List.map(rows("meters"), meters_row))),
+      case("wallet replay", fn () -> wallet_replay()),
+      case("the host is ready once winnings pass", fn () -> the_host_is_ready_once_winnings_pass_the_next_threshold()),
+      case("the host comes every three or four games", fn () -> all(the_host_comes_every_three_or_four_games(Skee.Rooms.empty_wallet(), [3, 4, 3], []))),
+      case("a second deal adds to the nights", fn () -> a_second_deal_adds_to_the_nights_already_banked()),
+      case("a signed deal banks nights and pays credit", fn () -> a_signed_deal_banks_nights_and_pays_credit()),
+      case("buying", fn () -> buying()),
+      case("crediting", fn () -> crediting()),
+      case("prices climb on every shelf", fn () -> prices_climb_on_every_shelf())
+    ]
+  end
+
+  -- The same labels as tools/golden_cabinet.
+  fn palette_fields(p : CabinetPalette) : List((String, Rgb)) do
+    [
+      ("backdrop", p.backdrop),
+      ("rail", p.rail),
+      ("railDark", p.rail_dark),
+      ("cabinet", p.cabinet_body),
+      ("zone40", p.zones.zone40),
+      ("zone30", p.zones.zone30),
+      ("zone20", p.zones.zone20),
+      ("zone10", p.zones.zone10),
+      ("lip", p.lip),
+      ("hole", p.hole_colour),
+      ("felt", p.felt),
+      ("floor", p.floor)
+    ]
+  end
+
+  fn colour_row(row : List(String)) : Outcome do
+    match row do
+    Cons(token, Cons(label, Cons(want, Nil))) -> do
+      let fields = palette_fields(Skee.Rooms.palette(room_of(token)))
+      let found =
+        List.find(fields, fn f ->
+          match f do
+          (l, _) -> l == label
+          end
+        )
+      match found do
+      Some((_, colour)) -> expect_int(colour.packed, GoldenIo.int(want), token ++ " " ++ label)
+      None -> Mismatch("no colour " ++ label)
+      end
+    end
+    _ -> Mismatch("bad colour row")
+    end
+  end
+
+  fn colour_rows() : List(List(String)) do
+    GoldenIo.of_kind(GoldenIo.rows(Golden.Cabinet.chunks()), "colour")
+  end
+
+  fn golden_covers_every_colour() : Outcome do
+    let fields = List.length(palette_fields(Skee.Rooms.palette(Boardwalk))) * 4
+    expect_int(List.length(colour_rows()), fields, "colour rows")
+  end
+
+  fn cabinet_cases() : List(Case) do
+    [
+      case("cabinet colours", fn () -> all(List.map(colour_rows(), colour_row))),
+      case("golden covers every colour", fn () -> golden_covers_every_colour())
+    ]
+  end
+
   fn cases() : List(Case) do
-    []
+    List.concat([room_cases(), table_cases(), machine_cases(), shelf_cases(), wallet_cases(), cabinet_cases()])
   end
 
 end
