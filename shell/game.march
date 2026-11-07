@@ -124,6 +124,12 @@ mod Game do
     end
   end
 
+  -- ---- The lever's knob (a drag on the HUD, not the alley) ----
+  fn lever_touch(t : Skee.HudView.LeverTouch) : () do
+    let s = glue_cell_get()
+    List.each(Hud.lever_touch(s.hud, s.model, t), dispatch)
+  end
+
   -- ---- The frame ----
   -- A resize or a new devicePixelRatio (zoom, another screen) resizes the
   -- canvas's backing store and tells the model.
@@ -209,6 +215,7 @@ mod Game do
     glue_cell_put(s)
     perform(s, effects)
     Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
+    Glue.on_drag(hud.hud_root, fn (x, y) -> lever_touch(LeverDown(x, y)), fn (x, y) -> lever_touch(LeverMove(x, y)), fn (x, y) -> lever_touch(LeverUp(x, y)), fn () -> lever_touch(LeverLost))
     Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
     Glue.request_frame(fn t -> frame(t))
   end

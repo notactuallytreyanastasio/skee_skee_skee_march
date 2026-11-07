@@ -241,6 +241,8 @@ html, body {
 #hud .lever { position: relative; width: 44px; height: 200px; }
 #hud .lever-track { position: absolute; left: 17px; top: 0; width: 10px; height: 100%; border-radius: 5px; background: rgba(58, 35, 70, 0.6); }
 #hud .knob { position: relative; width: 44px; height: 44px; box-sizing: border-box; border-radius: 50%; border: 3px solid var(--ink); }
+/* A drag handle (the knob): it takes its own pointer, and the page must not pan. */
+#hud [data-drag] { pointer-events: auto; touch-action: none; cursor: grab; }
 #hud .knob-shine { position: absolute; left: 7px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: rgba(255, 255, 255, 0.6); }
 #hud .bet {
   display: flex; flex-direction: column; align-items: center;
@@ -287,7 +289,10 @@ html, body {
 }
 #hud .offer-icon { flex: none; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; }
 #hud .offer-words { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
-#hud .offer-blurb { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+/* The clamp counts line boxes in the blurb's own font: its size and leading
+   live here, not only on the span, or the 16px strut makes each line ~22px
+   and the third line (Swift's lineLimit(3)) is cut off. */
+#hud .offer-blurb { font-size: 11px; line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 #hud .sold { flex: 1 1 0; display: flex; align-items: center; justify-content: center; }
 #hud .counter-buttons { display: flex; gap: 12px; }
 #hud .counter-buttons > .hb { flex: 1 1 0; }

@@ -98,6 +98,44 @@ export function glue_on_pointer(canvas, down, move, up, cancel) {
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
+// ---- HUD drag handles (the lever's knob) ----
+// A pointer that goes down on an element marked data-drag inside the HUD's
+// root is followed, one at a time, until it lifts or is lost. It is captured
+// on the root, which stays put: the knob itself is rewritten as it moves.
+// down, move and up get (x, y) in CSS pixels; lost(0) on cancel.
+export function glue_on_drag(root, down, move, up, lost) {
+  let active = null;
+  const at = (e) => ({ _0: e.clientX, _1: e.clientY });
+  root.addEventListener("pointerdown", (e) => {
+    if (active !== null) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const t = e.target;
+    if (!(t instanceof Element) || t.closest("[data-drag]") === null) return;
+    active = e.pointerId;
+    try { root.setPointerCapture(e.pointerId); } catch (err) { }
+    e.preventDefault();
+    down._0(down, at(e));
+  });
+  root.addEventListener("pointermove", (e) => {
+    if (e.pointerId !== active) return;
+    e.preventDefault();
+    move._0(move, at(e));
+  });
+  root.addEventListener("pointerup", (e) => {
+    if (e.pointerId !== active) return;
+    active = null;
+    e.preventDefault();
+    up._0(up, at(e));
+  });
+  const gone = (e) => {
+    if (e.pointerId !== active) return;
+    active = null;
+    lost._0(lost, 0);
+  };
+  root.addEventListener("pointercancel", gone);
+  root.addEventListener("lostpointercapture", gone);
+}
+
 // ---- The shell's one mutable cell: the current model and handles, so that
 // event callbacks and the frame loop see the same state.
 let cell = null;

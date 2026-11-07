@@ -33,7 +33,30 @@ mod Skee.HudView do
 
   derive Eq, Show for GuideAt
 
-  type HudLocal = { guide_at : GuideAt }
+  -- Lever's @State drag (MachineView.swift): at rest, held by the pointer
+  -- that went down on the knob, or springing home after it let go. A grip
+  -- counts as a drag once it has moved 2pt (DragGesture(minimumDistance: 2)).
+  type LeverGrip = { grip_x : Float, grip_y : Float, grip_drag : Float, grip_moved : Bool }
+
+  derive Eq, Show for LeverGrip
+
+  -- withAnimation(.spring) from `letgo_from` to 0, started at the HUD clock
+  -- `letgo_at`.
+  type LeverLetGo = { letgo_from : Float, letgo_at : Float }
+
+  derive Eq, Show for LeverLetGo
+
+  type LeverHold = LeverRest | LeverHeld(LeverGrip) | LeverSpring(LeverLetGo)
+
+  derive Eq, Show for LeverHold
+
+  -- What the shell saw of the one pointer that went down on the knob, in CSS
+  -- pixels: down, moved, lifted, or lost (pointercancel).
+  type LeverTouch = LeverDown(Float, Float) | LeverMove(Float, Float) | LeverUp(Float, Float) | LeverLost
+
+  derive Eq, Show for LeverTouch
+
+  type HudLocal = { guide_at : GuideAt, lever : LeverHold }
 
   -- One layer of the HUD: an element id and what goes in it.
   type Pane = { pane_id : String, pane : Html }
@@ -207,7 +230,7 @@ mod Skee.HudView do
   -- ===================================================================
   doc """A GuideView as it first appears: the list of topics."""
   fn initial() : HudLocal needs () do
-    { guide_at: GuideContents }
+    { guide_at: GuideContents, lever: LeverRest }
   end
 
   pfn pages_of(a : AppHud, t : Int) : Int needs () do
@@ -255,35 +278,67 @@ mod Skee.HudView do
 
   pfn guide_turn(l : HudLocal, a : AppHud, act : HudAction) : HudLocal needs () do
     if a.top == LayerGuide do
-      { guide_at: turned(a, l.guide_at, act) }
+      { l with guide_at: turned(a, l.guide_at, act) }
     else
       l
     end
   end
 
-  doc """A closed Guide forgets its page, as a GuideView made afresh does."""
+  doc """
+  A closed Guide forgets its page, as a GuideView made afresh does; a lever
+  no longer drawn forgets its drag, and a spring that has come home rests.
+  """
   fn settle(l : HudLocal, a : AppHud) : HudLocal needs () do
-    match l.guide_at do
-    GuideContents -> l
-    GuideReading(t, p) -> if a.guide_open_now && p < pages_of(a, t) do l else initial() end
+    { guide_at: settle_guide(l.guide_at, a), lever: settle_lever(l.lever, a) }
+  end
+
+  pfn settle_guide(at_ : GuideAt, a : AppHud) : GuideAt needs () do
+    match at_ do
+    GuideContents -> at_
+    GuideReading(t, p) -> if a.guide_open_now && p < pages_of(a, t) do at_ else GuideContents end
+    end
+  end
+
+  pfn settle_lever(h : LeverHold, a : AppHud) : LeverHold needs () do
+    if lever_shown(a) do
+      match h do
+      LeverSpring(g) -> if spring_done(a.app_hud.hud_clock -. g.letgo_at) do LeverRest else h end
+      LeverHeld(_) -> h
+      LeverRest -> h
+      end
+    else
+      LeverRest
     end
   end
 
   doc """HudLocal as text, for the shell to keep between frames."""
   fn save_local(l : HudLocal) : String needs () do
-    match l.guide_at do
+    save_guide(l.guide_at) ++ "|" ++ save_lever(l.lever)
+  end
+
+  pfn save_guide(at_ : GuideAt) : String needs () do
+    match at_ do
     GuideContents -> "contents"
     GuideReading(t, p) -> "reading," ++ int_to_string(t) ++ "," ++ int_to_string(p)
     end
   end
 
-  doc """`save_local`'s text back; anything else is the topic list."""
+  pfn save_lever(h : LeverHold) : String needs () do
+    match h do
+    LeverRest -> "rest"
+    LeverHeld(g) -> "held," ++ float_to_string(g.grip_x) ++ "," ++ float_to_string(g.grip_y) ++ "," ++ float_to_string(g.grip_drag) ++ "," ++ (if g.grip_moved do "1" else "0" end)
+    LeverSpring(g) -> "spring," ++ float_to_string(g.letgo_from) ++ "," ++ float_to_string(g.letgo_at)
+    end
+  end
+
+  doc """`save_local`'s text back; anything else is the topic list, at rest."""
   fn load_local(s : Option(String)) : HudLocal needs () do
     match s do
     None -> initial()
     Some(text) -> do
-      match String.split(text, ",") do
-      Cons(tag, Cons(t, Cons(p, Nil))) -> if tag == "reading" do reading_at(t, p) else initial() end
+      match String.split(text, "|") do
+      Cons(guide, Cons(lever, Nil)) -> { guide_at: load_guide(guide), lever: load_lever(lever) }
+      Cons(guide, Nil) -> { guide_at: load_guide(guide), lever: LeverRest }
       Cons(_, _) -> initial()
       Nil -> initial()
       end
@@ -291,18 +346,176 @@ mod Skee.HudView do
     end
   end
 
-  pfn reading_at(t : String, p : String) : HudLocal needs () do
+  pfn load_guide(text : String) : GuideAt needs () do
+    match String.split(text, ",") do
+    Cons(tag, Cons(t, Cons(p, Nil))) -> if tag == "reading" do reading_at(t, p) else GuideContents end
+    Cons(_, _) -> GuideContents
+    Nil -> GuideContents
+    end
+  end
+
+  pfn load_lever(text : String) : LeverHold needs () do
+    match String.split(text, ",") do
+    Cons(tag, Cons(x, Cons(y, Cons(d, Cons(moved, Nil))))) -> do
+      match (tag == "held", string_to_float(x), string_to_float(y), string_to_float(d)) do
+      (true, Some(gx), Some(gy), Some(gd)) -> LeverHeld({ grip_x: gx, grip_y: gy, grip_drag: gd, grip_moved: moved == "1" })
+      _ -> LeverRest
+      end
+    end
+    Cons(tag, Cons(f, Cons(t, Nil))) -> do
+      match (tag == "spring", string_to_float(f), string_to_float(t)) do
+      (true, Some(from), Some(at_)) -> LeverSpring({ letgo_from: from, letgo_at: at_ })
+      _ -> LeverRest
+      end
+    end
+    Cons(_, _) -> LeverRest
+    Nil -> LeverRest
+    end
+  end
+
+  pfn reading_at(t : String, p : String) : GuideAt needs () do
     match (string_to_int(t), string_to_int(p)) do
     (Some(ti), Some(pg)) -> do
       if ti >= 0 && pg >= 0 do
-        { guide_at: GuideReading(ti, pg) }
+        GuideReading(ti, pg)
       else
-        initial()
+        GuideContents
       end
     end
-    (Some(_), None) -> initial()
-    (None, Some(_)) -> initial()
-    (None, None) -> initial()
+    (Some(_), None) -> GuideContents
+    (None, Some(_)) -> GuideContents
+    (None, None) -> GuideContents
+    end
+  end
+
+  -- ===================================================================
+  -- The lever (MachineView's Lever: a DragGesture, not a button)
+  -- ===================================================================
+  doc """How far the knob travels: the 200pt lever less its 44pt knob."""
+  fn lever_travel() : Float needs () do
+    156.0
+  end
+
+  -- SwiftUI's .spring(response: 0.25, dampingFraction: 0.45).
+  pfn spring_response() : Float needs () do
+    0.25
+  end
+
+  pfn spring_damping() : Float needs () do
+    0.45
+  end
+
+  -- After 0.75 s a 156pt swing is within 0.05pt of home (its envelope is
+  -- e^(-0.45 * 2pi/0.25 * t)), so the spring is called done.
+  pfn spring_done(age : Float) : Bool needs () do
+    age < 0.0 || age >= 0.75
+  end
+
+  doc """
+  Where a spring released at `from` has got to after `age` seconds: an
+  underdamped oscillator from rest, SwiftUI's spring(response:dampingFraction:).
+  """
+  fn spring_offset(k : Skee.Consts.Consts, from : Float, age : Float) : Float needs () do
+    if spring_done(age) do
+      0.0
+    else
+      do
+        let z = spring_damping()
+        let w0 = 2.0 *. k.pi /. spring_response()
+        let wd = w0 *. Math.sqrt(1.0 -. z *. z)
+        let decay = Math.exp(0.0 -. z *. w0 *. age)
+        from *. decay *. (Math.cos(wd *. age) +. z *. w0 /. wd *. Math.sin(wd *. age))
+      end
+    end
+  end
+
+  -- The lever is drawn, and on top, only with the machine over the lane.
+  pfn lever_shown(a : AppHud) : Bool needs () do
+    let s = a.app_hud
+    match s.machine do
+    Some(_) -> is_none(s.counter) && is_none(s.over) && live("machine", a.top)
+    None -> false
+    end
+  end
+
+  -- Lever(enabled: m.canPull).
+  pfn lever_enabled(a : AppHud) : Bool needs () do
+    match a.app_hud.machine do
+    Some(m) -> m.can_pull && lever_shown(a)
+    None -> false
+    end
+  end
+
+  doc """How far down the knob is drawn now, in points."""
+  fn knob_offset(k : Skee.Consts.Consts, l : HudLocal, a : AppHud) : Float needs () do
+    match l.lever do
+    LeverRest -> 0.0
+    LeverHeld(g) -> g.grip_drag
+    LeverSpring(g) -> spring_offset(k, g.letgo_from, a.app_hud.hud_clock -. g.letgo_at)
+    end
+  end
+
+  doc """
+  The knob's pointer. Like Lever's DragGesture(minimumDistance: 2): while
+  enabled the knob follows the thumb, clamped to its travel; let go past half
+  way, it pulls; either way it springs home. A tap, under 2pt of movement, is
+  no drag and does nothing. TapPull still goes through Skee.App's gate.
+  """
+  fn lever_touch(l : HudLocal, a : AppHud, t : LeverTouch) : (HudLocal, Option(Intent)) needs () do
+    match (l.lever, t) do
+    (LeverHeld(g), LeverMove(x, y)) -> ({ l with lever: LeverHeld(grip_moved(g, a, x, y)) }, None)
+    (LeverHeld(g), LeverUp(x, y)) -> let_go(l, a, grip_moved(g, a, x, y))
+    (LeverHeld(g), LeverLost) -> ({ l with lever: spring_from(a, g) }, None)
+    (LeverHeld(_), LeverDown(_, _)) -> (l, None)
+    (LeverRest, LeverDown(x, y)) -> (grabbed(l, a, x, y), None)
+    (LeverSpring(_), LeverDown(x, y)) -> (grabbed(l, a, x, y), None)
+    (LeverRest, LeverMove(_, _)) -> (l, None)
+    (LeverRest, LeverUp(_, _)) -> (l, None)
+    (LeverRest, LeverLost) -> (l, None)
+    (LeverSpring(_), LeverMove(_, _)) -> (l, None)
+    (LeverSpring(_), LeverUp(_, _)) -> (l, None)
+    (LeverSpring(_), LeverLost) -> (l, None)
+    end
+  end
+
+  pfn grabbed(l : HudLocal, a : AppHud, x : Float, y : Float) : HudLocal needs () do
+    if lever_shown(a) do
+      { l with lever: LeverHeld({ grip_x: x, grip_y: y, grip_drag: 0.0, grip_moved: false }) }
+    else
+      l
+    end
+  end
+
+  -- onChanged: once past the 2pt minimum, `drag = min(travel, max(0, dy))`
+  -- while enabled.
+  pfn grip_moved(g : LeverGrip, a : AppHud, x : Float, y : Float) : LeverGrip needs () do
+    let dx = x -. g.grip_x
+    let dy = y -. g.grip_y
+    let moved = g.grip_moved || Math.sqrt(dx *. dx +. dy *. dy) >= 2.0
+    if moved && lever_enabled(a) do
+      { g with grip_drag: Skee.Maths.min_float(lever_travel(), Skee.Maths.max_float(0.0, dy)), grip_moved: true }
+    else
+      { g with grip_moved: moved }
+    end
+  end
+
+  -- onEnded, which a tap never reaches: pull if past half way, then spring.
+  pfn let_go(l : HudLocal, a : AppHud, g : LeverGrip) : (HudLocal, Option(Intent)) needs () do
+    if g.grip_moved do
+      do
+        let pull = lever_enabled(a) && g.grip_drag > lever_travel() *. 0.5
+        ({ l with lever: spring_from(a, g) }, if pull do Some(TapPull) else None end)
+      end
+    else
+      ({ l with lever: LeverRest }, None)
+    end
+  end
+
+  pfn spring_from(a : AppHud, g : LeverGrip) : LeverHold needs () do
+    if g.grip_drag > 0.0 do
+      LeverSpring({ letgo_from: g.grip_drag, letgo_at: a.app_hud.hud_clock })
+    else
+      LeverRest
     end
   end
 
@@ -1842,10 +2055,13 @@ mod Skee.HudView do
     div("window", "", List.concat([[reels], dividers, ticks, [wins, div("window-edge", "", [])], tease]))
   end
 
-  pfn lever(m : Machine) : Html needs () do
+  -- Lever: the knob is a drag handle (`data-drag`), not a button; the shell
+  -- feeds its pointer to `lever_touch`. `drop` is how far down it is drawn.
+  pfn lever(m : Machine, drop : Float) : Html needs () do
+    let fill = "background:" ++ css(if m.can_pull do mult_red() else alpha(cream(), 0.5) end)
     let knob =
-      div("knob", "background:" ++ css(if m.can_pull do mult_red() else alpha(cream(), 0.5) end), [div("knob-shine", "", [])])
-    div("lever", "", [div("lever-track", "", []), maybe_button(if m.can_pull do Some(ActIntent(TapPull)) else None end, [knob])])
+      Tag("div", [Prop("class", "knob"), Prop("style", fill ++ ";transform:translateY(" ++ px(drop) ++ ")"), Prop("data-drag", "lever")], [div("knob-shine", "", [])])
+    div("lever", "", [div("lever-track", "", []), knob])
   end
 
   pfn bet_button(m : Machine, b : Bet) : Html needs () do
@@ -1863,7 +2079,7 @@ mod Skee.HudView do
     maybe_button(if can do Some(ActIntent(TapSetBet(b))) else None end, [div("bet", style, [cel(label, 13.0, cream()), cel(price, 11.0, if can do butter() else alpha(cream(), 0.5) end)])])
   end
 
-  pfn machine_view(k : Skee.Consts.Consts, m : Machine) : Html needs () do
+  pfn machine_view(k : Skee.Consts.Consts, m : Machine, drop : Float) : Html needs () do
     let top = if m.show_bets do meters(m) else nothing() end
     let bottom =
       if m.machine_free do
@@ -1886,14 +2102,14 @@ mod Skee.HudView do
           ]
         end
       end
-    div("machine", "", List.concat([[top, hstack(10.0, [window(k, m), lever(m)])], bottom]))
+    div("machine", "", List.concat([[top, hstack(10.0, [window(k, m), lever(m, drop)])], bottom]))
   end
 
-  pfn machine_pane(k : Skee.Consts.Consts, s : HudState, w : Float, h : Float) : Html needs () do
+  pfn machine_pane(k : Skee.Consts.Consts, s : HudState, drop : Float, w : Float, h : Float) : Html needs () do
     match s.machine do
     Some(m) -> do
       if is_none(s.counter) && is_none(s.over) do
-        at(w /. 2.0, h *. 0.74, machine_view(k, m))
+        at(w /. 2.0, h *. 0.74, machine_view(k, m, drop))
       else
         nothing()
       end
@@ -2313,7 +2529,7 @@ mod Skee.HudView do
   pfn inert_prop(p : Prop) : Option(Prop) needs () do
     match p do
     Prop(name, value) -> do
-      if name == "data-act" || name == "data-intent" || name == "role" do
+      if name == "data-act" || name == "data-intent" || name == "role" || name == "data-drag" do
         None
       else
         if name == "class" && value == "hb" do
@@ -2338,7 +2554,7 @@ mod Skee.HudView do
     { pane_id: id, pane: if live(id, top) do h else inert(h) end }
   end
 
-  pfn game_panes(k : Skee.Consts.Consts, a : AppHud, w : Float, h : Float) : List(Html) needs () do
+  pfn game_panes(k : Skee.Consts.Consts, a : AppHud, l : HudLocal, w : Float, h : Float) : List(Html) needs () do
     let s = a.app_hud
     [
       top_pane(s),
@@ -2347,7 +2563,7 @@ mod Skee.HudView do
       trays_pane(s, w, h),
       corner_pane(a, w),
       rack_pane(a, w, h),
-      machine_pane(k, s, w, h),
+      machine_pane(k, s, knob_offset(k, l, a), w, h),
       slot_pane(a, w, h),
       fx_pane(a, w, h),
       counter_pane(s, h),
@@ -2368,7 +2584,7 @@ mod Skee.HudView do
     let s = a.app_hud
     let on_title = s.hud_screen == TitleScreen
     let title = if on_title do title_card(a.app_wallet) else nothing() end
-    let game = if on_title do blank_game() else game_panes(k, a, width, height) end
+    let game = if on_title do blank_game() else game_panes(k, a, settle(l, a), width, height) end
     let overlays =
       [
         coach_pane(a, width, height),

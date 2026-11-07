@@ -26,6 +26,7 @@ mod Glue do
     fn glue_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Unit
     fn glue_gradient_stop(at : Float, css : String) : Unit
     fn glue_fill_gradient(ctx : Js.Canvas.Context) : Unit
+    fn glue_on_drag(root : Js.Dom.Node, down : (Float, Float) -> (), move : (Float, Float) -> (), up : (Float, Float) -> (), lost : () -> ()) : Unit
     fn glue_queue_tap(i : Int) : Unit
     fn glue_drain_taps() : List(Int)
     fn glue_mark(name : String, value : String) : Unit
@@ -112,6 +113,11 @@ mod Glue do
 
   fn fill_gradient(ctx : Js.Canvas.Context) : () do
     glue_fill_gradient(ctx)
+  end
+
+  doc """Follow a pointer that goes down on a `data-drag` element under `root`: (x, y) in CSS pixels."""
+  fn on_drag(root : Js.Dom.Node, down : (Float, Float) -> (), move : (Float, Float) -> (), up : (Float, Float) -> (), lost : () -> ()) : () do
+    glue_on_drag(root, down, move, up, lost)
   end
 
   fn queue_tap(i : Int) : () do

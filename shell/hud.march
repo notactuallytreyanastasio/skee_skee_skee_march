@@ -7,6 +7,8 @@ mod Hud do
   --            back to front) and the art's <symbol>s once, and listens for
   --            clicks on the root (event delegation)
   --   click    finds the nearest element with a data-act code and queues it
+  --   drag     the lever's knob (data-drag): its pointer goes to
+  --            Skee.HudView.lever_touch (`lever_touch`, wired by Game)
   --   render   decodes the queued codes, steps the Guide's page state with
   --            Skee.HudView.react, rewrites each pane only when its HTML
   --            changed, and returns the taps' Intents as MsgTap
@@ -99,6 +101,19 @@ mod Hud do
       end
     end
     None -> (l, msgs)
+    end
+  end
+
+  -- The lever's knob: its pointer steps the lever's view state with
+  -- Skee.HudView.lever_touch, which says when a drag pulls.
+  fn lever_touch(h : HudHandle, m : Skee.App.Model, t : Skee.HudView.LeverTouch) : List(Skee.App.Msg) do
+    let saved = Js.Dom.get_attr(h.hud_root, "data-local")
+    let (l, intent) =
+      Skee.HudView.lever_touch(Skee.HudView.load_local(saved), Skee.App.hud(m), t)
+    Js.Dom.set_attr(h.hud_root, "data-local", Skee.HudView.save_local(l))
+    match intent do
+    Some(i) -> [MsgTap(i)]
+    None -> []
     end
   end
 

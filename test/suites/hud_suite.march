@@ -298,6 +298,91 @@ mod HudSuite do
     String.join(a, ",") == String.join(b, ",")
   end
 
+  -- ---- The lever (MachineView's Lever: a DragGesture, not a button) ----
+  fn at_clock(a : Skee.App.AppHud, c : Float) : Skee.App.AppHud do
+    let s = a.app_hud
+    { a with app_hud: { s with hud_clock: c } }
+  end
+
+  fn touches(a : Skee.App.AppHud, l : Skee.HudView.HudLocal, ts : List(Skee.HudView.LeverTouch)) : (Skee.HudView.HudLocal, List(Skee.App.Intent)) do
+    List.fold_left(ts, (l, []), fn (acc, t) -> touch_step(a, acc, t))
+  end
+
+  fn touch_step(a : Skee.App.AppHud, acc : (Skee.HudView.HudLocal, List(Skee.App.Intent)), t : Skee.HudView.LeverTouch) : (Skee.HudView.HudLocal, List(Skee.App.Intent)) do
+    let (l, got) = acc
+    let (next, i) = Skee.HudView.lever_touch(l, a, t)
+    match i do
+    Some(x) -> (next, List.append(got, [x]))
+    None -> (next, got)
+    end
+  end
+
+  fn knob(a : Skee.App.AppHud, l : Skee.HudView.HudLocal) : Float do
+    Skee.HudView.knob_offset(k(), l, a)
+  end
+
+  fn pulls(xs : List(Skee.App.Intent)) : Bool do
+    List.any(xs, fn x -> x == TapPull)
+  end
+
+  fn near(x : Float, want : Float) : Bool do
+    Math.abs(x -. want) < 0.000001
+  end
+
+  fn lever_drawn() : Outcome do
+    let h = html(in_game())
+    let guided = html(tap(in_game(), TapOpenGuide))
+    let lever_part =
+      match String.split(h, "class=\"lever\"") do
+      Cons(_, Cons(rest, _)) -> first_part(rest, "knob-shine")
+      _ -> ""
+      end
+    all([expect(String.contains(h, "data-drag=\"lever\""), "the knob takes a drag"), expect(lever_part != "", "a lever is drawn"), expect(!String.contains(lever_part, "data-act"), "the knob is not a button"), expect(!String.contains(guided, "data-drag"), "under the guide the knob is inert")])
+  end
+
+  fn first_part(s : String, sep : String) : String do
+    match String.split(s, sep) do
+    Cons(x, _) -> x
+    Nil -> s
+    end
+  end
+
+  fn lever_drags() : Outcome do
+    let a = Skee.App.hud(in_game())
+    let l0 = Skee.HudView.initial()
+    let travel = Skee.HudView.lever_travel()
+    let (tapped, tap_pulls) = touches(a, l0, [LeverDown(300.0, 500.0), LeverUp(300.0, 500.0)])
+    let (wiggle, wiggle_pulls) = touches(a, l0, [LeverDown(300.0, 500.0), LeverMove(300.5, 501.0), LeverUp(300.5, 501.0)])
+    let (held, _) = touches(a, l0, [LeverDown(300.0, 500.0), LeverMove(300.0, 540.0)])
+    let (deep, _) = touches(a, held, [LeverMove(310.0, 900.0)])
+    let (up_high, _) = touches(a, held, [LeverMove(300.0, 400.0)])
+    let (_, short_pulls) = touches(a, held, [LeverMove(300.0, 500.0 +. travel *. 0.5), LeverUp(300.0, 500.0 +. travel *. 0.5)])
+    let (sprung, long_pulls) = touches(a, held, [LeverMove(300.0, 700.0), LeverUp(300.0, 700.0)])
+    let (lost, lost_pulls) = touches(a, held, [LeverMove(300.0, 700.0), LeverLost])
+    all([expect(tap_pulls == [], "a tap on the knob does not pull"), expect(near(knob(a, tapped), 0.0), "a tap leaves the knob"), expect(wiggle_pulls == [] && near(knob(a, wiggle), 0.0), "under 2pt is not a drag"), expect(near(travel, 156.0), "travel is the 200pt lever less the 44pt knob"), expect(near(knob(a, held), 40.0), "the knob follows the thumb"), expect(near(knob(a, deep), travel), "down to the end of its travel"), expect(near(knob(a, up_high), 0.0), "and not above its top"), expect(short_pulls == [], "exactly half way does not pull"), expect(pulls(long_pulls), "past half way pulls"), expect(near(knob(a, sprung), travel), "let go, it starts from where it was"), expect(lost_pulls == [], "a lost pointer does not pull"), expect(near(knob(a, lost), travel), "a lost pointer springs back too")])
+  end
+
+  fn lever_springs() : Outcome do
+    let a = at_clock(Skee.App.hud(in_game()), 10.0)
+    let (let_go, _) =
+      touches(a, Skee.HudView.initial(), [LeverDown(0.0, 0.0), LeverMove(0.0, 100.0), LeverUp(0.0, 100.0)])
+    let early = knob(at_clock(a, 10.05), let_go)
+    let swing = knob(at_clock(a, 10.13), let_go)
+    let late = knob(at_clock(a, 11.0), let_go)
+    let settled = Skee.HudView.settle(let_go, at_clock(a, 11.0))
+    let kept = Skee.HudView.load_local(Some(Skee.HudView.save_local(let_go)))
+    all([expect(early > 0.0 && early < 100.0, "heading home: " ++ float_to_string(early)), expect(swing < 0.0, "a 0.45 damped spring overshoots: " ++ float_to_string(swing)), expect(near(late, 0.0), "home after a second"), expect(Skee.HudView.save_local(settled) == Skee.HudView.save_local(Skee.HudView.initial()), "settled is at rest"), expect(near(knob(at_clock(a, 10.05), kept), early), "the spring survives the DOM round trip")])
+  end
+
+  fn lever_disabled() : Outcome do
+    let spinning = tick(tap(in_game(), TapPull))
+    let a = Skee.App.hud(spinning)
+    let (l, got) =
+      touches(a, Skee.HudView.initial(), [LeverDown(0.0, 0.0), LeverMove(0.0, 150.0), LeverUp(0.0, 150.0)])
+    let held = Skee.HudView.load_local(Some(Skee.HudView.save_local(Tuple.first(touches(Skee.App.hud(in_game()), Skee.HudView.initial(), [LeverDown(0.0, 0.0), LeverMove(0.0, 30.0)])))))
+    all([expect(got == [], "a lever that cannot pull does not"), expect(near(knob(a, l), 0.0), "and its knob does not move"), expect(near(knob(Skee.App.hud(in_game()), held), 30.0), "a held knob survives the DOM round trip")])
+  end
+
   fn cases() : List(Case) do
     [
       case("every action round-trips through its data-act code", fn () -> all(List.map(every_action(), round_trip))),
@@ -322,7 +407,11 @@ mod HudSuite do
       case("the prize counter is CounterView", fn () -> counter_view()),
       case("every button drawn is one the model accepts", fn () -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay)], all_accepted))),
       case("every symbol drawn has a definition", fn () -> symbols_resolve([boot_fresh(), in_game(), pulled(), tap(boot_fresh(), TapOpenShop)])),
-      case("every symbol and prize is defined", fn () -> every_symbol_defined())
+      case("every symbol and prize is defined", fn () -> every_symbol_defined()),
+      case("the lever is a drag handle, not a button", fn () -> lever_drawn()),
+      case("the lever pulls when dragged past half its travel", fn () -> lever_drags()),
+      case("the lever springs back", fn () -> lever_springs()),
+      case("a lever that cannot pull stays put", fn () -> lever_disabled())
     ]
   end
 
