@@ -59,7 +59,7 @@ mod Skee.Scene do
     | Holed(List(Vec2), List(Vec2))
     | Polys(List(List(Vec2)))
     | Disc(Vec2, Float)
-    | Trace(List(PathStep))
+    | Outline(List(PathStep))
 
   derive Show for Shape
 
@@ -1132,6 +1132,832 @@ mod Skee.Scene do
   -- A tuple after a record literal would parse as a call of the record.
   pfn pair(a : Scenery, b : Keep) : (Scenery, Keep) needs () do
     (a, b)
+  end
+
+  -- ===================================================================
+  -- Painting: parts to draw operations
+  -- ===================================================================
+
+  -- What every painter needs: the camera for this viewport, where the eye is,
+  -- and how many pixels one unit of Toon outline thickness is. The inverted
+  -- hull grows with distance, so an outline keeps one screen width:
+  -- thick * height / (40 * tan(fov / 2)).
+  type Brush = { k : Skee.Consts.Consts, lens : Skee.Camera.Lens, eye : Vec3, ink_px : Float }
+
+  fn brush(k : Skee.Consts.Consts, s : Scenery) : Brush needs () do
+    let l = Skee.Camera.lens(k, s.camera, s.viewport)
+    { k: k, lens: l, eye: s.camera.eye, ink_px: l.height /. (40.0 *. l.tan_half) }
+  end
+
+  pfn px(b : Brush, p : Vec3) : Vec2 needs () do
+    Skee.Camera.pixel(b.k, b.lens, p)
+  end
+
+  pfn depth(b : Brush, p : Vec3) : Float needs () do
+    let s = Skee.Camera.seen(b.lens, p)
+    s.depth
+  end
+
+  doc """Pixels per metre at a scene point."""
+  fn scale_at(b : Brush, p : Vec3) : Float needs () do
+    Skee.Camera.pixels_per_metre(b.lens, depth(b, p))
+  end
+
+  pfn to_eye(b : Brush, p : Vec3) : Vec3 needs () do
+    minus(b.eye, p)
+  end
+
+  -- Nothing nearer than SceneKit's zNear is drawn.
+  pfn z_near() : Float needs () do
+    0.05
+  end
+
+  -- Sutherland-Hodgman against the near plane, in camera space.
+  pfn clip_edge(a : Skee.Camera.Seen, c : Skee.Camera.Seen) : List(Skee.Camera.Seen) needs () do
+    let n = z_near()
+    let a_in = a.depth >= n
+    let c_in = c.depth >= n
+    if a_in && c_in do
+      [c]
+    else if a_in do
+      [near_cut(a, c)]
+    else if c_in do
+      [near_cut(a, c), c]
+    else
+      []
+    end end end
+  end
+
+  -- Where an edge crosses the near plane. Only called when it does, so the
+  -- depths differ.
+  pfn near_cut(a : Skee.Camera.Seen, c : Skee.Camera.Seen) : Skee.Camera.Seen needs () do
+    let n = z_near()
+    let t = (n -. a.depth) /. (c.depth -. a.depth)
+    { across: a.across +. (c.across -. a.across) *. t, rise: a.rise +. (c.rise -. a.rise) *. t, depth: n }
+  end
+
+  pfn ring_pairs(xs : List(a)) : List((a, a)) needs () do
+    match xs do
+    Nil -> []
+    Cons(first, _) -> List.zip(xs, List.append(List.drop(xs, 1), [first]))
+    end
+  end
+
+  doc """A scene polygon in pixels, clipped to what is in front of the camera."""
+  fn polygon(b : Brush, pts : List(Vec3)) : List(Vec2) needs () do
+    let seen = List.map(pts, fn p -> Skee.Camera.seen(b.lens, p))
+    let clipped = if List.all(seen, fn s -> s.depth >= z_near()) do seen else List.flat_map(ring_pairs(seen), fn e -> clip_pair(e)) end
+    List.map(clipped, fn s -> Skee.Camera.pixel_of_seen(b.k, b.lens, s))
+  end
+
+  pfn clip_pair(e : (Skee.Camera.Seen, Skee.Camera.Seen)) : List(Skee.Camera.Seen) needs () do
+    match e do
+    (a, c) -> clip_edge(a, c)
+    end
+  end
+
+  -- Andrew's monotone chain: the outline of a solid seen from the camera.
+  pfn turn_sign(o : Vec2, a : Vec2, c : Vec2) : Float needs () do
+    (a.x -. o.x) *. (c.y -. o.y) -. (a.y -. o.y) *. (c.x -. o.x)
+  end
+
+  pfn half_hull(pts : List(Vec2), acc : List(Vec2)) : List(Vec2) needs () do
+    match pts do
+    Nil -> acc
+    Cons(p, rest) -> half_hull(rest, Cons(p, pop_right_turns(acc, p)))
+    end
+  end
+
+  pfn pop_right_turns(acc : List(Vec2), p : Vec2) : List(Vec2) needs () do
+    match acc do
+    Cons(a, Cons(o, more)) -> if turn_sign(o, a, p) <= 0.0 do pop_right_turns(Cons(o, more), p) else acc end
+    _ -> acc
+    end
+  end
+
+  doc """The convex hull of points, counter-clockwise in y-up terms."""
+  fn hull(pts : List(Vec2)) : List(Vec2) needs () do
+    let sorted = List.sort_by(pts, fn (a, c) -> a.x < c.x || a.x == c.x && a.y <= c.y)
+    let lower = half_hull(sorted, [])
+    let upper = half_hull(List.reverse(sorted), [])
+    List.append(List.reverse(List.drop(lower, 1)), List.reverse(List.drop(upper, 1)))
+  end
+
+  pfn pen(c : Rgba, width : Float) : Pen needs () do
+    { ink: c, width: width, ends: RoundEnd, corners: RoundCorner }
+  end
+
+  pfn butt_pen(c : Rgba, width : Float) : Pen needs () do
+    { ink: c, width: width, ends: ButtEnd, corners: RoundCorner }
+  end
+
+  pfn fill(sh : Shape, c : Rgba) : DrawOp needs () do
+    FillShape(sh, Flat(c), Over)
+  end
+
+  -- The ink silhouette: an outward stroke under the fill.
+  pfn ink_outline(b : Brush, sh : Shape, thick : Float) : List(DrawOp) needs () do
+    if thick > 0.0 do [StrokeShape(sh, pen(ink(), 2.0 *. thick *. b.ink_px), Over)] else [] end
+  end
+
+  pfn circle_points(f : Frame, radius : Float, y : Float, n : Int) : List(Vec3) needs () do
+    List.map(List.range(0, n), fn i -> apply(f, circle_at(radius, y, i, n)))
+  end
+
+  -- A point on a circle in the local xz-plane (the axis of SceneKit's
+  -- cylinders, tori and tubes is local y).
+  pfn circle_at(radius : Float, y : Float, i : Int, n : Int) : Vec3 needs () do
+    let a = 6.283185307 *. int_to_float(i) /. int_to_float(n)
+    v3(radius *. Math.cos(a), y, radius *. Math.sin(a))
+  end
+
+  pfn axis_normal(f : Frame) : Vec3 needs () do
+    unit(f.ay)
+  end
+
+  pfn colour_or(c : Option(Rgba), fallback : Rgba) : Rgba needs () do
+    match c do
+    Some(x) -> x
+    None -> fallback
+    end
+  end
+
+  -- An affine map taking texture (0,0), (w,0) and (0,h) to three pixels.
+  pfn texture_map(o : Vec2, along_u : Vec2, along_v : Vec2, w : Float, h : Float) : Affine needs () do
+    { a: (along_u.x -. o.x) /. w, b: (along_u.y -. o.y) /. w, c: (along_v.x -. o.x) /. h, d: (along_v.y -. o.y) /. h, e: o.x, f: o.y }
+  end
+
+  pfn identity_affine() : Affine needs () do
+    { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
+  end
+
+  doc """The CSS font for Textures.text's AvenirNext-Heavy at a size."""
+  fn heavy_font(size : Float) : String needs () do
+    "900 " ++ float_to_string(size) ++ "px 'Avenir Next', Avenir, Nunito, 'Arial Rounded MT Bold', sans-serif"
+  end
+
+  -- ---- Boxes ----
+  -- A box face: its four local corners (as signs) and outward normal.
+  type BoxFace = { corners : List(Vec3), outward : Vec3 }
+
+  pfn box_faces() : List(BoxFace) needs () do
+    [
+      { corners: [v3(1.0, -1.0, 1.0), v3(1.0, -1.0, -1.0), v3(1.0, 1.0, -1.0), v3(1.0, 1.0, 1.0)], outward: v3(1.0, 0.0, 0.0) },
+      { corners: [v3(-1.0, -1.0, -1.0), v3(-1.0, -1.0, 1.0), v3(-1.0, 1.0, 1.0), v3(-1.0, 1.0, -1.0)], outward: v3(-1.0, 0.0, 0.0) },
+      { corners: [v3(-1.0, 1.0, 1.0), v3(1.0, 1.0, 1.0), v3(1.0, 1.0, -1.0), v3(-1.0, 1.0, -1.0)], outward: v3(0.0, 1.0, 0.0) },
+      { corners: [v3(-1.0, -1.0, -1.0), v3(1.0, -1.0, -1.0), v3(1.0, -1.0, 1.0), v3(-1.0, -1.0, 1.0)], outward: v3(0.0, -1.0, 0.0) },
+      { corners: [v3(-1.0, -1.0, 1.0), v3(1.0, -1.0, 1.0), v3(1.0, 1.0, 1.0), v3(-1.0, 1.0, 1.0)], outward: v3(0.0, 0.0, 1.0) },
+      { corners: [v3(1.0, -1.0, -1.0), v3(-1.0, -1.0, -1.0), v3(-1.0, 1.0, -1.0), v3(1.0, 1.0, -1.0)], outward: v3(0.0, 0.0, -1.0) }
+    ]
+  end
+
+  pfn half(v : Vec3, w : Float, h : Float, l : Float) : Vec3 needs () do
+    v3(v.x *. w /. 2.0, v.y *. h /. 2.0, v.z *. l /. 2.0)
+  end
+
+  -- The normal of a transformed face: the inverse-transpose direction,
+  -- which for a node scaled along its own axes is the axis over its scale.
+  pfn face_normal(f : Frame, outward : Vec3) : Vec3 needs () do
+    let sx = length3(f.ax)
+    let sy = length3(f.ay)
+    let sz = length3(f.az)
+    unit(plus(plus(times(f.ax, outward.x /. (sx *. sx)), times(f.ay, outward.y /. (sy *. sy))), times(f.az, outward.z /. (sz *. sz))))
+  end
+
+  pfn paint_box(b : Brush, p : Part, w : Float, h : Float, l : Float) : List(DrawOp) needs () do
+    let corners = List.map([v3(-1.0, -1.0, -1.0), v3(1.0, -1.0, -1.0), v3(1.0, 1.0, -1.0), v3(-1.0, 1.0, -1.0), v3(-1.0, -1.0, 1.0), v3(1.0, -1.0, 1.0), v3(1.0, 1.0, 1.0), v3(-1.0, 1.0, 1.0)], fn c -> apply(p.frame, half(c, w, h, l)))
+    let silhouette = Poly(hull(List.map(corners, fn c -> px(b, c))))
+    let faces = List.flat_map(box_faces(), fn face -> paint_face(b, p, w, h, l, face))
+    List.append(ink_outline(b, silhouette, p.outline), faces)
+  end
+
+  pfn paint_face(b : Brush, p : Part, w : Float, h : Float, l : Float, face : BoxFace) : List(DrawOp) needs () do
+    let pts = List.map(face.corners, fn c -> apply(p.frame, half(c, w, h, l)))
+    let centre = apply(p.frame, half(face.outward, w, h, l))
+    let n = face_normal(p.frame, face.outward)
+    if dot3(n, to_eye(b, centre)) > 0.0 do
+      do
+        let lit = light(n, to_eye(b, centre))
+        let outline = polygon(b, pts)
+        match p.skin do
+        LaneWood -> if face.outward.y > 0.5 do paint_lane_wood(b, p, w, h, l, lit, outline) else [fill(Poly(outline), shade(colour_or(p.colour, hex(15185274)), lit))] end
+        BadgeSkin(value, special) -> if face.outward.z > 0.5 do paint_badge(b, p, w, h, l, lit, outline, value, special) else [fill(Poly(outline), shade(trim_colour(special), lit))] end
+        Painted -> [fill(Poly(outline), shade(colour_or(p.colour, ink()), lit))]
+        BallSkin(_) -> [fill(Poly(outline), shade(colour_or(p.colour, ink()), lit))]
+        PitSkin -> [fill(Poly(outline), shade(colour_or(p.colour, ink()), lit))]
+        CoinSkin(_) -> [fill(Poly(outline), shade(colour_or(p.colour, ink()), lit))]
+        BlobSkin -> []
+        HaloSkin -> []
+        end
+      end
+    else
+      []
+    end
+  end
+
+  -- A point on the top face of a slab from lane-texture pixels: u across
+  -- (0...512), v from the release end (0) to the hinge (2048). The lane's
+  -- contentsTransform flips v, which puts the arrows a third of the way up.
+  pfn lane_uv(p : Part, w : Float, h : Float, l : Float, u : Float, v : Float) : Vec3 needs () do
+    apply(p.frame, v3(-w /. 2.0 +. u /. 512.0 *. w, h /. 2.0, l /. 2.0 -. v /. 2048.0 *. l))
+  end
+
+  pfn lane_quad(b : Brush, p : Part, w : Float, h : Float, l : Float, u0 : Float, v0 : Float, u1 : Float, v1 : Float) : List(Vec2) needs () do
+    List.map([lane_uv(p, w, h, l, u0, v0), lane_uv(p, w, h, l, u1, v0), lane_uv(p, w, h, l, u1, v1), lane_uv(p, w, h, l, u0, v1)], fn q -> px(b, q))
+  end
+
+  pfn lane_line(b : Brush, p : Part, w : Float, h : Float, l : Float, u0 : Float, v0 : Float, u1 : Float, v1 : Float) : List(Vec2) needs () do
+    [px(b, lane_uv(p, w, h, l, u0, v0)), px(b, lane_uv(p, w, h, l, u1, v1))]
+  end
+
+  -- One maple board's tone and its three grain streaks, drawn from the
+  -- texture's SplitMix64(seed: 11) in Swift's order.
+  type Plank = { tone : Float, streaks : List((Float, Float, Float)) }
+
+  pfn plank(k : Skee.Consts.Consts, r : Skee.Rng.Rng) : (Plank, Skee.Rng.Rng) needs () do
+    let (tone, r1) = Skee.Rng.next_unit(k, r)
+    let (a, r2) = streak(k, r1)
+    let (c, r3) = streak(k, r2)
+    let (d, r4) = streak(k, r3)
+    ({ tone: tone, streaks: [a, c, d] }, r4)
+  end
+
+  pfn streak(k : Skee.Consts.Consts, r : Skee.Rng.Rng) : ((Float, Float, Float), Skee.Rng.Rng) needs () do
+    let (x, r1) = Skee.Rng.next_unit(k, r)
+    let (y0, r2) = Skee.Rng.next_unit(k, r1)
+    let (len_, r3) = Skee.Rng.next_unit(k, r2)
+    ((x, y0, len_), r3)
+  end
+
+  pfn planks(k : Skee.Consts.Consts, r : Skee.Rng.Rng, n : Int) : List(Plank) needs () do
+    if n <= 0 do
+      []
+    else
+      do
+        let (one, next) = plank(k, r)
+        Cons(one, planks(k, next, n - 1))
+      end
+    end
+  end
+
+  doc """Textures.lane's nine boards: tone and grain, deterministic."""
+  fn lane_planks(k : Skee.Consts.Consts) : List(Plank) needs () do
+    planks(k, Skee.Rng.seed(Skee.U64.make(0, 11)), 9)
+  end
+
+  pfn paint_lane_wood(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, outline : List(Vec2)) : List(DrawOp) needs () do
+    let bw = 512.0 /. 9.0
+    let metre = scale_at(b, lane_uv(p, w, h, l, 256.0, 1024.0)) *. w /. 512.0
+    let base = fill(Poly(outline), shade(hex(15905906), lit))
+    let boards = List.flat_map(List.enumerate(lane_planks(b.k)), fn e -> paint_plank(b, p, w, h, l, lit, bw, metre, e))
+    let seams = List.map(List.range(1, 9), fn i -> StrokeShape(Poly(lane_line(b, p, w, h, l, int_to_float(i) *. bw, 0.0, int_to_float(i) *. bw, 2048.0)), butt_pen(shade(hex(13208398), lit), 3.0 *. metre), Over))
+    let arrows = List.flat_map(List.enumerate([-2.0, -1.0, 0.0, 1.0, 2.0]), fn e -> paint_arrow(b, p, w, h, l, lit, bw, metre, e))
+    List.concat([[base], boards, seams, arrows])
+  end
+
+  pfn paint_plank(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, bw : Float, metre : Float, e : (Int, Plank)) : List(DrawOp) needs () do
+    match e do
+    (i, pl) -> do
+      let x0 = int_to_float(i) *. bw
+      let tone = mix(hex(15905906), hex(15049566), pl.tone *. 0.6)
+      let board_fill = fill(Poly(lane_quad(b, p, w, h, l, x0, 0.0, x0 +. bw, 2048.0)), shade(tone, lit))
+      let grain = with_alpha(shade(hex(14723174), lit), 0.55)
+      let lines = List.map(pl.streaks, fn st -> grain_line(b, p, w, h, l, x0, bw, grain, metre, st))
+      Cons(board_fill, lines)
+    end
+    end
+  end
+
+  pfn grain_line(b : Brush, p : Part, w : Float, h : Float, l : Float, x0 : Float, bw : Float, grain : Rgba, metre : Float, st : (Float, Float, Float)) : DrawOp needs () do
+    match st do
+    (ux, vy, len_) -> do
+      let x = x0 +. ux *. bw
+      let y0 = vy *. 2048.0
+      StrokeShape(Poly(lane_line(b, p, w, h, l, x, y0, x +. 3.0, y0 +. 300.0 +. len_ *. 400.0)), butt_pen(grain, 2.0 *. metre), Over)
+    end
+    end
+  end
+
+  pfn paint_arrow(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, bw : Float, metre : Float, e : (Int, Float)) : List(DrawOp) needs () do
+    match e do
+    (k_, x) -> do
+      let cx = 256.0 +. x *. bw *. 1.5
+      let tip = 2048.0 *. (0.34 -. (if k_ == 2 do -0.04 else Math.abs(x) *. 0.015 end))
+      let pts = [px(b, lane_uv(p, w, h, l, cx, tip +. 70.0)), px(b, lane_uv(p, w, h, l, cx +. 22.0, tip)), px(b, lane_uv(p, w, h, l, cx -. 22.0, tip))]
+      [fill(Poly(pts), shade(hex(16744360), lit)), StrokeShape(Poly(pts), pen(shade(ink(), lit), 5.0 *. metre), Over)]
+    end
+    end
+  end
+
+  -- Textures.badge on the front face: cream (gold when special) with the
+  -- number in pink and ink, or ink alone on gold.
+  pfn paint_badge(b : Brush, p : Part, w : Float, h : Float, l : Float, lit : Light, outline : List(Vec2), value : Int, special : Bool) : List(DrawOp) needs () do
+    let frame = texture_map(badge_px(b, p, w, h, l, 0.0, 0.0), badge_px(b, p, w, h, l, 256.0, 0.0), badge_px(b, p, w, h, l, 0.0, 140.0), 256.0, 140.0)
+    let bg = if special do hex(16763213) else hex(16775404) end
+    let text_colour = if special do ink() else hex(16731501) end
+    let edge = if special do None else Some(pen(shade(ink(), lit), 10.0)) end
+    [fill(Poly(outline), shade(bg, lit)), DrawText({ words: int_to_string(value), font: heavy_font(112.0), middle: vec2(128.0, 70.0), fill: shade(text_colour, lit), edge: edge, frame: frame })]
+  end
+
+  -- Named helpers, never let-bound lambdas: see tools/repros/lambda_tagged_int.
+  pfn badge_px(b : Brush, p : Part, w : Float, h : Float, l : Float, x : Float, y : Float) : Vec2 needs () do
+    px(b, apply(p.frame, v3(-w /. 2.0 +. x /. 256.0 *. w, h /. 2.0 -. y /. 140.0 *. h, l /. 2.0)))
+  end
+
+  pfn pit_px(b : Brush, p : Part, radius : Float, height : Float, u : Float, v : Float) : Vec2 needs () do
+    px(b, apply(p.frame, v3((u /. 256.0 -. 0.5) *. 2.0 *. radius, height /. 2.0, (v /. 256.0 -. 0.5) *. 2.0 *. radius)))
+  end
+
+  pfn blob_px(b : Brush, p : Part, w : Float, h : Float, u : Float, v : Float) : Vec2 needs () do
+    px(b, apply(p.frame, v3((u /. 128.0 -. 0.5) *. w, (0.5 -. v /. 128.0) *. h, 0.0)))
+  end
+
+  pfn ball_point(p : Part, world_r : Float, lon : Float, lat : Float) : Vec3 needs () do
+    apply(p.frame, times(sphere_point(lon, lat), world_r /. length3(p.frame.ax)))
+  end
+
+  -- ---- Cylinders, tori, tubes, lips ----
+  pfn paint_drum(b : Brush, p : Part, radius : Float, height : Float) : List(DrawOp) needs () do
+    let thin = height *. length3(p.frame.ay) < 0.01
+    if thin do paint_disc(b, p, radius, height) else paint_bar(b, p, radius, height) end
+  end
+
+  pfn paint_disc(b : Brush, p : Part, radius : Float, height : Float) : List(DrawOp) needs () do
+    let top = circle_points(p.frame, radius, height /. 2.0, 48)
+    let n = axis_normal(p.frame)
+    let lit = light(n, to_eye(b, p.frame.at))
+    let outline = polygon(b, top)
+    match p.skin do
+    PitSkin -> do
+      let frame = texture_map(pit_px(b, p, radius, height, 0.0, 0.0), pit_px(b, p, radius, height, 256.0, 0.0), pit_px(b, p, radius, height, 0.0, 256.0), 256.0, 256.0)
+      let stops = [{ offset: 0.0, colour: shade(hex(459788), lit) }, { offset: 0.62, colour: shade(hex(1444898), lit) }, { offset: 1.0, colour: shade(ink(), lit) }]
+      [FillShape(Poly(outline), RadialPaint({ inner: vec2(128.0, 146.0), inner_radius: 0.0, outer: vec2(128.0, 128.0), outer_radius: 128.0, stops: stops, frame: frame }), Over)]
+    end
+    Painted -> List.append(ink_outline(b, Poly(outline), p.outline), [fill(Poly(outline), shade(colour_or(p.colour, ink()), lit))])
+    LaneWood -> []
+    BallSkin(_) -> []
+    BadgeSkin(_, _) -> []
+    CoinSkin(_) -> []
+    BlobSkin -> []
+    HaloSkin -> []
+    end
+  end
+
+  -- A long cylinder (the hump): both end circles' hull, lit from above.
+  pfn paint_bar(b : Brush, p : Part, radius : Float, height : Float) : List(DrawOp) needs () do
+    let ends = List.append(circle_points(p.frame, radius, height /. 2.0, 16), circle_points(p.frame, radius, 0.0 -. height /. 2.0, 16))
+    let outline = Poly(hull(List.map(ends, fn q -> px(b, q))))
+    let up = unit(to_eye(b, p.frame.at))
+    let lit = light(unit(plus(up, v3(0.0, 1.0, 0.0))), up)
+    List.append(ink_outline(b, outline, p.outline), [fill(outline, shade(colour_or(p.colour, ink()), lit))])
+  end
+
+  pfn paint_hoop(b : Brush, p : Part, ring : Float, pipe : Float) : List(DrawOp) needs () do
+    let pts = polygon(b, circle_points(p.frame, ring, 0.0, 40))
+    let width = 2.0 *. pipe *. length3(p.frame.ax) *. scale_at(b, p.frame.at)
+    let lit = light(axis_normal(p.frame), to_eye(b, p.frame.at))
+    let colour = shade(colour_or(p.colour, ink()), lit)
+    [StrokeShape(Poly(pts), pen(ink(), width +. 2.0 *. p.outline *. b.ink_px), Over), StrokeShape(Poly(pts), pen(colour, width), Over)]
+  end
+
+  pfn paint_band(b : Brush, p : Part, inner : Float, outer : Float) : List(DrawOp) needs () do
+    if p.opacity <= 0.0 do
+      []
+    else
+      do
+        let colour = with_alpha(colour_or(p.colour, hex(16774832)), p.opacity)
+        let outside = polygon(b, circle_points(p.frame, outer, 0.0, 40))
+        if inner <= 0.0 do
+          [FillShape(Poly(outside), Flat(colour), Lighter)]
+        else
+          [FillShape(Holed(outside, polygon(b, circle_points(p.frame, inner, 0.0, 40))), Flat(colour), Lighter)]
+        end
+      end
+    end
+  end
+
+  pfn paint_lip(b : Brush, p : Part, ring : Float, tube : Float, height : Float, gap_at : Float, gap_half : Float) : List(DrawOp) needs () do
+    let a0 = gap_at +. gap_half
+    let a1 = gap_at +. 6.283185307 -. gap_half
+    let n = 40
+    let pts = List.map(List.range(0, n + 1), fn i -> px(b, apply(p.frame, lip_point(ring, height -. tube, a0 +. (a1 -. a0) *. int_to_float(i) /. int_to_float(n)))))
+    let width = 2.0 *. tube *. length3(p.frame.ax) *. scale_at(b, p.frame.at)
+    let lit = light(unit(p.frame.az), to_eye(b, p.frame.at))
+    let colour = shade(colour_or(p.colour, ink()), lit)
+    let path = Outline(Cons(MoveTo(first_or(pts)), List.map(List.drop(pts, 1), fn q -> LineTo(q))))
+    [StrokeShape(path, pen(ink(), width +. 2.0 *. p.outline *. b.ink_px), Over), StrokeShape(path, pen(colour, width), Over)]
+  end
+
+  pfn lip_point(ring : Float, z : Float, u : Float) : Vec3 needs () do
+    v3(ring *. Math.cos(u), ring *. Math.sin(u), z)
+  end
+
+  pfn first_or(pts : List(Vec2)) : Vec2 needs () do
+    match pts do
+    Cons(p, _) -> p
+    Nil -> vec2(0.0, 0.0)
+    end
+  end
+
+  -- ---- Cards ----
+  pfn card_corners(f : Frame, w : Float, h : Float) : List(Vec3) needs () do
+    List.map([v3(-1.0, -1.0, 0.0), v3(1.0, -1.0, 0.0), v3(1.0, 1.0, 0.0), v3(-1.0, 1.0, 0.0)], fn c -> apply(f, v3(c.x *. w /. 2.0, c.y *. h /. 2.0, 0.0)))
+  end
+
+  pfn paint_card(b : Brush, p : Part, w : Float, h : Float) : List(DrawOp) needs () do
+    match p.skin do
+    Painted -> do
+      let n = unit(p.frame.az)
+      [fill(Poly(polygon(b, card_corners(p.frame, w, h))), shade(colour_or(p.colour, ink()), light(n, n)))]
+    end
+    BlobSkin -> paint_blob(b, p, w, h)
+    CoinSkin(sym) -> paint_coin(b, p, w, sym)
+    LaneWood -> []
+    BallSkin(_) -> []
+    PitSkin -> []
+    BadgeSkin(_, _) -> []
+    HaloSkin -> []
+    end
+  end
+
+  -- Textures.blob: ink at 55% fading out, under the ball.
+  pfn paint_blob(b : Brush, p : Part, w : Float, h : Float) : List(DrawOp) needs () do
+    let frame = texture_map(blob_px(b, p, w, h, 0.0, 0.0), blob_px(b, p, w, h, 128.0, 0.0), blob_px(b, p, w, h, 0.0, 128.0), 128.0, 128.0)
+    let stops = [{ offset: 0.0, colour: with_alpha(ink(), 0.55 *. p.opacity) }, { offset: 1.0, colour: with_alpha(ink(), 0.0) }]
+    [FillShape(Poly(polygon(b, card_corners(p.frame, w, h))), RadialPaint({ inner: vec2(64.0, 64.0), inner_radius: 0.0, outer: vec2(64.0, 64.0), outer_radius: 64.0, stops: stops, frame: frame }), Over)]
+  end
+
+  -- A reel coin: a billboard facing the camera, Textures.coin on it.
+  pfn paint_coin(b : Brush, p : Part, w : Float, sym : Symbol) : List(DrawOp) needs () do
+    let centre = p.frame.at
+    let size = w *. length3(p.frame.ax) *. scale_at(b, centre)
+    let mid = px(b, centre)
+    let facing = unit(to_eye(b, centre))
+    let lit = glowing(light(facing, facing), p.emission)
+    coin_ops(lit, vec2(mid.x -. size /. 2.0, mid.y -. size /. 2.0), size, sym)
+  end
+
+  doc """
+  Textures.coin in a square of `size` pixels at `corner`: a cream coin with a
+  thick ink rim (an empty grey coin for a blank) and the symbol on it.
+  """
+  fn coin_ops(lit : Light, corner : Vec2, size : Float, sym : Symbol) : List(DrawOp) needs () do
+    let u = size /. 256.0
+    let mid = vec2(corner.x +. size /. 2.0, corner.y +. size /. 2.0)
+    let face = if sym == Blank do hex(12168898) else hex(16776178) end
+    let disk = fill(Disc(mid, 118.0 *. u), shade(face, lit))
+    let rim = StrokeShape(Disc(mid, 114.0 *. u), pen(shade(ink(), lit), 16.0 *. u), Over)
+    List.append([disk, rim], symbol_ops(lit, vec2(corner.x +. 44.0 *. u, corner.y +. 44.0 *. u), 168.0 *. u, sym))
+  end
+
+  -- ---- Symbols (Textures.drawSymbol) ----
+  -- A symbol's square on screen: corner and side, in pixels.
+  type Square = { x0 : Float, y0 : Float, side : Float, lit : Light }
+
+  pfn sq_pt(q : Square, x : Float, y : Float) : Vec2 needs () do
+    vec2(q.x0 +. x *. q.side, q.y0 +. y *. q.side)
+  end
+
+  -- An ellipse as four cubic arcs.
+  pfn oval_path(cx : Float, cy : Float, rx : Float, ry : Float) : List(PathStep) needs () do
+    let kx = rx *. 0.5522847
+    let ky = ry *. 0.5522847
+    [MoveTo(vec2(cx +. rx, cy)), CubicTo(vec2(cx +. rx, cy +. ky), vec2(cx +. kx, cy +. ry), vec2(cx, cy +. ry)), CubicTo(vec2(cx -. kx, cy +. ry), vec2(cx -. rx, cy +. ky), vec2(cx -. rx, cy)), CubicTo(vec2(cx -. rx, cy -. ky), vec2(cx -. kx, cy -. ry), vec2(cx, cy -. ry)), CubicTo(vec2(cx +. kx, cy -. ry), vec2(cx +. rx, cy -. ky), vec2(cx +. rx, cy)), ClosePath]
+  end
+
+  pfn sq_circle(q : Square, x : Float, y : Float, r : Float) : List(PathStep) needs () do
+    let c = sq_pt(q, x, y)
+    oval_path(c.x, c.y, r *. q.side, r *. q.side)
+  end
+
+  pfn step_points(s : PathStep) : List(Vec2) needs () do
+    match s do
+    MoveTo(a) -> [a]
+    LineTo(a) -> [a]
+    QuadTo(a, c) -> [a, c]
+    CubicTo(a, c, d) -> [a, c, d]
+    ClosePath -> []
+    end
+  end
+
+  -- CGPath.boundingBox: every point, control points included.
+  pfn bounds(path : List(PathStep)) : (Vec2, Vec2) needs () do
+    let pts = List.flat_map(path, step_points)
+    let lo = List.fold_left(pts, vec2(1000000000.0, 1000000000.0), fn (a, p) -> vec2(min_float(a.x, p.x), min_float(a.y, p.y)))
+    let hi = List.fold_left(pts, vec2(-1000000000.0, -1000000000.0), fn (a, p) -> vec2(max_float(a.x, p.x), max_float(a.y, p.y)))
+    (lo, hi)
+  end
+
+  -- drawSymbol's shape(): fill, a hard highlight clipped to the shape, ink.
+  pfn sym_shape(q : Square, path : List(PathStep), colour : Rgba, highlight : Bool) : List(DrawOp) needs () do
+    let line = q.side *. 0.045
+    let body = fill(Outline(path), shade(colour, q.lit))
+    let shine = if highlight do sym_highlight(q, path, colour) else [] end
+    let edge = StrokeShape(Outline(path), { ink: shade(ink(), q.lit), width: line, ends: ButtEnd, corners: RoundCorner }, Over)
+    List.concat([[body], shine, [edge]])
+  end
+
+  pfn sym_highlight(q : Square, path : List(PathStep), colour : Rgba) : List(DrawOp) needs () do
+    let (lo, hi) = bounds(path)
+    let w = hi.x -. lo.x
+    let h = hi.y -. lo.y
+    let rx = w *. 0.38 /. 2.0
+    let ry = h *. 0.28 /. 2.0
+    let spot = oval_path(lo.x +. w *. 0.12 +. rx, lo.y +. h *. 0.1 +. ry, rx, ry)
+    [PushClip(Outline(path)), fill(Outline(spot), shade(lighter(colour, 0.45), q.lit)), PopClip]
+  end
+
+  -- drawSymbol's stroke(): an ink line under a coloured one, round caps.
+  pfn sym_stroke(q : Square, path : List(PathStep), colour : Rgba, width : Float) : List(DrawOp) needs () do
+    let line = q.side *. 0.045
+    [StrokeShape(Outline(path), pen(shade(ink(), q.lit), width +. line *. 2.0), Over), StrokeShape(Outline(path), pen(shade(colour, q.lit), width), Over)]
+  end
+
+  pfn sym_text(q : Square, words : String, cx : Float, cy : Float, size : Float, colour : Rgba, outline : Float) : DrawOp needs () do
+    let edge = if outline > 0.0 do Some(pen(shade(ink(), q.lit), outline)) else None end
+    DrawText({ words: words, font: heavy_font(size), middle: vec2(cx, cy), fill: shade(colour, q.lit), edge: edge, frame: identity_affine() })
+  end
+
+  pfn rounded_rect(x : Float, y : Float, w : Float, h : Float, r : Float) : List(PathStep) needs () do
+    let k = r *. 0.5522847
+    [MoveTo(vec2(x +. r, y)), LineTo(vec2(x +. w -. r, y)), CubicTo(vec2(x +. w -. r +. k, y), vec2(x +. w, y +. r -. k), vec2(x +. w, y +. r)), LineTo(vec2(x +. w, y +. h -. r)), CubicTo(vec2(x +. w, y +. h -. r +. k), vec2(x +. w -. r +. k, y +. h), vec2(x +. w -. r, y +. h)), LineTo(vec2(x +. r, y +. h)), CubicTo(vec2(x +. r -. k, y +. h), vec2(x, y +. h -. r +. k), vec2(x, y +. h -. r)), LineTo(vec2(x, y +. r)), CubicTo(vec2(x, y +. r -. k), vec2(x +. r -. k, y), vec2(x +. r, y)), ClosePath]
+  end
+
+  doc """Textures.drawSymbol in a square: flat fills, one hard highlight, ink."""
+  fn symbol_ops(lit : Light, corner : Vec2, side : Float, s : Symbol) : List(DrawOp) needs () do
+    let q = { x0: corner.x, y0: corner.y, side: side, lit: lit }
+    let line = side *. 0.045
+    match s do
+    Blank -> []
+    Cherry -> do
+      let stems = [MoveTo(sq_pt(q, 0.3, 0.6)), QuadTo(sq_pt(q, 0.34, 0.28), sq_pt(q, 0.6, 0.12)), MoveTo(sq_pt(q, 0.7, 0.64)), QuadTo(sq_pt(q, 0.72, 0.34), sq_pt(q, 0.6, 0.12))]
+      let leaf = [MoveTo(sq_pt(q, 0.6, 0.14)), QuadTo(sq_pt(q, 0.8, 0.0), sq_pt(q, 0.92, 0.18)), QuadTo(sq_pt(q, 0.78, 0.3), sq_pt(q, 0.6, 0.14)), ClosePath]
+      List.concat([sym_stroke(q, stems, hex(6012507), side *. 0.05), sym_shape(q, leaf, hex(7328623), false), sym_shape(q, sq_circle(q, 0.3, 0.7, 0.19), hex(16731501), true), sym_shape(q, sq_circle(q, 0.7, 0.72, 0.19), hex(16731501), true)])
+    end
+    Lemon -> do
+      let p = [MoveTo(sq_pt(q, 0.06, 0.52)), QuadTo(sq_pt(q, 0.16, 0.18), sq_pt(q, 0.5, 0.18)), QuadTo(sq_pt(q, 0.84, 0.18), sq_pt(q, 0.94, 0.48)), QuadTo(sq_pt(q, 0.84, 0.82), sq_pt(q, 0.5, 0.82)), QuadTo(sq_pt(q, 0.16, 0.82), sq_pt(q, 0.06, 0.52)), ClosePath]
+      sym_shape(q, p, hex(16769357), true)
+    end
+    Bell -> do
+      let p = [MoveTo(sq_pt(q, 0.5, 0.1)), CubicTo(sq_pt(q, 0.78, 0.1), sq_pt(q, 0.72, 0.5), sq_pt(q, 0.8, 0.64)), QuadTo(sq_pt(q, 0.92, 0.72), sq_pt(q, 0.92, 0.78)), LineTo(sq_pt(q, 0.08, 0.78)), QuadTo(sq_pt(q, 0.08, 0.72), sq_pt(q, 0.2, 0.64)), CubicTo(sq_pt(q, 0.28, 0.5), sq_pt(q, 0.22, 0.1), sq_pt(q, 0.5, 0.1)), ClosePath]
+      List.append(sym_shape(q, sq_circle(q, 0.5, 0.84, 0.09), hex(14719546), false), sym_shape(q, p, hex(16761405), true))
+    end
+    BarSym -> do
+      let plate = rounded_rect(q.x0, q.y0 +. side *. 0.26, side, side *. 0.48, side *. 0.08)
+      List.append(sym_shape(q, plate, ink(), false), [sym_text(q, "BAR", q.x0 +. side /. 2.0, q.y0 +. side /. 2.0, side *. 0.34, hex(16775404), 0.0)])
+    end
+    Seven -> [sym_text(q, "7", q.x0 +. side /. 2.0, q.y0 +. side /. 2.0, side, hex(16726876), line *. 1.6)]
+    Diamond -> do
+      let outer = [MoveTo(sq_pt(q, 0.5, 0.06)), LineTo(sq_pt(q, 0.94, 0.4)), LineTo(sq_pt(q, 0.5, 0.94)), LineTo(sq_pt(q, 0.06, 0.4)), ClosePath]
+      let facets = [MoveTo(sq_pt(q, 0.06, 0.4)), LineTo(sq_pt(q, 0.94, 0.4)), MoveTo(sq_pt(q, 0.3, 0.4)), LineTo(sq_pt(q, 0.5, 0.94)), MoveTo(sq_pt(q, 0.7, 0.4)), LineTo(sq_pt(q, 0.5, 0.94)), MoveTo(sq_pt(q, 0.3, 0.4)), LineTo(sq_pt(q, 0.5, 0.06)), MoveTo(sq_pt(q, 0.7, 0.4)), LineTo(sq_pt(q, 0.5, 0.06))]
+      let shine = [MoveTo(sq_pt(q, 0.5, 0.1)), LineTo(sq_pt(q, 0.62, 0.38)), LineTo(sq_pt(q, 0.38, 0.38)), ClosePath]
+      List.concat([sym_shape(q, outer, hex(5103871), false), [StrokeShape(Outline(facets), butt_pen(with_alpha(shade(ink(), lit), 0.7), line *. 0.6), Over), fill(Outline(shine), with_alpha(shade(hex(16777215), lit), 0.8))]])
+    end
+    Clover -> do
+      let stem = [MoveTo(sq_pt(q, 0.5, 0.52)), QuadTo(sq_pt(q, 0.5, 0.82), sq_pt(q, 0.68, 0.94))]
+      let leaves = List.flat_map([(0.5, 0.27), (0.27, 0.48), (0.73, 0.48), (0.5, 0.68)], fn c -> clover_leaf(q, c))
+      List.append(sym_stroke(q, stem, hex(4173658), side *. 0.06), leaves)
+    end
+    end
+  end
+
+  pfn clover_leaf(q : Square, c : (Float, Float)) : List(DrawOp) needs () do
+    match c do
+    (x, y) -> sym_shape(q, sq_circle(q, x, y, 0.18), hex(6018682), true)
+    end
+  end
+
+  -- ---- Spheres ----
+  pfn paint_orb(b : Brush, p : Part, radius : Float) : List(DrawOp) needs () do
+    let centre = p.frame.at
+    let world_r = radius *. length3(p.frame.ax)
+    let mid = px(b, centre)
+    let r_px = world_r *. scale_at(b, centre)
+    let facing = unit(to_eye(b, centre))
+    let outline = ink_outline(b, Disc(mid, r_px), p.outline)
+    match p.skin do
+    BallSkin(kind) -> List.append(outline, ball_ops(b, p, kind, world_r, mid, r_px))
+    Painted -> do
+      let lit = glowing(light(unit(plus(facing, sun())), facing), p.emission)
+      List.append(outline, [fill(Disc(mid, r_px), shade(colour_or(p.colour, ink()), lit))])
+    end
+    LaneWood -> []
+    PitSkin -> []
+    BadgeSkin(_, _) -> []
+    CoinSkin(_) -> []
+    BlobSkin -> []
+    HaloSkin -> []
+    end
+  end
+
+  doc """Textures.ball: six gores alternating, white caps at the poles."""
+  fn stripes(kind : BallKind) : List(Rgba) needs () do
+    match kind do
+    Marshmallow -> List.map([16777215, 16767464, 16777215, 16767464, 16777215, 16767464], hex)
+    ClassicBall -> List.map([16740207, 16769986, 16740207, 16769986, 16740207, 16769986], hex)
+    JumpingBean -> List.map([8313978, 4173402, 8313978, 4173402, 8313978, 4173402], hex)
+    Wobbler -> List.map([16731501, 16767053, 8313978, 6277375, 10191858, 16740261], hex)
+    Comet -> List.map([16767053, 16742938, 16727342, 16767053, 16742938, 16727342], hex)
+    end
+  end
+
+  -- Latitude bands of the equirectangular skin: the white polar caps take
+  -- 18 of 256 rows at each end (77.3 degrees and up).
+  pfn bands() : List((Float, Float, Bool)) needs () do
+    let cap = 1.3489
+    [(-1.5708, 0.0 -. cap, true), (0.0 -. cap, -0.45, false), (-0.45, 0.45, false), (0.45, cap, false), (cap, 1.5708, true)]
+  end
+
+  pfn sphere_point(lon : Float, lat : Float) : Vec3 needs () do
+    v3(Math.cos(lat) *. Math.sin(lon), Math.sin(lat), Math.cos(lat) *. Math.cos(lon))
+  end
+
+  pfn ball_ops(b : Brush, p : Part, kind : BallKind, world_r : Float, mid : Vec2, r_px : Float) : List(DrawOp) needs () do
+    let colours = stripes(kind)
+    let facing = unit(to_eye(b, p.frame.at))
+    let base = fill(Disc(mid, r_px), shade(first_colour(colours), light(facing, facing)))
+    let patches = List.flat_map(List.enumerate(colours), fn e -> gore_ops(b, p, world_r, e))
+    Cons(base, patches)
+  end
+
+  pfn first_colour(cs : List(Rgba)) : Rgba needs () do
+    match cs do
+    Cons(c, _) -> c
+    Nil -> ink()
+    end
+  end
+
+  pfn gore_ops(b : Brush, p : Part, world_r : Float, e : (Int, Rgba)) : List(DrawOp) needs () do
+    match e do
+    (i, colour) -> List.flat_map(bands(), fn band -> patch_op(b, p, world_r, i, colour, band))
+    end
+  end
+
+  pfn patch_op(b : Brush, p : Part, world_r : Float, i : Int, colour : Rgba, band : (Float, Float, Bool)) : List(DrawOp) needs () do
+    match band do
+    (lat0, lat1, white) -> do
+      let lon0 = int_to_float(i) *. 1.0471976
+      let lon1 = lon0 +. 1.0471976
+      let mid_dir = unit(turn(p.frame, sphere_point((lon0 +. lon1) /. 2.0, (lat0 +. lat1) /. 2.0)))
+      let centre = plus(p.frame.at, times(mid_dir, world_r))
+      if dot3(mid_dir, to_eye(b, centre)) > 0.0 do
+        do
+          let edge0 = List.map([0.0, 0.5, 1.0], fn t -> ball_point(p, world_r, lon0, lat0 +. (lat1 -. lat0) *. t))
+          let edge1 = List.map([1.0, 0.5, 0.0], fn t -> ball_point(p, world_r, lon1, lat0 +. (lat1 -. lat0) *. t))
+          let pts = List.map(List.append(edge0, edge1), fn q -> px(b, q))
+          let c = if white do hex(16777215) else colour end
+          [fill(Poly(pts), shade(c, light(mid_dir, to_eye(b, centre))))]
+        end
+      else
+        []
+      end
+    end
+    end
+  end
+
+  -- ---- Waves ----
+  doc """A ring of light: Textures.wave on a plane facing `facing`."""
+  fn wave_ops(b : Brush, wv : Wave) : List(DrawOp) needs () do
+    let u = wv.age /. 0.55
+    let scale = wv.size *. (0.15 +. u)
+    let opacity = 1.0 -. u *. u
+    let f = quat_frame(quat_between(v3(0.0, 0.0, 1.0), wv.facing), plus(wv.spot, times(wv.facing, 0.01)), scale)
+    let pts = List.map(List.range(0, 40), fn i -> px(b, apply(f, wave_point(i))))
+    let ppm = scale *. scale_at(b, f.at)
+    [StrokeShape(Poly(pts), pen(with_alpha(hex(16777215), opacity), 22.0 /. 256.0 *. ppm), Over), StrokeShape(Poly(pts), pen(with_alpha(hex(16767053), opacity), 10.0 /. 256.0 *. ppm), Over)]
+  end
+
+  pfn wave_point(i : Int) : Vec3 needs () do
+    let a = 6.283185307 *. int_to_float(i) /. 40.0
+    v3(0.4297 *. Math.cos(a), 0.4297 *. Math.sin(a), 0.0)
+  end
+
+  -- ---- Order ----
+  doc """
+  Painting order, back to front. SceneKit sorts by depth per pixel; this
+  draws the board's layers bottom up, then what stands in front of it, then
+  the lane, the trough, and the ball last.
+  """
+  fn layer(r : Role) : Int needs () do
+    match r do
+    FloorPart -> 0
+    PanelPart -> 1
+    ZonePart -> 2
+    HaloPart(_) -> 3
+    PitPart -> 4
+    RimPart -> 5
+    LipPart -> 6
+    BadgePart -> 7
+    CoinPart(_) -> 8
+    SideWall -> 9
+    BackCap -> 9
+    BulbPart -> 10
+    BodyPart -> 11
+    LaneSlab -> 12
+    RailPart -> 13
+    RailCap -> 14
+    HumpPart -> 15
+    TroughPart -> 16
+    WaitingBall -> 17
+    ShadowPart -> 18
+    BallPart -> 19
+    end
+  end
+
+  pfn paint_part(b : Brush, p : Part) : List(DrawOp) needs () do
+    if p.hidden do
+      []
+    else
+      match p.solid do
+      Slab(w, h, l, _) -> paint_box(b, p, w, h, l)
+      Drum(r, h) -> paint_drum(b, p, r, h)
+      Orb(r) -> paint_orb(b, p, r)
+      Hoop(r, pipe) -> paint_hoop(b, p, r, pipe)
+      Card(w, h) -> paint_card(b, p, w, h)
+      Band(i, o) -> paint_band(b, p, i, o)
+      LipArc(ring, tube, height, gap_at, gap_half) -> paint_lip(b, p, ring, tube, height, gap_at, gap_half)
+      end
+    end
+  end
+
+  -- While the ball sinks into a hole, only what is above the board or inside
+  -- the pit shows: clip to the pit and everything above its middle.
+  pfn sink_clip(k : Skee.Consts.Consts, b : Brush, s : Scenery) : Option(Shape) needs () do
+    let place = s.ball.place
+    if place.sink > 0.0 && place.over_board do
+      do
+        let w = s.world
+        let bf = board_frame(k, w)
+        let local = turn_back(bf, place.centre)
+        let h = nearest_hole(w.table.board, vec2(local.x, local.y))
+        let c = Skee.Physics.hole_center(w.table.board, h)
+        let pit = polygon(b, circle_points(flat_disc(k, bf, v3(c.x, c.y, 0.004)), pit_radius(w.table.board, h), 0.0, 32))
+        let mid = px(b, apply(bf, v3(c.x, c.y, 0.0)))
+        let above = [vec2(-10000.0, -10000.0), vec2(20000.0, -10000.0), vec2(20000.0, mid.y), vec2(-10000.0, mid.y)]
+        Some(Polys([wound(pit), wound(above)]))
+      end
+    else
+      None
+    end
+  end
+
+  -- Board coordinates of a scene point (the board frame has no shear).
+  pfn turn_back(f : Frame, p : Vec3) : Vec3 needs () do
+    let d = minus(p, f.at)
+    let sx = length3(f.ax)
+    v3(dot3(d, f.ax) /. (sx *. sx), dot3(d, f.ay) /. (sx *. sx), dot3(d, f.az) /. (sx *. sx))
+  end
+
+  pfn nearest_hole(board_ : BoardSpec, p : Vec2) : Hole needs () do
+    let holes = Skee.HoleMap.reel_holes()
+    List.fold_left(holes, Ring10, fn (best, h) -> if length(sub(Skee.Physics.hole_center(board_, h), p)) < length(sub(Skee.Physics.hole_center(board_, best), p)) do h else best end)
+  end
+
+  -- Same winding for every ring of a Polys union (non-zero fill).
+  pfn wound(pts : List(Vec2)) : List(Vec2) needs () do
+    let area = List.fold_left(ring_pairs(pts), 0.0, fn (a, e) -> a +. edge_area(e))
+    if area < 0.0 do List.reverse(pts) else pts end
+  end
+
+  pfn edge_area(e : (Vec2, Vec2)) : Float needs () do
+    match e do
+    (a, c) -> a.x *. c.y -. c.x *. a.y
+    end
+  end
+
+  -- Indexed part, for a stable sort.
+  type Ranked = { rank : Int, index : Int, ranked : Part }
+
+  doc """
+  One frame of the alley as draw operations, back to front: the backdrop,
+  then every visible part, then the rings of light.
+  """
+  fn draw(k : Skee.Consts.Consts, s : Scenery) : List(DrawOp) needs () do
+    let b = brush(k, s)
+    let parts = model(k, s)
+    let ranked = List.map(List.enumerate(parts), fn e -> rank_part(e))
+    let sorted = List.sort_by(ranked, fn (x, y) -> x.rank < y.rank || x.rank == y.rank && x.index <= y.index)
+    let clip = sink_clip(k, b, s)
+    let body = List.flat_map(sorted, fn r -> paint_ranked(b, clip, r))
+    let waves = List.flat_map(s.waves, fn wv -> wave_ops(b, wv))
+    List.concat([[ClearTo(of_rgb(s.palette.backdrop))], body, waves])
+  end
+
+  pfn rank_part(e : (Int, Part)) : Ranked needs () do
+    match e do
+    (i, p) -> { rank: layer(p.role), index: i, ranked: p }
+    end
+  end
+
+  pfn paint_ranked(b : Brush, clip : Option(Shape), r : Ranked) : List(DrawOp) needs () do
+    let ops = paint_part(b, r.ranked)
+    match r.ranked.role do
+    BallPart -> match clip do
+      Some(c) -> List.concat([[PushClip(c)], ops, [PopClip]])
+      None -> ops
+      end
+    _ -> ops
+    end
   end
 
 end

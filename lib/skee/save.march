@@ -425,12 +425,20 @@ mod Skee.Save do
   -- As Swift's scanner skips a number: digits, signs, points and exponents.
   pfn number_end(s : String, i : Int) : Int needs () do
     let c = string_byte_at(s, i)
-    if is_digit(c) || c == 43 || c == 45 || c == 46 || c == 69 || c == 101 do number_end(s, i + 1) else i end
+    if is_digit(c) || c == 43 || c == 45 || c == 46 || c == 69 || c == 101 do
+      number_end(s, i + 1)
+    else
+      i
+    end
   end
 
   pfn word_end(s : String, i : Int) : Int needs () do
     let c = string_byte_at(s, i)
-    if c >= 97 && c <= 122 || c >= 65 && c <= 90 do word_end(s, i + 1) else i end
+    if c >= 97 && c <= 122 || c >= 65 && c <= 90 do
+      word_end(s, i + 1)
+    else
+      i
+    end
   end
 
   doc """What a string or number Json.parse cannot read becomes: Swift's scanner passes it, and only a decoder that reads it refuses it. `string_of` and `object_of` refuse this text, and nothing else reads a value or key it could stand in for."""
@@ -476,7 +484,8 @@ mod Skee.Save do
         match Json.parse(String.slice_bytes(s, i, e - i)) do
         Ok(_) -> scan_on(s, st, e, next)
         Err(_) -> do
-          let marked = Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ unread_json(), st.pieces)
+          let marked =
+            Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ unread_json(), st.pieces)
           scan_on(s, { st with pieces: marked, copy_from: e }, e, next)
         end
         end
@@ -495,18 +504,26 @@ mod Skee.Save do
     if st.pruned_at > 0 && !is_literal(String.slice_bytes(s, i, e - i)) do
       Err(SaveNotJson("not a literal at byte " ++ int_to_string(i)))
     else
-      if e <= i do scan_fault(s, st, "unexpected character at byte " ++ int_to_string(i)) else scan_on(s, st, e, next) end
+      if e <= i do
+        scan_fault(s, st, "unexpected character at byte " ++ int_to_string(i))
+      else
+        scan_on(s, st, e, next)
+      end
     end
   end
 
   pfn scan_open(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
     let depth = st.depth + 1
     let want = if c == 91 do WantArrayValue else WantKey end
-    let opened = { st with scan_at: i + 1, want: want, open: Cons(c, st.open), depth: depth, comma: -1 }
+    let opened =
+      { st with scan_at: i + 1, want: want, open: Cons(c, st.open), depth: depth, comma: -1 }
     if st.pruned_at < 0 && depth > kept_depth() do
-      let empty = if c == 91 do "[]" else "{}" end
-      let kept = Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ empty, st.pieces)
-      scan_go(s, { opened with pruned_at: depth, pieces: kept })
+      do
+        let empty = if c == 91 do "[]" else "{}" end
+        let kept =
+          Cons(String.slice_bytes(s, st.copy_from, i - st.copy_from) ++ empty, st.pieces)
+        scan_go(s, { opened with pruned_at: depth, pieces: kept })
+      end
     else
       scan_go(s, opened)
     end
@@ -520,7 +537,11 @@ mod Skee.Save do
       if c == 34 do
         scan_lexed(s, st, i, string_end(s, i + 1), next)
       else
-        if c == 45 || is_digit(c) do scan_lexed(s, st, i, number_end(s, i), next) else scan_word(s, st, i, next) end
+        if c == 45 || is_digit(c) do
+          scan_lexed(s, st, i, number_end(s, i), next)
+        else
+          scan_word(s, st, i, next)
+        end
       end
     end
   end
@@ -550,21 +571,32 @@ mod Skee.Save do
     match st.open do
     Nil -> scan_fault(s, st, "unbalanced close at byte " ++ int_to_string(i))
     Cons(top, rest) -> do
-      if closes(top, c) do scan_closed(s, st, i, rest) else scan_fault(s, st, "mismatched close at byte " ++ int_to_string(i)) end
+      if closes(top, c) do
+        scan_closed(s, st, i, rest)
+      else
+        scan_fault(s, st, "mismatched close at byte " ++ int_to_string(i))
+      end
     end
     end
   end
 
   pfn scan_after(s : String, st : JsonScan, i : Int, c : Int) : Result(String, SaveError) needs () do
     if c == 44 do
-      let next = match st.open do
-        Cons(91, _) -> WantArrayValue
-        Cons(_, _) -> WantKey
-        Nil -> WantEnd
-        end
-      scan_go(s, { st with scan_at: i + 1, want: next, comma: i })
+      do
+        let next =
+          match st.open do
+          Cons(91, _) -> WantArrayValue
+          Cons(_, _) -> WantKey
+          Nil -> WantEnd
+          end
+        scan_go(s, { st with scan_at: i + 1, want: next, comma: i })
+      end
     else
-      if c == 93 || c == 125 do scan_close(s, st, i, c) else scan_fault(s, st, "expected , or a close at byte " ++ int_to_string(i)) end
+      if c == 93 || c == 125 do
+        scan_close(s, st, i, c)
+      else
+        scan_fault(s, st, "expected , or a close at byte " ++ int_to_string(i))
+      end
     end
   end
 
@@ -577,11 +609,19 @@ mod Skee.Save do
       if c == 125 do
         scan_close(s, st, i, c)
       else
-        if c == 34 do scan_lexed(s, st, i, string_end(s, i + 1), WantColon) else scan_fault(s, st, "expected a key at byte " ++ int_to_string(i)) end
+        if c == 34 do
+          scan_lexed(s, st, i, string_end(s, i + 1), WantColon)
+        else
+          scan_fault(s, st, "expected a key at byte " ++ int_to_string(i))
+        end
       end
     end
     WantColon -> do
-      if c == 58 do scan_go(s, { st with scan_at: i + 1, want: WantObjectValue }) else scan_fault(s, st, "expected : at byte " ++ int_to_string(i)) end
+      if c == 58 do
+        scan_go(s, { st with scan_at: i + 1, want: WantObjectValue })
+      else
+        scan_fault(s, st, "expected : at byte " ++ int_to_string(i))
+      end
     end
     WantAfter -> scan_after(s, st, i, c)
     WantEnd -> scan_fault(s, st, "text after the value at byte " ++ int_to_string(i))
@@ -628,7 +668,11 @@ mod Skee.Save do
   pfn object_of(v : JsonValue, path : String) : Result(List((String, JsonValue)), SaveError) needs () do
     match v do
     Json.Object(fields) -> do
-      if List.any(fields, fn kv -> Tuple.first(kv) == unread_mark()) do Err(SaveNotJson("unreadable key in " ++ path)) else Ok(fields) end
+      if List.any(fields, fn kv -> Tuple.first(kv) == unread_mark()) do
+        Err(SaveNotJson("unreadable key in " ++ path))
+      else
+        Ok(fields)
+      end
     end
     Json.Null -> Err(SaveWrongType(path))
     Json.Bool(_) -> Err(SaveWrongType(path))
@@ -651,7 +695,13 @@ mod Skee.Save do
 
   pfn string_of(v : JsonValue, path : String) : Result(String, SaveError) needs () do
     match v do
-    Json.Str(s) -> if s == unread_mark() do Err(SaveNotJson("unreadable text at " ++ path)) else Ok(s) end
+    Json.Str(s) -> do
+      if s == unread_mark() do
+        Err(SaveNotJson("unreadable text at " ++ path))
+      else
+        Ok(s)
+      end
+    end
     Json.Null -> Err(SaveWrongType(path))
     Json.Bool(_) -> Err(SaveWrongType(path))
     Json.Number(_) -> Err(SaveWrongType(path))

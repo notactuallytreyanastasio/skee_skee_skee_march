@@ -558,7 +558,7 @@ mod SceneSuite do
     Cons(phase, Cons(level, lit)) -> do
       let light = { chase: GoldenIo.int(phase), level: fl(level) }
       let st = { fresh_stage(Boardwalk) with bulbs: light }
-      let bulbs = List.filter(Skee.Scene.model(k(), st), fn p -> p.role == Skee.Scene.BulbPart)
+      let bulbs = List.filter(Skee.Scene.model(k(), st), fn p -> p.role == BulbPart)
       let got = List.map(bulbs, fn p -> p.emission.glow_r)
       compare_floats(got, lit, unit_tol(), "bulbs phase " ++ phase)
     end
@@ -577,19 +577,19 @@ mod SceneSuite do
   -- ---- ScenePresenter.update replayed frame by frame ----
   fn spark_of(token : String) : List(Skee.Scene.Spark) do
     if token == "hump" do
-      [Skee.Scene.SparkHump]
+      [SparkHump]
     else if token == "lip" do
-      [Skee.Scene.SparkLip]
+      [SparkLip]
     else if token == "hop" do
-      [Skee.Scene.SparkHop]
+      [SparkHop]
     else if token == "landed" do
-      [Skee.Scene.SparkLanded]
+      [SparkLanded]
     else if token == "backwall" do
-      [Skee.Scene.SparkBackwall]
+      [SparkBackwall]
     else if token == "rail" do
-      [Skee.Scene.SparkRail]
+      [SparkRail]
     else if String.starts_with(token, "drop-") do
-      [Skee.Scene.SparkDrop(hole_of(String.replace_all(token, "drop-", "")))]
+      [SparkDrop(hole_of(String.replace_all(token, "drop-", "")))]
     else
       []
     end end end end end end end
@@ -654,7 +654,7 @@ mod SceneSuite do
   -- orientation of the frame before. Where the ball sinks straight into a
   -- hole Swift's roll axis is rounding noise (see Skee.Scene.rolled), so those
   -- frames are not compared for orientation and are counted instead.
-  type Replay = { kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float, skipped : Int }
+  type Replay = { rig : Skee.Camera.Rig, kept : Skee.Scene.Keep, outcomes : List(Outcome), worst_spin : Float, skipped : Int }
 
   fn swift_orientation(row : List(String)) : Option(Skee.Scene.Quat) do
     match List.drop(row, 23) do
@@ -665,7 +665,7 @@ mod SceneSuite do
 
   fn replay_step(acc : Replay, row : List(String)) : Replay do
     let w = boardwalk()
-    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
+    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
     let q = scene.ball.motion.orientation
     let sinking = scene.ball.place.sink > 0.0 && scene.ball.place.visible
     let want = swift_orientation(row)
@@ -678,7 +678,7 @@ mod SceneSuite do
     None -> kept.motion
     end
     let outcome = if sinking do frame_check({ scene with ball: { scene.ball with motion: { scene.ball.motion with orientation: unwrap_quat(want, q) } } }, row) else frame_check(scene, row) end
-    { kept: { kept with motion: next_motion }, outcomes: Cons(outcome, acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end, skipped: acc.skipped + (if sinking do 1 else 0 end) }
+    { rig: acc.rig, kept: { kept with motion: next_motion }, outcomes: Cons(outcome, acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end, skipped: acc.skipped + (if sinking do 1 else 0 end) }
   end
 
   fn unwrap_quat(q : Option(Skee.Scene.Quat), fallback : Skee.Scene.Quat) : Skee.Scene.Quat do
@@ -702,7 +702,7 @@ mod SceneSuite do
     let fresh = Skee.Scene.keep_fresh()
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
     let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
-    List.fold_left(rows("frame"), { kept: start, outcomes: [], worst_spin: 0.0, skipped: 0 }, replay_step)
+    List.fold_left(rows("frame"), { rig: fitted(), kept: start, outcomes: [], worst_spin: 0.0, skipped: 0 }, replay_step)
   end
 
   doc """Worst quaternion component error over the replay."""
@@ -718,6 +718,154 @@ mod SceneSuite do
   fn replay_outcome() : Outcome do
     let r = replayed()
     all(List.reverse(r.outcomes))
+  end
+
+  -- ---- Drawing ----
+  fn finite(x : Float) : Bool do
+    x == x && x < 100000000.0 && x > -100000000.0
+  end
+
+  fn shape_points(sh : Skee.Scene.Shape) : List(Vec2) do
+    match sh do
+    Poly(ps) -> ps
+    Holed(a, b) -> List.append(a, b)
+    Polys(rs) -> List.concat(rs)
+    Disc(c, _) -> [c]
+    Outline(steps) -> List.flat_map(steps, step_pts)
+    end
+  end
+
+  fn step_pts(s : Skee.Scene.PathStep) : List(Vec2) do
+    match s do
+    MoveTo(a) -> [a]
+    LineTo(a) -> [a]
+    QuadTo(a, b) -> [a, b]
+    CubicTo(a, b, c) -> [a, b, c]
+    ClosePath -> []
+    end
+  end
+
+  fn op_points(op : Skee.Scene.DrawOp) : List(Vec2) do
+    match op do
+    ClearTo(_) -> []
+    FillShape(sh, _, _) -> shape_points(sh)
+    StrokeShape(sh, _, _) -> shape_points(sh)
+    DrawText(t) -> [t.middle]
+    PushClip(sh) -> shape_points(sh)
+    PopClip -> []
+    end
+  end
+
+  fn polys_ok(op : Skee.Scene.DrawOp) : Bool do
+    match op do
+    FillShape(Poly(ps), _, _) -> List.length(ps) >= 3
+    _ -> true
+    end
+  end
+
+  fn clip_depth(ops : List(Skee.Scene.DrawOp)) : (Int, Bool) do
+    List.fold_left(ops, (0, true), fn (acc, op) -> clip_step(acc, op))
+  end
+
+  fn clip_step(acc : (Int, Bool), op : Skee.Scene.DrawOp) : (Int, Bool) do
+    match acc do
+    (d, ok) -> match op do
+      PushClip(_) -> (d + 1, ok)
+      PopClip -> (d - 1, ok && d > 0)
+      _ -> (d, ok)
+      end
+    end
+  end
+
+  -- The fresh cabinet with the ball somewhere along a real path.
+  fn stage_at(sample : Option(PathSample), resting : Option((PathSample, Float)), clock : Float) : Skee.Scene.Scenery do
+    let w = boardwalk()
+    let bc = { sample: sample, busy: true, beat_is_roll: true, resting: resting, clock: clock, throwing: true, held: None }
+    let cue = { ball_cue: { bc with busy: no_rest(resting), beat_is_roll: no_rest(resting) }, sparks: [SparkHump, SparkDrop(Ring40)], kind: ClassicBall, anticipation: 0.0, shake: 0.0, balls_left: 8, excited: true, reel_cue: { setup: Skee.Types.standard_setup(), positions: Skee.HoleMap.fill_reels(1.0), have: [Cherry, Cherry], slot: None } }
+    let (scene, _) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+    scene
+  end
+
+  fn no_rest(r : Option((PathSample, Float))) : Bool do
+    match r do
+    Some(_) -> false
+    None -> true
+    end
+  end
+
+  fn stages() : List((String, Skee.Scene.Scenery)) do
+    [
+      ("waiting", stage_at(None, None, 0.0)),
+      ("on the lane", stage_at(Some(sample_n(1)), None, 1.0)),
+      ("in the air", stage_at(Some(sample_n(4)), None, 2.0)),
+      ("on the board", stage_at(Some(sample_n(6)), None, 3.0)),
+      ("sinking", stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0))
+    ]
+  end
+
+  fn draw_case(named : (String, Skee.Scene.Scenery)) : Outcome do
+    match named do
+    (name, scene) -> do
+      let ops = Skee.Scene.draw(k(), scene)
+      let n = List.length(ops)
+      let pts = List.flat_map(ops, op_points)
+      let (depth, nested) = clip_depth(ops)
+      let first_ok = match ops do
+      Cons(ClearTo(c), _) -> c.red == 255 && c.green == 233 && c.blue == 246
+      _ -> false
+      end
+      all([expect(n > 300 && n < 2000, name ++ ": " ++ int_to_string(n) ++ " ops, want 300 to 2000"), expect(List.all(pts, fn p -> finite(p.x) && finite(p.y)), name ++ ": every point finite"), expect(List.all(ops, polys_ok), name ++ ": every polygon has 3 points"), expect(depth == 0 && nested, name ++ ": clips balanced"), expect(first_ok, name ++ ": cleared to the backdrop")])
+    end
+    end
+  end
+
+  fn sink_clip_case() : Outcome do
+    let sunk = Skee.Scene.draw(k(), stage_at(Some(sample_n(6)), Some((sample_n(6), 3.4)), 3.0))
+    let rolling = Skee.Scene.draw(k(), stage_at(Some(sample_n(6)), None, 3.0))
+    all([expect(clip_count(sunk) > clip_count(rolling), "a sinking ball is clipped to its hole")])
+  end
+
+  fn clip_count(ops : List(Skee.Scene.DrawOp)) : Int do
+    List.length(List.filter(ops, is_push))
+  end
+
+  fn is_push(op : Skee.Scene.DrawOp) : Bool do
+    match op do
+    PushClip(_) -> true
+    _ -> false
+    end
+  end
+
+  fn light_case() : Outcome do
+    let up = v3(0.0, 1.0, 0.0)
+    let l = Skee.Scene.light(up, up)
+    let down = Skee.Scene.light(v3(0.0, -1.0, 0.0), v3(0.0, -1.0, 0.0))
+    let grey = Skee.Scene.hex(8421504)
+    let lit_up = Skee.Scene.shade(grey, l)
+    let lit_down = Skee.Scene.shade(grey, down)
+    let unlit = Skee.Scene.shade(grey, Skee.Scene.unlit())
+    let white = white_lit(l)
+    let edge_on = Skee.Scene.light(up, v3(1.0, 0.0, 0.0))
+    all([expect(edge_on.rim > 0.27, "a face seen edge-on gets the rim band"), expect(l.rim == 0.0, "a face seen square-on gets none"), expect(lit_up.red > lit_down.red, "faces toward the sun are brighter"), expect(unlit.red == 128 && unlit.green == 128 && unlit.blue == 128, "unlit keeps the colour"), expect(l.lb > l.lg && down.lb > down.lr, "the sky fill is pink-white, the ground fill lilac"), expect(white.red == 255, "white saturates")])
+  end
+
+  fn white_lit(l : Skee.Scene.Light) : Skee.Scene.Rgba do
+    Skee.Scene.shade(Skee.Scene.hex(16777215), l)
+  end
+
+  fn symbol_case() : Outcome do
+    let l = Skee.Scene.unlit()
+    let o = vec2(0.0, 0.0)
+    all([expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Blank)) == 0, "a blank draws nothing"), expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Seven)) == 1, "a seven is one outlined glyph"), expect(List.length(Skee.Scene.symbol_ops(l, o, 100.0, Cherry)) > 6, "a cherry has stems, a leaf and two fruit")])
+  end
+
+  fn hull_case() : Outcome do
+    let h = Skee.Scene.hull([vec2(0.0, 0.0), vec2(1.0, 0.0), vec2(0.5, 0.5), vec2(1.0, 1.0), vec2(0.0, 1.0)])
+    expect_int(List.length(h), 4, "hull drops the inside point")
+  end
+
+  fn draw_cases() : List(Case) do
+    List.concat([List.map(stages(), fn st -> case("draw: " ++ Tuple.first(st), fn () -> draw_case(st))), [case("draw: a sinking ball is clipped", fn () -> sink_clip_case()), case("toon light", fn () -> light_case()), case("symbols", fn () -> symbol_case()), case("silhouette hull", fn () -> hull_case())]])
   end
 
   -- ---- Measured error, printed by the runner ----
@@ -773,7 +921,7 @@ mod SceneSuite do
 
   fn cases() : List(Case) do
     let rig = fitted()
-    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases(), presenter_cases()])
+    List.concat([world_cases(), camera_cases(rig), model_cases(), reel_cases(), presenter_cases(), draw_cases()])
   end
 
 end
