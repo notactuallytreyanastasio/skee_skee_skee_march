@@ -49,7 +49,116 @@ mod HudSuite do
   end
 
   fn at_welcome() : Skee.App.Model do
-    ticks(tap(at_host(), TapCloseHost), 2)
+    ticks(tap(tap(tap(at_host(), TapHostConsent(false)), TapHostDeal), TapCloseHost), 2)
+  end
+
+  -- ---- The host's table, against a relay that answers as told ----
+  fn last_key(fx : List(Skee.App.Effect)) : Option(Skee.App.CallKey) do
+    List.fold_left(fx, None, fn (acc, e) -> post_key(acc, e))
+  end
+
+  fn post_key(acc : Option(Skee.App.CallKey), e : Skee.App.Effect) : Option(Skee.App.CallKey) do
+    match e do
+    FxHostPost(key, _) -> Some(key)
+    FxSave(_, _) -> acc
+    FxSound(_) -> acc
+    FxRumble(_) -> acc
+    FxDrum(_) -> acc
+    FxHaptic(_) -> acc
+    end
+  end
+
+  -- A model and the key of the last call it asked for.
+  type HostRun = { at : Skee.App.Model, key : Option(Skee.App.CallKey) }
+
+  fn act(t : HostRun, msg : Skee.App.Msg) : HostRun do
+    let (m, fx) = Skee.App.update(t.at, msg)
+    match last_key(fx) do
+    Some(k) -> { at: m, key: Some(k) }
+    None -> { at: m, key: t.key }
+    end
+  end
+
+  fn press(t : HostRun, i : Skee.App.Intent) : HostRun do
+    act(t, MsgTap(i))
+  end
+
+  fn envelope(content : String, finish : String) : String do
+    Json.to_string(Json.Object([("choices", Json.Array([Json.Object([("message", Json.Object([("role", Json.Str("assistant")), ("content", Json.Str(content))])), ("finish_reason", Json.Str(finish))])]))]))
+  end
+
+  fn reply_json(say : String, nights : Int, walk : Bool) : String do
+    Json.to_string(Json.Object([("say", Json.Str(say)), ("offer", Json.Object([("nights", Json.encode_int(nights)), ("tickets", Json.encode_int(0)), ("credit", Json.encode_int(0))])), ("mood", Json.encode_int(if walk do -1 else 0 end)), ("walk", Json.Bool(walk))]))
+  end
+
+  fn relay(t : HostRun, status : Int, body : String) : HostRun do
+    match t.key do
+    Some(k) -> act(t, MsgHostReply(k, status, body))
+    None -> t
+    end
+  end
+
+  fn relay_says(t : HostRun, say : String, nights : Int) : HostRun do
+    relay(t, 200, envelope(reply_json(say, nights, false), "stop"))
+  end
+
+  fn player(t : HostRun, text : String) : HostRun do
+    press(act(t, MsgHostDraft(text)), TapHostSend)
+  end
+
+  fn host_thinking() : Skee.App.Model do
+    tap(at_host(), TapHostConsent(true))
+  end
+
+  fn host_talking_table() : HostRun do
+    relay_says(press({ at: at_host(), key: None }, TapHostConsent(true)), "Welcome in, friend! One free night to start.", 1)
+  end
+
+  fn host_talking() : Skee.App.Model do
+    let t = host_talking_table()
+    t.at
+  end
+
+  fn host_failed() : Skee.App.Model do
+    let t = relay(player(host_talking_table(), "Two nights?"), 429, "{}")
+    t.at
+  end
+
+  fn host_signed() : Skee.App.Model do
+    tap(host_talking(), TapHostDeal)
+  end
+
+  fn host_off() : Skee.App.Model do
+    tap(at_host(), TapHostConsent(false))
+  end
+
+  fn host_out_of_turns() : Skee.App.Model do
+    let t =
+      List.fold_left(List.range(0, 25), host_talking_table(), fn (acc, i) -> relay_says(player(acc, "Tell me about the pier, part " ++ int_to_string(i)), "The pier is lovely at night.", 1))
+    t.at
+  end
+
+  -- The next room's host, who walks out.
+  fn host_walked() : Skee.App.Model do
+    let w =
+      { Skee.Save.load_wallet(None) with games_since_host: 3, lifetime: Winnings(2000) }
+    let saved =
+      { Skee.App.nothing_saved() with saved_wallet: Some(Skee.Save.encode_wallet(w)), saved_arrival_done: Some("true"), saved_walk_done: Some("true"), saved_host_consent: Some("true") }
+    let (m, _) = Skee.App.boot(k(), saved, 390.0, 844.0, Skee.U64.of_int(42))
+    let opened = press({ at: ticks(m, 2), key: None }, TapOpenHost)
+    let hello = relay_says(opened, "Dee here. The Neon Lounge is yours tonight.", 1)
+    let walked =
+      relay(player(hello, "Give me more nights"), 200, envelope(reply_json("I am done here.", 1, true), "stop"))
+    walked.at
+  end
+
+  fn pane_html(m : Skee.App.Model, id : String) : String do
+    html_of(List.filter(tree(m), fn p -> p.pane_id == id))
+  end
+
+  fn only_acts(m : Skee.App.Model, wanted : List(String)) : Outcome do
+    let got = List.map(acts(m), fn x -> show(x))
+    expect(same_strings(got, wanted), "buttons: " ++ String.join(got, ","))
   end
 
   fn in_game() : Skee.App.Model do
@@ -145,11 +254,17 @@ mod HudSuite do
         TapLeaveCounter,
         TapAskNewGame,
         TapKeepPlaying,
-        TapNewRun
+        TapNewRun,
+        TapHostSend,
+        TapHostDeal,
+        TapHostRetry,
+        TapHostReconsider,
+        TapHostConsent(true),
+        TapHostConsent(false)
       ]
     let indexed = List.range(0, 7)
     let intents =
-      List.concat([plain, List.map(Skee.Rooms.all_rooms(), fn r -> TapPickRoom(r)), List.map(Skee.Rooms.all_prizes(), fn p -> TapBuyPrize(p)), List.map(Skee.HudState.all_bets(), fn b -> TapSetBet(b)), List.map(Skee.Items.all_balls(), fn b -> TapChooseBall(b)), List.map(indexed, fn n -> TapArm(n)), [TapSelectOffer(None)], List.map(indexed, fn n -> TapSelectOffer(Some(n))), List.map(indexed, fn n -> TapBuyOffer(n)), List.map(indexed, fn n -> TapCharm(n))])
+      List.concat([plain, List.map(Skee.Rooms.all_rooms(), fn r -> TapPickRoom(r)), List.map(Skee.Rooms.all_prizes(), fn p -> TapBuyPrize(p)), List.map(Skee.HudState.all_bets(), fn b -> TapSetBet(b)), List.map(Skee.Items.all_balls(), fn b -> TapChooseBall(b)), List.map(indexed, fn n -> TapArm(n)), [TapSelectOffer(None)], List.map(indexed, fn n -> TapSelectOffer(Some(n))), List.map(indexed, fn n -> TapBuyOffer(n)), List.map(indexed, fn n -> TapCharm(n)), List.map(List.range(0, 3), fn n -> TapHostNudge(n))])
     List.concat([List.map(intents, fn i -> ActIntent(i)), List.map(List.range(0, 13), fn n -> ActTopic(n)), [ActPageBack, ActPageNext]])
   end
 
@@ -390,14 +505,22 @@ mod HudSuite do
     [
       case("every action round-trips through its data-act code", fn () -> all(List.map(every_action(), round_trip))),
       case("codes are distinct", fn () -> expect(distinct(List.map(every_action(), Skee.HudView.encode)), "two actions share a code")),
-      case("unknown codes decode to nothing", fn () -> all(List.map([0, -1, 19, 99, 104, 999, 9999, 999999], fn n -> expect(Skee.HudView.decode(n) == None, "code " ++ int_to_string(n))))),
+      case("unknown codes decode to nothing", fn () -> all(List.map([0, -1, 25, 99, 104, 999, 6999, 9999, 999999], fn n -> expect(Skee.HudView.decode(n) == None, "code " ++ int_to_string(n))))),
       case("text and attributes are escaped", fn () -> all([expect_string(Skee.HudView.render(Words("<b>&\"'")), "&lt;b&gt;&amp;&quot;&#39;", "text"), expect_string(Skee.HudView.render(Tag("i", [Prop("title", "a\"<b>")], [])), "<i title=\"a&quot;&lt;b&gt;\"></i>", "attribute")])),
       case("panes keep one order, every frame", fn () -> all([expect(same_strings(pane_ids(tree(boot_fresh())), Skee.HudView.pane_ids()), "title"), expect(same_strings(pane_ids(tree(pulled())), Skee.HudView.pane_ids()), "game")])),
       case("the title is SkeeHUD's TitleCard", fn () -> all([shows(boot_fresh(), ["SKEE", "TAP TO PLAY", "THE BOARDWALK ARCADE", Skee.Rooms.blurb(Boardwalk), "PRIZE SHOP " ++ dot() ++ " 0", "HOW TO PLAY", "BOARDWALK", "OPEN", "NEON", "1500", "HIGH ROLLER", "5000", "PENTHOUSE", "12000"]), offers(boot_fresh(), [ActIntent(TapStart), ActIntent(TapHowToPlay), ActIntent(TapOpenShop), ActIntent(TapPickRoom(Boardwalk))]), lacks(boot_fresh(), ["THE HOST WANTS A WORD", "ANTE "])])),
       case("a button under an overlay is drawn inert", fn () -> all([expect(String.contains(html(at_door()), "TAP TO PLAY"), "the title is still drawn under Sal"), expect(!String.contains(html(at_door()), "data-intent=\"TapStart\""), "but not tappable"), expect(String.contains(html(at_door()), "data-intent=\"TapArrivalNext\""), "Sal's button is")])),
       case("rooms not owned are not tappable", fn () -> expect(!has_act(acts(boot_fresh()), ActIntent(TapPickRoom(NeonLounge))), "NEON is not yours")),
       case("Sal's lines, one per tap", fn () -> all([shows(at_door(), ["WELCOME TO", "SKEE SKEE SKEE", "SAL", Skee.HudView.render(Words(first_beat())), "GO ON"]), offers(at_door(), [ActIntent(TapArrivalNext)]), shows(last_beat(), ["LET" ++ Skee.HudView.render(Words("'")) ++ "S TALK"])])),
-      case("the host is a labelled placeholder with one button", fn () -> all([shows(at_host(), ["PLACEHOLDER", "CLOSE"]), expect(same_strings(List.map(acts(at_host()), fn x -> show(x)), ["ActIntent(TapCloseHost)"]), "only CLOSE: " ++ String.join(List.map(acts(at_host()), fn x -> show(x)), ","))])),
+      case("the host's table asks about AI chat first", fn () -> all([shows(at_host(), ["TALK TO AN AI HOST?", "Sal can be played by an AI.", "YES, USE THE AI", "NO, KEEP IT ON MY PHONE", "With no, Sal sticks to simpler replies.", "SAL", "your first loadout", "Make your case"]), only_acts(at_host(), ["ActIntent(TapHostConsent(true))", "ActIntent(TapHostConsent(false))"])])),
+      case("host: the hello is being written", fn () -> all([shows(host_thinking(), ["Sal is thinking", "AI CHAT IS ON " ++ dot() ++ " TAP TO CHANGE", "1", "NIGHT", "TIX / NIGHT", "PATIENCE", "a night = one game with bonus tickets " ++ dot() ++ " credit buys prizes", "DEAL", "SAY", "One more night?", "disabled"]), lacks(host_thinking(), ["Here" ++ Skee.HudView.render(Words("'")) ++ "s my offer", "TALK TO AN AI HOST?", "data-enter"]), only_acts(host_thinking(), ["ActIntent(TapHostReconsider)"])])),
+      case("host: chatting", fn () -> all([shows(host_talking(), ["Welcome in, friend! One free night to start.", "One more night?", "Tickets would help.", "Some credit?", "SAY", "DEAL", "data-enter=\"19\"", "id=\"host-draft\""]), lacks(host_talking(), ["is thinking", "RETRY", "LEAVE", "disabled"]), only_acts(host_talking(), ["ActIntent(TapHostReconsider)", "ActIntent(TapHostNudge(0))", "ActIntent(TapHostNudge(1))", "ActIntent(TapHostNudge(2))", "ActIntent(TapHostSend)", "ActIntent(TapHostDeal)"])])),
+      case("host: a failure shows, typed, with RETRY", fn () -> all([shows(host_failed(), ["SAL COULDN" ++ Skee.HudView.render(Words("'")) ++ "T ANSWER", "the relay" ++ Skee.HudView.render(Words("'")) ++ "s limit was hit (HTTP 429)", "data-failure=\"FailHttp(429)\"", "RETRY", "LEAVE", "Two nights?"]), only_acts(host_failed(), ["ActIntent(TapHostReconsider)", "ActIntent(TapHostRetry)", "ActIntent(TapHostDeal)", "ActIntent(TapCloseHost)"])])),
+      case("host: the deal is signed", fn () -> all([shows(host_signed(), ["DEAL!", "you start with 1 night " ++ dot() ++ " +0 tix " ++ dot() ++ " 0 credit", "LEARN TO PLAY"]), lacks(host_signed(), ["SAY", "One more night?"]), only_acts(host_signed(), ["ActIntent(TapHostReconsider)", "ActIntent(TapCloseHost)"])])),
+      case("host: the host left", fn () -> all([shows(host_walked(), ["DEE LACROIX LEFT", "The Neon Lounge is yours " ++ dot() ++ " 1 night", "CHECK IN", "I am done here.", "your host " ++ dot() ++ " The Neon Lounge"]), only_acts(host_walked(), ["ActIntent(TapHostReconsider)", "ActIntent(TapCloseHost)"])])),
+      case("host: out of model turns, only sign or leave", fn () -> all([shows(host_out_of_turns(), ["That" ++ Skee.HudView.render(Words("'")) ++ "s all the talk this table takes. DEAL, or LEAVE.", "disabled"]), only_acts(host_out_of_turns(), ["ActIntent(TapHostReconsider)", "ActIntent(TapHostDeal)", "ActIntent(TapCloseHost)"])])),
+      case("host: AI chat off, only sign or leave", fn () -> all([shows(host_off(), ["AI CHAT IS OFF " ++ dot() ++ " TAP TO CHANGE", "AI chat is off, so nothing you type is sent. DEAL, or LEAVE."]), only_acts(host_off(), ["ActIntent(TapHostReconsider)", "ActIntent(TapHostDeal)", "ActIntent(TapCloseHost)"])])),
+      case("host: typing never rewrites the table", fn () -> expect(pane_html(host_talking(), "host") == pane_html(deliver(host_talking(), MsgHostDraft("two nights, please")), "host") && !String.contains(html(deliver(host_talking(), MsgHostDraft("two nights, please"))), "two nights, please") && !String.contains(pane_html(host_talking(), "host"), " value="), "the draft is not in the pane's HTML")),
       case("the walkthrough's first card blocks play until GOT IT", fn () -> all([shows(at_welcome(), ["YOUR FIRST LOADOUT", "SKIP", "GOT IT", "hud-block"]), offers(at_welcome(), [ActIntent(TapGotIt), ActIntent(TapSkipWalkthrough)]), lacks(at_welcome(), ["NEW GAME", ">GUIDE<"])])),
       case("a frame waiting for its pull shows the machine", fn () -> all([shows(in_game(), ["ANTE 1/8", "WARM-UP", "TARGETS " ++ dot() ++ " hit one = combo", "SPIN", "FRAME 1/3 " ++ dot() ++ " 9 BALLS", "PULL " ++ dot() ++ " the middle row = this frame" ++ Skee.HudView.render(Words("'")) ++ "s targets", "NEW GAME", ">GUIDE<"]), offers(in_game(), [ActIntent(TapPull), ActIntent(TapAskNewGame), ActIntent(TapOpenGuide)])])),
       case("after the pull: the slot's hint and no machine", fn () -> all([shows(pulled(), ["3 balls = 1 line " ++ dot() ++ " match symbols for MULT", "thumb down on your line", "then flick straight up"]), lacks(pulled(), [">SPIN<", "MAX BET FOR JACKPOTS"])])),
@@ -408,7 +531,7 @@ mod HudSuite do
       case("the guide's page is view state, reset when it closes", fn () -> guide_resets()),
       case("the guide's reader shows the page", fn () -> guide_page_text()),
       case("the prize counter is CounterView", fn () -> counter_view()),
-      case("every button drawn is one the model accepts", fn () -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay)], all_accepted))),
+      case("every button drawn is one the model accepts", fn () -> all(List.map([boot_fresh(), at_door(), at_host(), at_welcome(), in_game(), pulled(), tap(in_game(), TapOpenGuide), tap(boot_fresh(), TapOpenShop), tap(in_game(), TapOpenShop), tap(in_game(), TapAskNewGame), tap(boot_fresh(), TapHowToPlay), host_thinking(), host_talking(), host_failed(), host_signed(), host_off(), host_walked()], all_accepted))),
       case("every symbol drawn has a definition", fn () -> symbols_resolve([boot_fresh(), in_game(), pulled(), tap(boot_fresh(), TapOpenShop)])),
       case("every symbol and prize is defined", fn () -> every_symbol_defined()),
       case("the lever is a drag handle, not a button", fn () -> lever_drawn()),

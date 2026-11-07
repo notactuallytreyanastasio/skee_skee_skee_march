@@ -30,6 +30,9 @@ mod Glue do
     fn glue_queue_tap(i : Int) : Unit
     fn glue_drain_taps() : List(Int)
     fn glue_mark(name : String, value : String) : Unit
+    fn glue_host_post(body : String, timeout_ms : Int, reply : (Int, String) -> (), fail : String -> ()) : Unit
+    fn glue_set_html_keeping(pane : Js.Dom.Node, html : String) : Unit
+    fn glue_on_fields(root : Js.Dom.Node, typed : String -> ()) : Unit
   end
 
   -- ---- Public names: extern declarations are private to this module ----
@@ -126,6 +129,28 @@ mod Glue do
 
   fn drain_taps() : List(Int) do
     glue_drain_taps()
+  end
+
+  doc """
+  POST `body` to the same-origin host relay, /skee-host/chat. `reply` gets the
+  HTTP status and body; `fail` the browser's words when there was no HTTP
+  answer (offline, refused, or nothing within `timeout_ms`).
+  """
+  fn host_post(body : String, timeout_ms : Int, reply : (Int, String) -> (), fail : String -> ()) : () do
+    glue_host_post(body, timeout_ms, reply, fail)
+  end
+
+  doc """Replace a pane's HTML, keeping what its text fields hold, which one has focus, and its caret."""
+  fn set_html_keeping(pane : Js.Dom.Node, html : String) : () do
+    glue_set_html_keeping(pane, html)
+  end
+
+  doc """
+  Text fields under `root`: an edit of one marked data-draft calls `typed`
+  with its value; Enter in one marked data-enter queues that tap code.
+  """
+  fn on_fields(root : Js.Dom.Node, typed : String -> ()) : () do
+    glue_on_fields(root, typed)
   end
 
   doc """Set a data-* attribute on <html>, for the playtest to read. Writes only on change."""

@@ -106,6 +106,9 @@ async function run(browser, name, viewport, touch) {
   await page.screenshot({ path: join(shots, `${name}-2-sal.png`) });
   for (let i = 0; i < 5; i++) await tap(page, "TapArrivalNext");
   await page.screenshot({ path: join(shots, `${name}-3-host.png`) });
+  // The first host: no to AI chat (nothing is sent), DEAL, LEARN TO PLAY.
+  await tap(page, "TapHostConsent(false)");
+  await tap(page, "TapHostDeal");
   await tap(page, "TapCloseHost");
   await tap(page, "TapSkipWalkthrough");
   let m = await waitFor(page, (m) => m.layer === "LayerBase" && m.busy === "0", "the game, idle");

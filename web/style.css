@@ -348,12 +348,53 @@ html, body {
   background: rgba(58, 35, 70, 0.45); border-radius: 14px;
 }
 #hud .page .rt, #hud .sal .rt { line-height: 1.2; }
-#hud .arrival, #hud .host { gap: 18px; padding: 60px 18px 16px; align-items: stretch; }
+#hud .arrival { gap: 18px; padding: 60px 18px 16px; align-items: stretch; }
 #hud .welcome { transform: rotate(-3deg); }
 #hud .welcome > .cel { margin: -4px 0; }
-#hud .sal, #hud .host-note {
+#hud .sal {
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 15px;
   background: var(--lilac); border: 3px solid var(--ink); border-radius: 18px;
 }
-#hud .host { align-items: center; }
-#hud .host-note { align-self: stretch; }
+/* HostView: header, offer card, transcript (newest at the bottom, the
+   oldest lines slide off the top), then the controls or the ending. */
+#hud .host { gap: 10px; padding: 26px 14px max(20px, env(safe-area-inset-bottom)); align-items: stretch; overflow: hidden; }
+#hud .host-head { align-items: center; }
+#hud .host-offer {
+  gap: 4px; padding: 10px; border-radius: 14px; background: rgba(58, 35, 70, 0.5);
+}
+#hud .host-term { gap: 0; }
+#hud .host-term > .cel { margin: -1px 0; }
+#hud .host-dot { width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--ink); }
+#hud .host-transcript {
+  flex: 1 1 0; min-height: 0; overflow: hidden; padding: 10px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
+  border-radius: 14px; background: rgba(58, 35, 70, 0.35);
+}
+#hud .bubble-row { display: flex; padding-right: 40px; flex-shrink: 0; }
+#hud .bubble-row.mine { justify-content: flex-end; padding-right: 0; padding-left: 40px; }
+#hud .bubble { padding: 8px 12px; border: 2px solid var(--ink); border-radius: 14px; overflow-wrap: anywhere; }
+#hud .bubble.stage .rt { font-style: italic; }
+#hud .host-thinking { flex-shrink: 0; }
+#hud .host-failure {
+  flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  padding: 8px 10px; border: 2px dashed var(--butter); border-radius: 12px; background: rgba(58, 35, 70, 0.6);
+}
+#hud .host-failure > .hb { align-self: center; margin-top: 4px; }
+#hud .host-controls { align-items: stretch; }
+#hud .host-controls > .hs { justify-content: center; }
+#hud .nudge { padding: 6px 8px; border-radius: 999px; background: rgba(58, 35, 70, 0.55); white-space: nowrap; }
+#hud .host-say > .host-field { flex: 1 1 0; min-width: 0; }
+#hud .host-field {
+  pointer-events: auto; box-sizing: border-box; padding: 10px; font: inherit; font-size: 16px; font-weight: 600;
+  color: var(--ink); background: var(--cream); border: 2px solid var(--ink); border-radius: 12px; outline: none;
+}
+#hud .host-field:disabled { opacity: 0.5; }
+#hud .host-ending { align-items: center; }
+#hud .host-ending .cel { white-space: normal; text-align: center; }
+/* consentCard */
+#hud .host-ask { background: rgba(58, 35, 70, 0.7); display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+#hud .host-ask-card {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px;
+  background: var(--violet); border: 3px solid var(--ink); border-radius: 18px;
+}
+#hud .host-ask-card .rt { align-self: stretch; line-height: 1.2; }

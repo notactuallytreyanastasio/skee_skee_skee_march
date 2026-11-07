@@ -65,13 +65,16 @@ mod AppSuite do
     deliver(r, MsgPointerDown({ sample_t: now(r), sample_x: 20.0, sample_y: 20.0 }))
   end
 
-  -- Title, Sal's five lines, the placeholder host, then the walkthrough skipped:
-  -- a first launch into a real game.
+  -- Title, Sal's five lines, the first host (no to AI chat, DEAL on the
+  -- opening offer, LEARN TO PLAY), then the walkthrough skipped: a first
+  -- launch into a real game.
   fn into_game(r : Run) : Run do
+    tap(into_walkthrough(r), TapSkipWalkthrough)
+  end
+
+  fn at_first_host(r : Run) : Run do
     let at_door = tap(r, TapStart)
-    let talked =
-      List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
-    tap(tap(talked, TapCloseHost), TapSkipWalkthrough)
+    List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
   end
 
   fn saves(fx : List(Skee.App.Effect), key : Skee.App.SaveKey) : List(String) do
@@ -82,6 +85,7 @@ mod AppSuite do
       FxRumble(_) -> None
       FxDrum(_) -> None
       FxHaptic(_) -> None
+      FxHostPost(_, _) -> None
       end
     )
   end
@@ -107,7 +111,8 @@ mod AppSuite do
       saved_run: latest(prior.saved_run, fx, KeyRun),
       saved_tips: latest(prior.saved_tips, fx, KeyTips),
       saved_walk_done: latest(prior.saved_walk_done, fx, KeyWalkthroughDone),
-      saved_arrival_done: latest(prior.saved_arrival_done, fx, KeyArrivalDone)
+      saved_arrival_done: latest(prior.saved_arrival_done, fx, KeyArrivalDone),
+      saved_host_consent: latest(prior.saved_host_consent, fx, KeyHostConsent)
     }
   end
 
@@ -147,6 +152,7 @@ mod AppSuite do
       FxRumble(_) -> None
       FxDrum(_) -> None
       FxHaptic(_) -> None
+      FxHostPost(_, _) -> None
       end
     )
   end
@@ -159,6 +165,7 @@ mod AppSuite do
       FxSave(_, _) -> None
       FxRumble(_) -> None
       FxDrum(_) -> None
+      FxHostPost(_, _) -> None
       end
     )
   end
@@ -171,6 +178,7 @@ mod AppSuite do
       FxSound(_) -> None
       FxSave(_, _) -> None
       FxDrum(_) -> None
+      FxHostPost(_, _) -> None
       end
     )
   end
@@ -183,6 +191,7 @@ mod AppSuite do
       FxHaptic(_) -> None
       FxSound(_) -> None
       FxSave(_, _) -> None
+      FxHostPost(_, _) -> None
       end
     )
   end
@@ -386,7 +395,7 @@ mod AppSuite do
   end
 
   -- ---- Cases: the first launch ----
-  fn sal_then_the_placeholder_then_the_walkthrough() : Outcome do
+  fn sal_then_the_first_host_then_the_walkthrough() : Outcome do
     let r = boot_fresh()
     let at_door = tap(r, TapStart)
     let h0 = Skee.App.hud(at_door.model)
@@ -396,9 +405,10 @@ mod AppSuite do
     let seated = tap(four, TapArrivalNext)
     let hs = Skee.App.hud(seated.model)
     let pulled_under = tap(seated, TapPull)
-    let closed = tap(fresh_effects(seated), TapCloseHost)
+    let signed = tap(tap(fresh_effects(seated), TapHostConsent(false)), TapHostDeal)
+    let closed = tap(fresh_effects(signed), TapCloseHost)
     let w = Skee.App.walkthrough_of(closed.model)
-    all([expect(h0.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 0), "Sal's first line"), expect(h0.top == LayerArrival, "the door is on top"), expect(h4.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 4), "Sal's last line"), expect(hs.app_hud.host == HostPlaceholder && hs.top == LayerHost, "the host's placeholder after the last line"), expect(hs.arrival_line == None, "Sal's lines are gone"), expect(List.is_empty(Skee.App.actions_of(pulled_under.model)), "buttons under the host do nothing"), expect(is_some_walk(w), "closing the arrival starts the walkthrough"), expect(Skee.App.screen_of(closed.model) == GameScreen, "on the game screen"), expect(saves(fx_of(closed), KeyArrivalDone) == ["true"], "the arrival is settled"), expect(Skee.Units.points_int(run_round_target(closed.model)) == Skee.Units.points_int(Skee.Walkthrough.practice_target()), "the practice target")])
+    all([expect(h0.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 0), "Sal's first line"), expect(h0.top == LayerArrival, "the door is on top"), expect(h4.arrival_line == List.nth_opt(Skee.App.arrival_beats(), 4), "Sal's last line"), expect(hs.app_hud.host == HostAtTable && hs.top == LayerHost, "the host's table after the last line"), expect(haggle_subtitle(seated) == "your first loadout", "the arrival haggle"), expect(hs.arrival_line == None, "Sal's lines are gone"), expect(List.is_empty(Skee.App.actions_of(pulled_under.model)), "buttons under the host do nothing"), expect(saves(fx_of(signed), KeyArrivalDone) == ["true"], "the deal settles the arrival"), expect(is_some_walk(w), "LEARN TO PLAY starts the walkthrough"), expect(Skee.App.screen_of(closed.model) == GameScreen, "on the game screen"), expect(Skee.Units.points_int(run_round_target(closed.model)) == Skee.Units.points_int(Skee.Walkthrough.practice_target()), "the practice target")])
   end
 
   fn is_some_walk(w : Option(Walkthrough)) : Bool do
@@ -414,10 +424,7 @@ mod AppSuite do
   end
 
   fn into_walkthrough(r : Run) : Run do
-    let at_door = tap(r, TapStart)
-    let talked =
-      List.fold_left(List.range(0, 5), at_door, fn (acc, _) -> tap(acc, TapArrivalNext))
-    tap(talked, TapCloseHost)
+    tap(tap(tap(at_first_host(r), TapHostConsent(false)), TapHostDeal), TapCloseHost)
   end
 
   fn the_welcome_card_holds_the_game() : Outcome do
@@ -602,15 +609,315 @@ mod AppSuite do
   end
 
   fn a_due_host_sits_down_before_the_next_game() : Outcome do
+    let asked = due_host(0, Some("false"))
+    let signed = tap(fresh_effects(asked), TapHostDeal)
+    let closed = tap(fresh_effects(signed), TapCloseHost)
+    let w = Skee.App.wallet_of(closed.model)
+    all([expect(hud_top(asked.model) == LayerHost, "the host sits down"), expect(hud_app_hud_host(asked.model) == HostAtTable, "the host's table"), expect(haggle_subtitle(asked) == "your host " ++ Skee.Presentation.middle_dot() ++ " The Boardwalk Arcade", "a comped stay in this room"), expect(List.length(saves(fx_of(signed), KeyWallet)) == 1, "the deal is banked"), expect(hud_top(closed.model) == LayerBase, "CHECK IN closes the table"), expect(Skee.App.screen_of(closed.model) == GameScreen, "into the game"), expect(List.length(saves(fx_of(closed), KeyRun)) == 1, "a new run is saved"), expect(w.games_since_host == 0 && w.host_visits == 1, "the visit is counted")])
+  end
+
+  -- ---- The host's table ----
+  fn haggle_of(r : Run) : Option(Skee.Host.Haggle) do
+    match Skee.App.host_of(r.model) do
+    Some(s) -> Some(s.session_haggle)
+    None -> None
+    end
+  end
+
+  fn session_of(r : Run) : Option(Skee.Host.HostSession) do
+    Skee.App.host_of(r.model)
+  end
+
+  fn haggle_subtitle(r : Run) : String do
+    match haggle_of(r) do
+    Some(h) -> Skee.Host.subtitle(h)
+    None -> ""
+    end
+  end
+
+  fn host_lines(r : Run) : List(String) do
+    match haggle_of(r) do
+    Some(h) -> List.map(h.lines, fn l -> l.line_text)
+    None -> []
+    end
+  end
+
+  fn offer_nights(r : Run) : Int do
+    match haggle_of(r) do
+    Some(h) -> h.haggle_offer.nights
+    None -> -1
+    end
+  end
+
+  fn host_says(r : Run, f : Skee.Host.HostSession -> Bool) : Bool do
+    match session_of(r) do
+    Some(s) -> f(s)
+    None -> false
+    end
+  end
+
+  fn failure_of(r : Run) : Option(Skee.Host.HostFailure) do
+    match session_of(r) do
+    Some(s) -> Skee.Host.failure(s)
+    None -> None
+    end
+  end
+
+  fn posts(fx : List(Skee.App.Effect)) : List((Skee.App.CallKey, String)) do
+    List.filter_map(fx, fn e ->
+      match e do
+      FxHostPost(key, body) -> Some((key, body))
+      FxSave(_, _) -> None
+      FxSound(_) -> None
+      FxRumble(_) -> None
+      FxDrum(_) -> None
+      FxHaptic(_) -> None
+      end
+    )
+  end
+
+  fn post_keys(r : Run) : List(String) do
+    List.map(posts(fx_of(r)), fn p -> key_text(Tuple.first(p)))
+  end
+
+  fn key_text(k : Skee.App.CallKey) : String do
+    int_to_string(k.key_table) ++ "/" ++ int_to_string(k.key_call)
+  end
+
+  fn last_post(r : Run) : Option((Skee.App.CallKey, String)) do
+    last_of(posts(fx_of(r)))
+  end
+
+  fn last_body(r : Run) : String do
+    match last_post(r) do
+    Some(p) -> Tuple.second(p)
+    None -> ""
+    end
+  end
+
+  -- A DeepSeek chat completion around `content`, as the relay passes it on.
+  fn envelope(content : String, finish : String) : String do
+    Json.to_string(Json.Object([("id", Json.Str("mock")), ("choices", Json.Array([Json.Object([("index", Json.encode_int(0)), ("message", Json.Object([("role", Json.Str("assistant")), ("content", Json.Str(content))])), ("finish_reason", Json.Str(finish))])]))]))
+  end
+
+  fn host_reply(say : String, nights : Int, tickets : Int, credit : Int, mood : Int, walk : Bool) : String do
+    Json.to_string(Json.Object([("say", Json.Str(say)), ("offer", Json.Object([("nights", Json.encode_int(nights)), ("tickets", Json.encode_int(tickets)), ("credit", Json.encode_int(credit))])), ("mood", Json.encode_int(mood)), ("walk", Json.Bool(walk))]))
+  end
+
+  -- The relay answers the last call made, with this status and body.
+  fn answer(r : Run, status : Int, body : String) : Run do
+    match last_post(r) do
+    Some(p) -> deliver(fresh_effects(r), MsgHostReply(Tuple.first(p), status, body))
+    None -> r
+    end
+  end
+
+  fn answer_reply(r : Run, say : String, nights : Int, tickets : Int, credit : Int) : Run do
+    answer(r, 200, envelope(host_reply(say, nights, tickets, credit, 0, false), "stop"))
+  end
+
+  fn type_and_send(r : Run, text : String) : Run do
+    tap(deliver(fresh_effects(r), MsgHostDraft(text)), TapHostSend)
+  end
+
+  -- The first host, with yes to AI chat and the model's hello in.
+  fn first_host_talking() : Run do
+    let asked = tap(at_first_host(boot_fresh()), TapHostConsent(true))
+    answer_reply(asked, "Welcome in, friend! One free night to start.", 1, 0, 0)
+  end
+
+  -- A played game whose wallet has the host due, then NEW GAME: the host
+  -- sits down. `lifetime` winnings decide the room; `consent` is the saved
+  -- answer to the AI chat card.
+  fn due_host(lifetime : Int, consent : Option(String)) : Run do
     let r = into_game(boot_fresh())
     let w = Skee.App.wallet_of(r.model)
     let s = stored(Skee.App.nothing_saved(), fx_of(r))
     let due =
-      boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with games_since_host: 3 })) }, 5)
+      boot_with({ s with saved_wallet: Some(Skee.Save.encode_wallet({ w with games_since_host: 3, lifetime: Winnings(lifetime) })), saved_host_consent: consent }, 5)
     let inside = tap(due, TapStart)
-    let asked = tap(tap(inside, TapAskNewGame), TapNewRun)
-    let closed = tap(fresh_effects(asked), TapCloseHost)
-    all([expect(hud_top(asked.model) == LayerHost, "the placeholder host"), expect(hud_app_hud_host(asked.model) == HostPlaceholder, "labelled as the host"), expect(hud_top(closed.model) == LayerBase, "closed"), expect(List.length(saves(fx_of(closed), KeyRun)) == 1, "closing it starts the next game")])
+    tap(tap(inside, TapAskNewGame), TapNewRun)
+  end
+
+  -- ---- Cases: the host's table ----
+  fn the_ai_chat_card_comes_first() : Outcome do
+    let r = at_first_host(boot_fresh())
+    all([expect(hud_top(r.model) == LayerHost, "the host's table is on top"), expect(Skee.App.consent_of(r.model) == ConsentUnasked, "nothing answered yet"), expect(List.is_empty(posts(fx_of(r))), "nothing is sent before a yes"), expect(Skee.App.accepts(r.model, TapHostConsent(true)) && Skee.App.accepts(r.model, TapHostConsent(false)), "the card's two buttons"), expect(!Skee.App.accepts(r.model, TapHostDeal) && !Skee.App.accepts(r.model, TapHostSend) && !Skee.App.accepts(r.model, TapHostNudge(0)) && !Skee.App.accepts(r.model, TapCloseHost), "the card covers the table"), expect(host_lines(r) == ["Here's my offer: one free night. A night is one game that starts with bonus tickets. Ask me for more nights, tickets or prize credit. Tap DEAL when you're happy."], "the stock hello")])
+  end
+
+  fn a_yes_asks_the_model_for_the_hello() : Outcome do
+    let r = tap(fresh_effects(at_first_host(boot_fresh())), TapHostConsent(true))
+    let body = last_body(r)
+    all([expect(saves(fx_of(r), KeyHostConsent) == ["true"], "the answer is saved"), expect(post_keys(r) == ["1/1"], "one call: " ++ String.join(post_keys(r), ",")), expect(String.contains(body, "\"model\":\"deepseek-chat\""), "DeepSeek's request"), expect(String.contains(body, "The guest has just sat down."), "the greeting messages"), expect(host_says(r, Skee.Host.is_waiting), "thinking"), expect(!Skee.App.accepts(r.model, TapHostDeal), "DEAL waits for the hello"), expect(!Skee.App.accepts(r.model, TapHostSend), "so does SAY")])
+  end
+
+  fn the_hello_takes_the_stock_lines_place() : Outcome do
+    let r = first_host_talking()
+    all([expect(host_lines(r) == ["Welcome in, friend! One free night to start."], "the model's hello: " ++ String.join(host_lines(r), " | ")), expect(!host_says(r, Skee.Host.is_waiting), "no longer thinking"), expect(Skee.App.accepts(r.model, TapHostSend) && Skee.App.accepts(r.model, TapHostDeal), "SAY and DEAL"), expect(List.is_empty(posts(fx_of(r))), "nothing more is sent")])
+  end
+
+  fn a_line_goes_to_the_model_and_its_reply_moves_the_offer() : Outcome do
+    let talking = first_host_talking()
+    let typed = deliver(fresh_effects(talking), MsgHostDraft("Could I get two nights?"))
+    let sent = tap(typed, TapHostSend)
+    let heard = answer_reply(sent, "Two nights it is, my friend.", 2, 0, 0)
+    all([expect(Skee.App.draft_of(typed.model) == "Could I get two nights?", "the draft is the model's"), expect(Skee.App.draft_of(sent.model) == "", "SAY clears it"), expect(post_keys(sent) == ["1/2"], "one call"), expect(String.contains(last_body(sent), "Could I get two nights?"), "the line is in the request"), expect(List.length(host_lines(sent)) == 2, "the line is on the table"), expect(host_lines(heard) == ["Welcome in, friend! One free night to start.", "Could I get two nights?", "Two nights it is, my friend."], "the reply is heard"), expect(offer_nights(talking) == 1 && offer_nights(heard) == 2, "the offer moves through Haggle.hear"), expect(has_haptic(fx_of(heard), fn h -> is_impact(h, ImpactLight, 1.0)), "the reply's tap")])
+  end
+
+  fn a_nudge_says_its_line() : Outcome do
+    let r = tap(fresh_effects(first_host_talking()), TapHostNudge(1))
+    let off_end = tap(first_host_talking(), TapHostNudge(3))
+    all([expect(String.contains(last_body(r), "Tickets would help."), "the nudge is sent"), expect(List.length(host_lines(r)) == 2, "and said"), expect(!Skee.App.accepts(off_end.model, TapHostNudge(3)), "only the three nudges")])
+  end
+
+  fn a_draft_is_cut_to_the_longest_line() : Outcome do
+    let long = String.join(List.map(List.range(0, 250), fn _ -> "a"), "")
+    let r = deliver(first_host_talking(), MsgHostDraft(long))
+    expect_int(Skee.SwiftText.count(Skee.App.draft_of(r.model)), Skee.HostGuard.max_line(), "HostGuard.maxLine characters")
+  end
+
+  fn a_429_shows_the_failure_and_retry_sends_it_again() : Outcome do
+    let sent = type_and_send(first_host_talking(), "Two nights?")
+    let first_body = last_body(sent)
+    let limited = answer(sent, 429, "{\"error\":\"slow down\"}")
+    let retried = tap(fresh_effects(limited), TapHostRetry)
+    let heard = answer_reply(retried, "Fine, two nights.", 2, 0, 0)
+    all([expect(failure_of(limited) == Some(FailHttp(429, "{\"error\":\"slow down\"}")), "the typed failure"), expect(List.length(host_lines(limited)) == 2, "no host line is invented"), expect(offer_nights(limited) == 1, "the offer stays"), expect(List.is_empty(posts(fx_of(limited))), "nothing resent by itself"), expect(Skee.App.accepts(limited.model, TapHostRetry), "RETRY"), expect(Skee.App.accepts(limited.model, TapHostDeal), "the offer can still be signed"), expect(Skee.App.accepts(limited.model, TapCloseHost), "or the table left"), expect(!Skee.App.accepts(limited.model, TapHostSend) && !Skee.App.accepts(limited.model, TapHostNudge(0)), "no new line while the failure shows"), expect(post_keys(retried) == ["1/3"], "RETRY makes the call again"), expect(last_body(retried) == first_body, "the same request"), expect(failure_of(heard) == None && offer_nights(heard) == 2, "and the answer is heard")])
+  end
+
+  fn every_failure_is_typed() : Outcome do
+    let sent = type_and_send(first_host_talking(), "Two nights?")
+    let lost =
+      match last_post(sent) do
+      Some(p) -> deliver(sent, MsgHostFailed(Tuple.first(p), "offline"))
+      None -> sent
+      end
+    let server = answer(sent, 500, "oops")
+    let garbage = answer(sent, 200, "<html>not json</html>")
+    let cut =
+      answer(sent, 200, envelope(host_reply("Two nights", 2, 0, 0, 0, false), "length"))
+    all([expect(failure_of(lost) == Some(FailNetwork("offline")), "no answer"), expect(failure_of(server) == Some(FailHttp(500, "oops")), "an HTTP error"), expect(failure_of(garbage) == Some(FailMalformed("<html>not json</html>")), "an unreadable response"), expect(failure_of(cut) == Some(FailTruncated), "a reply cut off"), expect(List.all([lost, server, garbage, cut], fn r -> List.length(host_lines(r)) == 2 && Skee.App.accepts(r.model, TapHostRetry) && Skee.App.accepts(r.model, TapHostDeal)), "each: no line, RETRY and DEAL")])
+  end
+
+  fn a_refused_reply_is_asked_for_again_then_fails() : Outcome do
+    let sent = type_and_send(first_host_talking(), "Two nights?")
+    let bad =
+      envelope(host_reply("Visit www.example.com for more", 2, 0, 0, 0, false), "stop")
+    let once = answer(sent, 200, bad)
+    let twice = answer(once, 200, bad)
+    let thrice = answer(twice, 200, bad)
+    all([expect(post_keys(once) == ["1/3"], "a refused reply asks again: " ++ String.join(post_keys(once), ",")), expect(String.contains(last_body(once), "Your last reply broke a rule"), "with DeepSeek's note"), expect(host_says(once, Skee.Host.is_waiting), "still thinking"), expect(post_keys(twice) == ["1/4"], "the third try"), expect(List.is_empty(posts(fx_of(thrice))), "then no more"), expect(is_unreadable(failure_of(thrice)), "FailUnreadable"), expect(List.length(host_lines(thrice)) == 2, "nothing heard")])
+  end
+
+  fn is_unreadable(f : Option(Skee.Host.HostFailure)) : Bool do
+    match f do
+    Some(FailUnreadable(_)) -> true
+    Some(_) -> false
+    None -> false
+    end
+  end
+
+  fn a_screened_line_is_answered_without_the_model() : Outcome do
+    let r = type_and_send(first_host_talking(), "honestly I want to die")
+    let lines = host_lines(r)
+    let last = Option.unwrap_or(last_of(lines), "")
+    all([expect(List.is_empty(posts(fx_of(r))), "never sent"), expect(List.length(lines) == 3, "answered at once"), expect(String.contains(last, "988"), "HostGuard's line: " ++ last), expect(!host_says(r, Skee.Host.is_waiting), "nothing out")])
+  end
+
+  fn an_answer_for_another_call_is_ignored() : Outcome do
+    let sent = type_and_send(first_host_talking(), "Two nights?")
+    let wrong_table =
+      deliver(sent, MsgHostReply({ key_table: 9, key_call: 2 }, 200, envelope(host_reply("Sure", 2, 0, 0, 0, false), "stop")))
+    let wrong_call =
+      deliver(sent, MsgHostReply({ key_table: 1, key_call: 1 }, 200, envelope(host_reply("Sure", 2, 0, 0, 0, false), "stop")))
+    let no_table =
+      deliver(into_game(boot_fresh()), MsgHostReply({ key_table: 1, key_call: 1 }, 200, "{}"))
+    all([expect(List.length(host_lines(wrong_table)) == 2 && host_says(wrong_table, Skee.Host.is_waiting), "another table's answer"), expect(List.length(host_lines(wrong_call)) == 2 && host_says(wrong_call, Skee.Host.is_waiting), "a call already answered"), expect(hud_top(no_table.model) == LayerBase, "no table, nothing")])
+  end
+
+  fn deal_signs_the_offer_and_banks_it() : Outcome do
+    let heard =
+      answer_reply(type_and_send(first_host_talking(), "Could I get two nights and some tickets?"), "Two nights and five tickets a night.", 2, 5, 0)
+    let signed = tap(fresh_effects(heard), TapHostDeal)
+    let h =
+      Option.unwrap_or(haggle_of(signed), Skee.Host.new_haggle(k(), Boardwalk, Skee.U64.of_int(0), VisitArrival))
+    let deal = Skee.Host.final_comp(h)
+    let closed = tap(fresh_effects(signed), TapCloseHost)
+    let played = tap(closed, TapSkipWalkthrough)
+    let w = Skee.App.wallet_of(signed.model)
+    all([expect(h.haggle_status == HaggleSigned, "signed"), expect(deal.nights == offer_nights(heard), "the offer on the table"), expect(has_haptic(fx_of(signed), fn x -> is_notice(x, NoticeSuccess)), "the prize buzz"), expect(List.length(saves(fx_of(signed), KeyWallet)) == 1, "the wallet is saved"), expect(saves(fx_of(signed), KeyArrivalDone) == ["true"], "the arrival is done"), expect(comp_nights(w, Boardwalk) == deal.nights, "the nights are banked"), expect(!Skee.App.accepts(signed.model, TapHostDeal) && !Skee.App.accepts(signed.model, TapHostSend), "the table is over"), expect(Skee.App.accepts(signed.model, TapCloseHost), "LEARN TO PLAY"), expect(is_some_walk(Skee.App.walkthrough_of(closed.model)), "into the walkthrough"), expect(Skee.Units.tickets_int(Skee.App.extra_of(played.model)) == Skee.Units.tickets_int(deal.comp_tickets), "the first real game starts with the deal's tickets"), expect(comp_nights(Skee.App.wallet_of(played.model), Boardwalk) == deal.nights - 1, "and uses a night")])
+  end
+
+  fn comp_nights(w : Wallet, r : Room) : Int do
+    match Skee.Rooms.room_at(w.comps, r) do
+    Some(c) -> c.nights
+    None -> 0
+    end
+  end
+
+  fn a_deal_for_the_next_room_checks_into_it() : Outcome do
+    let asked = due_host(2000, Some("true"))
+    let hello =
+      answer_reply(asked, "Dee here. The Neon Lounge is yours tonight.", 1, 0, 0)
+    let signed = tap(hello, TapHostDeal)
+    let closed = tap(fresh_effects(signed), TapCloseHost)
+    let w = Skee.App.wallet_of(closed.model)
+    all([expect(post_keys(asked) == ["1/1"], "a saved yes asks for the hello at once"), expect(!Skee.App.accepts(asked.model, TapHostConsent(true)), "no card"), expect(haggle_subtitle(asked) == "your host " ++ Skee.Presentation.middle_dot() ++ " The Neon Lounge", "the next room's host"), expect(wallet_wallet_room(closed.model) == NeonLounge && run_room(closed.model) == NeonLounge, "checked in"), expect(Skee.Rooms.room_at(w.rooms, NeonLounge), "the room is yours"), expect(Skee.App.screen_of(closed.model) == GameScreen, "on the game"), expect(!is_some(Skee.App.host_of(closed.model)), "the table is gone")])
+  end
+
+  fn a_host_who_walks_ends_the_table() : Outcome do
+    let asked = due_host(2000, Some("true"))
+    let hello =
+      answer_reply(asked, "Dee here. The Neon Lounge is yours tonight.", 1, 0, 0)
+    let pushed = type_and_send(hello, "Give me more nights")
+    let walked =
+      answer(pushed, 200, envelope(host_reply("I am done here.", 1, 0, 0, -1, true), "stop"))
+    let h =
+      Option.unwrap_or(haggle_of(walked), Skee.Host.new_haggle(k(), Boardwalk, Skee.U64.of_int(0), VisitArrival))
+    let closed = tap(walked, TapCloseHost)
+    all([expect(h.haggle_status == HaggleWalked, "walked"), expect(List.length(saves(fx_of(walked), KeyWallet)) == 1, "settled: the opening offer is banked"), expect(comp_nights(Skee.App.wallet_of(walked.model), NeonLounge) == 1, "one night"), expect(Skee.App.accepts(walked.model, TapCloseHost) && !Skee.App.accepts(walked.model, TapHostDeal), "only CHECK IN"), expect(run_room(closed.model) == NeonLounge, "into the room")])
+  end
+
+  fn no_to_ai_chat_sends_nothing() : Outcome do
+    let r = tap(fresh_effects(at_first_host(boot_fresh())), TapHostConsent(false))
+    let typed = tap(deliver(r, MsgHostDraft("two nights")), TapHostSend)
+    let left = tap(fresh_effects(r), TapCloseHost)
+    all([expect(saves(fx_of(r), KeyHostConsent) == ["false"], "the answer is saved"), expect(List.is_empty(posts(fx_of(typed))), "nothing is sent"), expect(List.length(host_lines(typed)) == 1, "and no line taken"), expect(!Skee.App.accepts(r.model, TapHostSend), "SAY is off"), expect(Skee.App.accepts(r.model, TapHostDeal) && Skee.App.accepts(r.model, TapCloseHost), "sign or leave"), expect(is_some_walk(Skee.App.walkthrough_of(left.model)), "leaving the arrival starts the walkthrough"), expect(List.is_empty(saves(fx_of(left), KeyArrivalDone)) && List.is_empty(saves(fx_of(left), KeyWallet)), "with no deal, nothing is settled")])
+  end
+
+  fn reconsidering_asks_again() : Outcome do
+    let off = tap(at_first_host(boot_fresh()), TapHostConsent(false))
+    let again = tap(fresh_effects(off), TapHostReconsider)
+    let yes = tap(fresh_effects(again), TapHostConsent(true))
+    all([expect(saves(fx_of(again), KeyHostConsent) == [""], "the answer is forgotten"), expect(Skee.App.accepts(again.model, TapHostConsent(true)), "the card is back"), expect(post_keys(yes) == ["1/1"], "a yes asks for the hello")])
+  end
+
+  fn a_greeting_that_fails_leaves_the_stock_hello() : Outcome do
+    let asked = tap(at_first_host(boot_fresh()), TapHostConsent(true))
+    let failed = answer(asked, 503, "busy")
+    let again = tap(fresh_effects(failed), TapHostRetry)
+    all([expect(List.length(host_lines(failed)) == 1 && String.starts_with(Option.unwrap_or(List.head_opt(host_lines(failed)), ""), "Here's my offer"), "the stock hello shows"), expect(host_says(failed, fn s -> Skee.Host.greeting_failure(s) == Some(FailHttp(503, "busy"))), "the hello's failure"), expect(Skee.App.accepts(failed.model, TapHostSend) && Skee.App.accepts(failed.model, TapHostDeal), "the table goes on"), expect(Skee.App.accepts(failed.model, TapHostRetry), "RETRY asks again"), expect(post_keys(again) == ["1/2"], "for the hello")])
+  end
+
+  fn after_the_last_model_turn_only_sign_or_leave() : Outcome do
+    let r =
+      List.fold_left(List.range(0, 25), first_host_talking(), fn (acc, i) -> answer_reply(type_and_send(acc, "Tell me about the pier, part " ++ int_to_string(i)), "The pier is lovely at night.", 1, 0, 0))
+    all([expect(List.length(host_lines(r)) == 51, "25 lines answered: " ++ int_to_string(List.length(host_lines(r)))), expect(!host_says(r, Skee.Host.takes_lines), "no 26th"), expect(!Skee.App.accepts(r.model, TapHostSend) && !Skee.App.accepts(r.model, TapHostNudge(0)), "SAY and the nudges are off"), expect(Skee.App.accepts(r.model, TapHostDeal) && Skee.App.accepts(r.model, TapCloseHost), "sign or leave")])
+  end
+
+  fn leaving_a_failed_table_settles_nothing() : Outcome do
+    let asked = due_host(0, Some("true"))
+    let talking = answer_reply(asked, "Sal here. One night, on me?", 1, 0, 0)
+    let stuck = answer(type_and_send(talking, "Two nights?"), 429, "{}")
+    let left = tap(fresh_effects(stuck), TapCloseHost)
+    all([expect(Skee.App.accepts(stuck.model, TapCloseHost), "LEAVE while the failure shows"), expect(!is_some(Skee.App.host_of(left.model)), "the table is gone"), expect(List.is_empty(saves(fx_of(left), KeyWallet)) && List.is_empty(saves(fx_of(left), KeyRun)), "nothing settled or started"), expect(is_some(Skee.Rooms.host_due(Skee.App.wallet_of(left.model))), "the host is still due")])
+  end
+
+  fn is_some(o : Option(a)) : Bool do
+    match o do
+    Some(_) -> true
+    None -> false
+    end
   end
 
   fn the_prize_shop_buys_with_winnings() : Outcome do
@@ -924,7 +1231,7 @@ mod AppSuite do
     [
       case("boots fresh onto the title", fn () -> boots_fresh_onto_the_title()),
       case("boot saves a run that replays", fn () -> boot_saves_a_run_that_replays()),
-      case("Sal, then the placeholder host, then the walkthrough", fn () -> sal_then_the_placeholder_then_the_walkthrough()),
+      case("Sal, then the first host, then the walkthrough", fn () -> sal_then_the_first_host_then_the_walkthrough()),
       case("the practice game is not saved", fn () -> practice_is_not_saved()),
       case("the welcome card holds the game", fn () -> the_welcome_card_holds_the_game()),
       case("skipping ends the lesson with a new game", fn () -> skipping_ends_the_lesson_with_a_new_game()),
@@ -948,6 +1255,25 @@ mod AppSuite do
       case("a new game counts the one walked away from", fn () -> a_new_game_counts_the_one_walked_away_from()),
       case("an untouched game does not count", fn () -> an_untouched_game_does_not_count()),
       case("a due host sits down before the next game", fn () -> a_due_host_sits_down_before_the_next_game()),
+      case("host: the AI chat card comes first", fn () -> the_ai_chat_card_comes_first()),
+      case("host: a yes asks the model for the hello", fn () -> a_yes_asks_the_model_for_the_hello()),
+      case("host: the hello takes the stock line's place", fn () -> the_hello_takes_the_stock_lines_place()),
+      case("host: a line goes to the model and its reply moves the offer", fn () -> a_line_goes_to_the_model_and_its_reply_moves_the_offer()),
+      case("host: a nudge says its line", fn () -> a_nudge_says_its_line()),
+      case("host: a draft is cut to HostGuard.maxLine", fn () -> a_draft_is_cut_to_the_longest_line()),
+      case("host: a 429 shows the failure, RETRY sends it again", fn () -> a_429_shows_the_failure_and_retry_sends_it_again()),
+      case("host: every failure is typed", fn () -> every_failure_is_typed()),
+      case("host: a refused reply is asked for again, then fails", fn () -> a_refused_reply_is_asked_for_again_then_fails()),
+      case("host: a screened line is answered without the model", fn () -> a_screened_line_is_answered_without_the_model()),
+      case("host: an answer for another call is ignored", fn () -> an_answer_for_another_call_is_ignored()),
+      case("host: DEAL signs the offer and banks it", fn () -> deal_signs_the_offer_and_banks_it()),
+      case("host: a deal for the next room checks into it", fn () -> a_deal_for_the_next_room_checks_into_it()),
+      case("host: a host who walks ends the table", fn () -> a_host_who_walks_ends_the_table()),
+      case("host: no to AI chat sends nothing", fn () -> no_to_ai_chat_sends_nothing()),
+      case("host: reconsidering asks again", fn () -> reconsidering_asks_again()),
+      case("host: a hello that fails leaves the stock hello", fn () -> a_greeting_that_fails_leaves_the_stock_hello()),
+      case("host: after the last model turn, only sign or leave", fn () -> after_the_last_model_turn_only_sign_or_leave()),
+      case("host: leaving a failed table settles nothing", fn () -> leaving_a_failed_table_settles_nothing()),
       case("the prize shop buys with winnings", fn () -> the_prize_shop_buys_with_winnings()),
       case("rooms you own rebuild on the title", fn () -> rooms_you_own_rebuild_on_the_title()),
       case("the guide opens and replays the lesson", fn () -> the_guide_opens_and_replays_the_lesson()),

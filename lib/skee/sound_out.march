@@ -12,6 +12,7 @@ mod Skee.SoundOut do
     FxDrum(on_) -> Some(CmdDrum(on_))
     FxSave(_, _) -> None
     FxHaptic(_) -> None
+    FxHostPost(_, _) -> None
     end
   end
 

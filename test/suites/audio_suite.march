@@ -269,6 +269,7 @@ mod AudioSuite do
     FxDrum(on_) -> Skee.Synth.set_drum(s, on_)
     FxSave(_, _) -> s
     FxHaptic(_) -> s
+    FxHostPost(_, _) -> s
     end
   end
 

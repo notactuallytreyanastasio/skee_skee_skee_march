@@ -85,9 +85,29 @@ mod Hud do
     end
   end
 
+  -- A text field in a rewritten pane keeps its text, focus and caret.
   fn replace_pane(pane : Js.Dom.Node, html : String) : () do
-    Js.Dom.set_html(pane, html)
+    Glue.set_html_keeping(pane, html)
     Js.Dom.set_attr(pane, "data-src", html)
+  end
+
+  doc """
+  The host's text field holds the model's draft: after SAY clears it, or the
+  core cuts it to length. Writes only when the two differ, so an idle frame
+  and a keystroke (already in the model by MsgHostDraft) change nothing.
+  """
+  fn sync_fields(m : Skee.App.Model) : () do
+    match Js.Dom.find(Skee.HudView.draft_field_id()) do
+    Some(field) -> do
+      let want = Skee.App.draft_of(m)
+      if Js.Dom.get_value(field) != want do
+        Js.Dom.set_value(field, want)
+      else
+        ()
+      end
+    end
+    None -> ()
+    end
   end
 
   fn step(acc : (Skee.HudView.HudLocal, List(Skee.App.Msg)), a : Skee.App.AppHud, code : Int) : (Skee.HudView.HudLocal, List(Skee.App.Msg)) do

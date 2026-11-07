@@ -12,7 +12,7 @@ async function walk(g, fl) {
     if (m.live.includes("TapLeaveCounter")) return "counter";
     if (/GAME OVER/.test(m.text) && !m.live.includes("TapGotIt")) return "over";
     if (m.layer === "LayerArrival") { await g.press("TapArrivalNext"); continue; }
-    if (m.layer === "LayerHost") { await g.press("TapCloseHost"); continue; }
+    if (m.layer === "LayerHost") { await g.press(["TapHostConsent(false)", "TapHostDeal", "TapCloseHost"].find((i) => m.live.includes(i)) || "TapCloseHost"); continue; }
     if (m.live.includes("TapGotIt")) { console.log("  card " + (m.text.match(/([A-Z][A-Z !',.?]{5,}) SKIP/)?.[1])); await g.press("TapGotIt"); continue; }
     if (m.busy === "1") { await sleep(80); continue; }
     if (m.can === "1") { await g.flick(fl(i)); await sleep(120); await g.settle(); continue; }

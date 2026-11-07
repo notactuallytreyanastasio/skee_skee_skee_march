@@ -149,7 +149,13 @@ mod Skee.HudView do
       TapLeaveCounter,
       TapAskNewGame,
       TapKeepPlaying,
-      TapNewRun
+      TapNewRun,
+      TapHostSend,
+      TapHostDeal,
+      TapHostRetry,
+      TapHostReconsider,
+      TapHostConsent(true),
+      TapHostConsent(false)
     ]
   end
 
@@ -180,6 +186,13 @@ mod Skee.HudView do
     TapAskNewGame -> 16
     TapKeepPlaying -> 17
     TapNewRun -> 18
+    TapHostSend -> 19
+    TapHostDeal -> 20
+    TapHostRetry -> 21
+    TapHostReconsider -> 22
+    TapHostConsent(true) -> 23
+    TapHostConsent(false) -> 24
+    TapHostNudge(n) -> 7000 + n
     TapPickRoom(r) -> 100 + index_of(Skee.Rooms.all_rooms(), r)
     TapBuyPrize(p) -> 200 + index_of(Skee.Rooms.all_prizes(), p)
     TapSetBet(b) -> 300 + index_of(Skee.HudState.all_bets(), b)
@@ -231,7 +244,7 @@ mod Skee.HudView do
 
   doc """The action a `data-act` code names, if any."""
   fn decode(n : Int) : Option(HudAction) needs () do
-    first_some([ranged(n, 1, 100, plain_intents(), fn i -> ActIntent(i)), ranged(n, 100, 200, Skee.Rooms.all_rooms(), fn r -> ActIntent(TapPickRoom(r))), ranged(n, 200, 300, Skee.Rooms.all_prizes(), fn p -> ActIntent(TapBuyPrize(p))), ranged(n, 300, 400, Skee.HudState.all_bets(), fn b -> ActIntent(TapSetBet(b))), ranged(n, 400, 500, Skee.Items.all_balls(), fn b -> ActIntent(TapChooseBall(b))), indexed(1000, n, fn i -> if i == 999 do ActIntent(TapSelectOffer(None)) else ActIntent(TapArm(i)) end), indexed(2000, n, fn i -> ActIntent(TapSelectOffer(Some(i)))), indexed(3000, n, fn i -> ActIntent(TapBuyOffer(i))), indexed(4000, n, fn i -> ActIntent(TapCharm(i))), indexed(5000, n, fn i -> ActTopic(i)), if n == 6000 do Some(ActPageBack) else None end, if n == 6001 do Some(ActPageNext) else None end])
+    first_some([ranged(n, 1, 100, plain_intents(), fn i -> ActIntent(i)), ranged(n, 100, 200, Skee.Rooms.all_rooms(), fn r -> ActIntent(TapPickRoom(r))), ranged(n, 200, 300, Skee.Rooms.all_prizes(), fn p -> ActIntent(TapBuyPrize(p))), ranged(n, 300, 400, Skee.HudState.all_bets(), fn b -> ActIntent(TapSetBet(b))), ranged(n, 400, 500, Skee.Items.all_balls(), fn b -> ActIntent(TapChooseBall(b))), indexed(1000, n, fn i -> if i == 999 do ActIntent(TapSelectOffer(None)) else ActIntent(TapArm(i)) end), indexed(2000, n, fn i -> ActIntent(TapSelectOffer(Some(i)))), indexed(3000, n, fn i -> ActIntent(TapBuyOffer(i))), indexed(4000, n, fn i -> ActIntent(TapCharm(i))), indexed(5000, n, fn i -> ActTopic(i)), indexed(7000, n, fn i -> ActIntent(TapHostNudge(i))), if n == 6000 do Some(ActPageBack) else None end, if n == 6001 do Some(ActPageNext) else None end])
   end
 
   -- ===================================================================
@@ -2490,12 +2503,237 @@ mod Skee.HudView do
     end
   end
 
-  -- ---- The host: a labelled placeholder (the LLM host is not ported) ----
-  pfn host_pane(a : AppHud) : Html needs () do
-    match a.app_hud.host do
-    HostClosed -> nothing()
-    HostPlaceholder -> do
-      div("hud-block screen stripes", "", [div("host", "", [cel("THE HOST", 26.0, butter()), cel("PLACEHOLDER", 14.0, sky()), div("host-note", "", [plain("The host's table, where you haggle for free nights and rooms, talks through an AI chat that this browser build does not have yet. Nothing here is decided by it.", 20.0, 700, cream())]), spacer(), div("bottom-button", "", [tap_intent(TapCloseHost, [pill(mint(), 22.0, [cel("CLOSE", 26.0, cream())])])])])])
+  -- ---- The host's table: HostView ----
+  doc """The id of the host's text field, whose value the shell keeps equal to the model's draft."""
+  fn draft_field_id() : String needs () do
+    "host-draft"
+  end
+
+  pfn ellipsis() : String needs () do
+    Option.unwrap_or(String.from_codepoint(8230), "...")
+  end
+
+  -- SwiftUI's .disabled: shown dimmed, and no tap.
+  pfn dimmed(kid : Html) : Html needs () do
+    div("host-off", "opacity:0.5", [kid])
+  end
+
+  pfn enabled_button(on_ : Bool, i : Intent, kid : Html) : Html needs () do
+    if on_ do tap_intent(i, [kid]) else dimmed(kid) end
+  end
+
+  pfn host_term(value : String, label : String) : Html needs () do
+    div("vs host-term", "", [cel(value, 26.0, butter()), cel(label, 10.0, cream())])
+  end
+
+  pfn patience_dot(h : Skee.Host.Haggle, i : Int) : Html needs () do
+    let fill = if i < h.patience do mult_red() else alpha(ink(), 0.4) end
+    div("host-dot", "background:" ++ css(fill), [])
+  end
+
+  -- offerCard: the terms on the table, the host's patience, what they buy.
+  pfn host_offer_card(h : Skee.Host.Haggle) : Html needs () do
+    let o = h.haggle_offer
+    let nights_label = if o.nights == 1 do "NIGHT" else "NIGHTS" end
+    let terms =
+      hstack(14.0, [host_term(int_to_string(o.nights), nights_label), host_term("+" ++ int_to_string(Skee.Units.tickets_int(o.comp_tickets)), "TIX / NIGHT"), host_term(int_to_string(Skee.Units.winnings_int(o.credit)), "CREDIT")])
+    let dots =
+      List.map(List.range(0, Skee.Host.max_patience()), fn i -> patience_dot(h, i))
+    div("vs host-offer", "", [terms, hstack(4.0, Cons(cel("PATIENCE", 10.0, cream()), dots)), cel(Skee.Host.terms_note(), 11.0, cream())])
+  end
+
+  pfn bubble(l : Skee.Host.HaggleLine) : Html needs () do
+    match l.speaker do
+    SpeakerPlayer -> do
+      div("bubble-row mine", "", [div("bubble", "background:" ++ css(butter()), [plain(l.line_text, 15.0, 700, ink())])])
+    end
+    SpeakerHost -> do
+      div("bubble-row", "", [div("bubble", "background:" ++ css(lilac()), [plain(l.line_text, 15.0, 700, cream())])])
+    end
+    SpeakerStage -> do
+      div("bubble-row", "", [div("bubble stage", "background:" ++ css(mult_red()), [plain(l.line_text, 15.0, 800, cream())])])
+    end
+    end
+  end
+
+  doc """What a failure was, in a few words: the typed HostFailure, never a host line."""
+  fn failure_words(f : Skee.Host.HostFailure) : String needs () do
+    match f do
+    FailNetwork(why) -> why
+    FailHttp(code, _) -> do
+      if code == 429 do
+        "the relay's limit was hit (HTTP 429)"
+      else
+        "the relay answered HTTP " ++ int_to_string(code)
+      end
+    end
+    FailTruncated -> "the reply was cut off by the token limit"
+    FailMalformed(_) -> "the relay's answer was not understood"
+    FailUnreadable(_) -> "three replies broke the table's rules"
+    end
+  end
+
+  doc """The failure's constructor, for the playtest (data-failure)."""
+  fn failure_kind(f : Skee.Host.HostFailure) : String needs () do
+    match f do
+    FailNetwork(_) -> "FailNetwork"
+    FailHttp(code, _) -> "FailHttp(" ++ int_to_string(code) ++ ")"
+    FailTruncated -> "FailTruncated"
+    FailMalformed(_) -> "FailMalformed"
+    FailUnreadable(_) -> "FailUnreadable"
+    end
+  end
+
+  pfn failure_card(title : String, f : Skee.Host.HostFailure, retry : Bool, after : String) : Html needs () do
+    let again =
+      if retry do
+        tap_intent(TapHostRetry, [pill(sky(), 12.0, [cel("RETRY", 16.0, cream())])])
+      else
+        nothing()
+      end
+    Tag("div", [Prop("class", "host-failure"), Prop("data-failure", failure_kind(f))], [cel(title, 14.0, butter()), plain(failure_words(f), 13.0, 700, cream()), plain(after, 13.0, 700, alpha(cream(), 0.85)), again])
+  end
+
+  pfn host_note(text : String) : Html needs () do
+    div("host-failure", "", [plain(text, 13.0, 700, cream())])
+  end
+
+  -- Under the transcript: thinking, a failure with RETRY, or why the table
+  -- takes no line. There is no scripted host to fill in.
+  pfn table_note(t : Skee.App.HostShown) : Html needs () do
+    let s = t.table
+    let h = s.session_haggle
+    let name = String.to_uppercase(h.haggle_host.host_name)
+    match Skee.Host.thinking_text(s) do
+    Some(text) -> div("host-thinking", "", [plain(text, 14.0, 800, alpha(cream(), 0.8))])
+    None -> do
+      match Skee.Host.failure(s) do
+      Some(f) -> do
+        failure_card(name ++ " COULDN'T ANSWER", f, Skee.Host.can_retry(s), "RETRY, or take the offer on the table.")
+      end
+      None -> do
+        match Skee.Host.greeting_failure(s) do
+        Some(f) -> do
+          failure_card(name ++ "'S OWN HELLO DIDN'T COME", f, Skee.Host.can_retry(s), "You can still talk, or take the offer.")
+        end
+        None -> idle_note(t)
+        end
+      end
+      end
+    end
+    end
+  end
+
+  pfn idle_note(t : Skee.App.HostShown) : Html needs () do
+    let s = t.table
+    if t.asking || Skee.Host.takes_lines(s) || !open_haggle(s.session_haggle) do
+      nothing()
+    else
+      if t.ai_chat do
+        host_note("That's all the talk this table takes. DEAL, or LEAVE.")
+      else
+        host_note("AI chat is off, so nothing you type is sent. DEAL, or LEAVE.")
+      end
+    end
+  end
+
+  pfn open_haggle(h : Skee.Host.Haggle) : Bool needs () do
+    match h.haggle_status do
+    HaggleOpen -> true
+    HaggleSigned -> false
+    HaggleWalked -> false
+    end
+  end
+
+  pfn transcript(t : Skee.App.HostShown) : Html needs () do
+    div("host-transcript", "", List.append(List.map(Skee.Host.shown_lines(t.table), bubble), [table_note(t)]))
+  end
+
+  pfn nudge(on_ : Bool, i : Int, text : String) : Html needs () do
+    enabled_button(on_, TapHostNudge(i), div("nudge", "", [plain(text, 12.0, 800, cream())]))
+  end
+
+  pfn draft_field(on_ : Bool) : Html needs () do
+    let base =
+      [
+        Prop("id", draft_field_id()),
+        Prop("class", "host-field"),
+        Prop("type", "text"),
+        Prop("placeholder", "Make your case" ++ ellipsis()),
+        Prop("autocomplete", "off"),
+        Prop("enterkeyhint", "send"),
+        Prop("data-draft", "")
+      ]
+    let live_props =
+      if on_ do
+        [Prop("data-enter", int_to_string(encode(ActIntent(TapHostSend))))]
+      else
+        [Prop("disabled", "")]
+      end
+    Tag("input", List.append(base, live_props), [])
+  end
+
+  -- controls: the nudges, the text field and SAY, DEAL; LEAVE while the
+  -- table takes no line.
+  pfn host_controls(t : Skee.App.HostShown) : Html needs () do
+    let s = t.table
+    let talk = Skee.Host.takes_lines(s) && !t.asking
+    let nudges =
+      hstack(6.0, List.map(List.enumerate(Skee.Host.nudges()), fn e -> nudge(talk, Tuple.first(e), Tuple.second(e))))
+    let field =
+      div("hs host-say", "gap:6px", [draft_field(talk), enabled_button(talk, TapHostSend, pill(sky(), 12.0, [cel("SAY", 16.0, cream())]))])
+    let deal =
+      enabled_button(Skee.Host.can_sign(s), TapHostDeal, pill(mint(), 18.0, [cel("DEAL", 24.0, cream())]))
+    let leave =
+      if Skee.App.can_leave(s) && !t.asking do
+        tap_intent(TapCloseHost, [pill(sky(), 18.0, [cel("LEAVE", 20.0, cream())])])
+      else
+        nothing()
+      end
+    div("vs host-controls", "gap:8px", [nudges, field, hstack(10.0, [deal, leave])])
+  end
+
+  pfn host_ending(h : Skee.Host.Haggle) : Html needs () do
+    let signed = h.haggle_status == HaggleSigned
+    div("vs host-ending", "gap:8px", [cel(Skee.Host.ending_title(h), 26.0, if signed do mint() else mult_red() end), cel(Skee.Host.ending_terms(h), 14.0, cream()), tap_intent(TapCloseHost, [pill(mint(), 18.0, [cel(Skee.Host.close_label(h), 24.0, cream())])])])
+  end
+
+  pfn ai_chat_label(on_ : Bool) : String needs () do
+    let state = if on_ do "ON" else "OFF" end
+    "AI CHAT IS " ++ state ++ " " ++ dot() ++ " TAP TO CHANGE"
+  end
+
+  pfn host_header(t : Skee.App.HostShown) : Html needs () do
+    let h = t.table.session_haggle
+    let label = cel(ai_chat_label(t.ai_chat), 10.0, sky())
+    let change = if t.asking do label else tap_intent(TapHostReconsider, [label]) end
+    div("vs tight host-head", "", [cel(String.to_uppercase(h.haggle_host.host_name), 26.0, butter()), change, cel(Skee.Host.subtitle(h), 14.0, cream())])
+  end
+
+  -- consentCard: asked before anything typed leaves the device.
+  pfn consent_card(h : Skee.Host.Haggle) : Html needs () do
+    let name = h.haggle_host.host_name
+    let says =
+      name ++ " can be played by an AI. If you say yes, what you type at this table goes through our server to a third-party AI model, which writes the replies. Your name and contacts are not sent, and we don't keep your chats. Please don't type anything private."
+    let after =
+      "With no, " ++ name ++ " sticks to simpler replies. You can change this at the top of this screen."
+    div("hud-block host-ask", "", [div("host-ask-card", "", [cel("TALK TO AN AI HOST?", 22.0, butter()), plain(says, 17.0, 600, cream()), tap_intent(TapHostConsent(true), [pill(mint(), 16.0, [cel("YES, USE THE AI", 18.0, cream())])]), tap_intent(TapHostConsent(false), [pill(sky(), 16.0, [cel("NO, KEEP IT ON MY PHONE", 15.0, cream())])]), plain(after, 14.0, 500, alpha(cream(), 0.85))])])
+  end
+
+  pfn host_table(t : Skee.App.HostShown) : Html needs () do
+    let h = t.table.session_haggle
+    let foot = if open_haggle(h) do host_controls(t) else host_ending(h) end
+    let table = div("host", "", [host_header(t), host_offer_card(h), transcript(t), foot])
+    if t.asking do inert(table) else table end
+  end
+
+  doc """HostView: the table, and the AI chat card over it until it is answered."""
+  fn host_pane(a : AppHud) : Html needs () do
+    match a.host_shown do
+    None -> nothing()
+    Some(t) -> do
+      let card = if t.asking do consent_card(t.table.session_haggle) else nothing() end
+      div("hud-block screen stripes", "", [host_table(t), card])
     end
     end
   end
@@ -2546,7 +2784,7 @@ mod Skee.HudView do
   pfn inert_prop(p : Prop) : Option(Prop) needs () do
     match p do
     Prop(name, value) -> do
-      if name == "data-act" || name == "data-intent" || name == "role" || name == "data-drag" do
+      if name == "data-act" || name == "data-intent" || name == "role" || name == "data-drag" || name == "data-enter" do
         None
       else
         if name == "class" && value == "hb" do

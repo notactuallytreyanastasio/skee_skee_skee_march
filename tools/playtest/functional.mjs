@@ -125,7 +125,7 @@ async function step(page, opts = {}) {
   const m = await marks(page);
   const live = m.live;
   if (m.layer === "LayerArrival") { await press(page, "TapArrivalNext"); return "arrival"; }
-  if (m.layer === "LayerHost") { await press(page, "TapCloseHost"); return "host"; }
+  if (m.layer === "LayerHost") { await press(page, ["TapHostConsent(false)", "TapHostDeal", "TapCloseHost"].find((i) => live.includes(i)) || "TapCloseHost"); return "host"; }
   if (m.layer === "LayerConfirmNew") { await press(page, opts.confirmNew ? "TapNewRun" : "TapKeepPlaying"); return "confirm"; }
   if (live.includes("TapGotIt")) { log("coach: " + hudLine(m.text)); await shot(page, "coach"); await press(page, "TapGotIt"); return "gotit"; }
   if (m.busy === "1") { await sleep(100); return "busy"; }
@@ -216,7 +216,7 @@ async function run(browser) {
   for (let i = 0; i < 10; i++) {
     const m = await marks(page);
     if (m.layer === "LayerArrival") await press(page, "TapArrivalNext");
-    else if (m.layer === "LayerHost") await press(page, "TapCloseHost");
+    else if (m.layer === "LayerHost") await press(page, ["TapHostConsent(false)", "TapHostDeal", "TapCloseHost"].find((i) => m.live.includes(i)) || "TapCloseHost");
     else if (m.live.includes("TapSkipWalkthrough")) { await press(page, "TapSkipWalkthrough"); break; }
     else await sleep(200);
   }

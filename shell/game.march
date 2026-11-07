@@ -7,8 +7,11 @@ mod Game do
   --   events    canvas pointer events, visibility and resizes become Msgs
   --   per frame update(MsgTick(t)), paint scene_ops, render the HUD, whose
   --             queued taps come back as MsgTap
-  --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate, and
-  --             every effect to Audio.apply (sound, rumble, drum)
+  --   fields    an edit of the host's text field becomes MsgHostDraft
+  --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate,
+  --             FxHostPost to the same-origin relay (its answer comes back
+  --             as MsgHostReply or MsgHostFailed), and every effect to
+  --             Audio.apply (sound, rumble, drum)
   --
   -- Every rule is in Skee.App; nothing here looks at the game. Times are on
   -- one clock, performance.now() / 1000 (rAF's time and every event's
@@ -46,6 +49,7 @@ mod Game do
     KeyTips -> "skee.tipsSeen"
     KeyWalkthroughDone -> "skee.walkthroughDone"
     KeyArrivalDone -> "skee.arrivalDone"
+    KeyHostConsent -> "skee.hostConsent"
     end
   end
 
@@ -59,7 +63,8 @@ mod Game do
       saved_run: stored(KeyRun),
       saved_tips: stored(KeyTips),
       saved_walk_done: stored(KeyWalkthroughDone),
-      saved_arrival_done: stored(KeyArrivalDone)
+      saved_arrival_done: stored(KeyArrivalDone),
+      saved_host_consent: stored(KeyHostConsent)
     }
   end
 
@@ -90,7 +95,19 @@ mod Game do
     FxSound(_) -> ()
     FxRumble(_) -> ()
     FxDrum(_) -> ()
+    FxHostPost(key, body) -> host_post(key, body)
     end
+  end
+
+  -- FxHostPost: the one network call. What came back goes to the model
+  -- under the call's key, as it came.
+  fn host_post(key : Skee.App.CallKey, body : String) : () do
+    Glue.host_post(body, Skee.App.host_timeout_ms(), fn answer -> host_replied(key, answer), fn reason -> dispatch(MsgHostFailed(key, reason)))
+  end
+
+  fn host_replied(key : Skee.App.CallKey, answer : (Int, String)) : () do
+    let (status, body) = answer
+    dispatch(MsgHostReply(key, status, body))
   end
 
   fn perform(s : ShellState, effects : List(Skee.App.Effect)) : () do
@@ -181,7 +198,9 @@ mod Game do
     let s = glue_cell_get()
     Paint.frame(s.ctx, s.k, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
     List.each(Hud.render(s.hud, s.model), dispatch)
-    mark(s.model)
+    let after = glue_cell_get()
+    Hud.sync_fields(after.model)
+    mark(after.model)
     Glue.request_frame(fn next -> frame(next))
   end
 
@@ -231,6 +250,7 @@ mod Game do
     perform(s, effects)
     Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
     Glue.on_drag(hud.hud_root, fn p -> lever_touch(knob_down(p)), fn p -> lever_touch(knob_move(p)), fn p -> lever_touch(knob_up(p)), fn () -> lever_touch(LeverLost))
+    Glue.on_fields(hud.hud_root, fn text -> dispatch(MsgHostDraft(text)))
     Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
     Glue.request_frame(fn t -> frame(t))
   end

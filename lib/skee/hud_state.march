@@ -9,7 +9,7 @@ mod Skee.HudState do
   -- sets. HUDState's fields that `make` never touches (wallet, coach card, shop,
   -- guide, known tips, Sal's arrival line, safe-area insets, the thumb trail and
   -- the aim guide) belong to the shell and to the pieces that port them. The
-  -- host's table is out of scope for now: `host` is the seam it will fill.
+  -- host's table is Skee.App's HostShown; `host` only says it is up.
   cap pure
 
   -- A CGPoint on screen.
@@ -21,9 +21,9 @@ mod Skee.HudState do
 
   derive Eq, Show for HudScreen
 
-  -- Where the host's table will go. Nothing opens it yet: the host is not ported
-  -- (an LLM feature, docs/PORT.md), and the shell shows a labelled placeholder.
-  type HostSeam = HostClosed | HostPlaceholder
+  -- HUDState.host: whether the host's table is up. What it shows (Swift's
+  -- HostState) is Skee.App's HostShown, which Skee.App.hud sets beside this.
+  type HostSeam = HostClosed | HostAtTable
 
   derive Eq, Show for HostSeam
 
