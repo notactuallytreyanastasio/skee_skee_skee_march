@@ -47,10 +47,13 @@ func c64(_ x: Double) -> String { f64(x.isNaN ? Double.nan : x) }
 // ---- What libm gave Swift ----
 // In a release build LLVM turns sin(x) and cos(x) of one argument into a single
 // __sincos_stret, which is not always sin(): -0.10724695550399452 differs in the
-// last bit. simulateShot takes four such pairs, so a release golden holds shots no
-// plain sin can reproduce. `pair` is compiled the same way, so it returns what
-// simulateShot used, in either build. Each shot row records its four pairs. A replay
-// that runs on them and matches every bit is the proof that this is true.
+// last bit. So a release golden holds shots no plain sin can reproduce. simulateShot
+// takes four pairs. The optimiser merges three, the lane's two and the hinge's, and
+// leaves the tilt's as sin and cos, because its calls land in separate basic blocks:
+// otool on ShotSim.run shows 3 __sincos_stret, and the tilt's own _cos and _sin.
+// `pair` is compiled the same way as those three, so it returns what simulateShot
+// used, in either build. Each shot row records all four. A compiler that merges
+// differently fails the replay, which must match every bit.
 @inline(never) func pair(_ x: Double) -> (Double, Double) { (sin(x), cos(x)) }
 @inline(never) func soloSin(_ x: Double) -> Double { sin(x) }
 @inline(never) func soloCos(_ x: Double) -> Double { cos(x) }
@@ -60,10 +63,13 @@ func pairDiffers(_ x: Double) -> Bool {
 }
 
 func trigTokens(_ l: Launch, _ t: Table) -> [String] {
-    [l.aim * t.lane.maxAimAngle, t.lane.incline, t.board.tilt, t.hinge.launchAngle(fold: l.fold)].flatMap { x -> [String] in
+    let merged = { (x: Double) -> [String] in
         let (s, c) = pair(x)
         return [c64(s), c64(c)]
     }
+    return merged(l.aim * t.lane.maxAimAngle) + merged(t.lane.incline)
+        + [c64(soloSin(t.board.tilt)), c64(soloCos(t.board.tilt))]
+        + merged(t.hinge.launchAngle(fold: l.fold))
 }
 
 // The sines a shot takes step by step: a wobbler's sway, and a bean's height on the
@@ -409,6 +415,11 @@ for n in 0..<20000 {
     let l = Launch(power: power, aim: aim, start: start, fold: fold, spin: spin, skid: skid)
     let res = simulateShot(l, on: tables[id], ball: ball, seed: seed)
     bulkRow.append("\(res.hole.rawValue).\(res.events.count).\(res.path.count)")
+    // Plain sin and cos cannot reproduce this shot, so a native difference is excused.
+    let table = tables[id]
+    if [l.aim * table.lane.maxAimAngle, table.lane.incline, table.hinge.launchAngle(fold: l.fold)].contains(where: pairDiffers) {
+        g.line("bulkpair", i(n))
+    }
     if bulkRow.count == 100 {
         g.line("bulk", bulkRow.joined(separator: ","))
         bulkRow = []
@@ -810,6 +821,21 @@ for _ in 0..<2_000_000 where differing < 24 {
     shot(.power(gu(0.3, 0.95), aim, 0, 0, 0, 0), ball.modify(.standard), ball, gameRng.next())
 }
 print("pairs differing", differing)
+
+// Throws that leave Swift on V8: a last-bit difference, multiplied by a run of
+// bounces, ends in a different number of events. Re-seeding the bulk rows found them,
+// three in two hundred thousand. Each is here so that its replay proves the cause.
+for (salt, wanted) in [(9, [18779]), (7, [6364, 10074])] as [(UInt64, [Int])] {
+    var rng = SplitMix64(seed: 0xB01C_5EED ^ salt)
+    @MainActor func draw(_ lo: Double, _ hi: Double) -> Double { lo + rng.nextUnit() * (hi - lo) }
+    for n in 0...wanted.max()! {
+        let (id, ball) = combos[n % combos.count]
+        let power = draw(0.3, 0.95), aim = draw(-0.5, 0.5), start = draw(-1, 1)
+        let fold = draw(0, 1), spin = draw(-1, 1), skid = draw(0, 1)
+        let seed = rng.next()
+        if wanted.contains(n) { shot(.power(power, aim, start, fold, spin, skid), tables[id], ball, seed) }
+    }
+}
 
 // Sorted by argument, which is how the suite builds its search tree.
 for (key, value) in sineBook.sorted(by: { Double(bitPattern: $0.key) < Double(bitPattern: $1.key) }) {

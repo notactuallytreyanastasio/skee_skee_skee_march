@@ -113,6 +113,30 @@ mod PhysicsSuite do
     all(List.append(List.map(GoldenIo.of_kind(rows, "launchp"), fn row -> launch_power_row(k, row)), List.map(GoldenIo.of_kind(rows, "launchs"), fn row -> launch_speed_row(k, row))))
   end
 
+  fn saved_field(token : String) : Option(Float) do
+    if token == "none" do None else Some(f(token)) end
+  end
+
+  fn saved_of(row : List(String)) : Skee.Physics.SavedLaunch do
+    let s : Skee.Physics.SavedLaunch =
+      {
+        saved_power: at(row, 0),
+        saved_aim: at(row, 1),
+        saved_start: saved_field(token(row, 2)),
+        saved_fold: saved_field(token(row, 3)),
+        saved_spin: saved_field(token(row, 4)),
+        saved_skid: saved_field(token(row, 5)),
+        saved_speed: saved_field(token(row, 6)),
+        saved_from: saved_field(token(row, 7))
+      }
+    s
+  end
+
+  fn saved_case(rows : List(List(String))) : Outcome do
+    let k = consts()
+    all(List.map(GoldenIo.of_kind(rows, "saved"), fn row -> expect_launch(Skee.Physics.launch_of_saved(k, saved_of(row)), slice(row, 8, 8), "saved launch")))
+  end
+
   fn hole_of(name : String) : Hole do
     match name do
     "gutter" -> Gutter
@@ -364,7 +388,8 @@ mod PhysicsSuite do
     events_ok : Bool,
     count_ok : Bool,
     check : ShotCheck,
-    first_diff : String
+    first_diff : String,
+    pair_differs : Bool
   }
 
   fn shot_launch(k : Skee.Consts.Consts, row : List(String)) : Launch do
@@ -464,7 +489,7 @@ mod PhysicsSuite do
     every([time(t, token(row, 22)), sum_position(x, token(row, 23), n), sum_position(along, token(row, 24), n), sum_position(height, token(row, 25), n)])
   end
 
-  fn judge(row : List(String), r : ShotResult) : ShotVerdict do
+  fn judge(row : List(String), r : ShotResult, pair_differs : Bool) : ShotVerdict do
     let names = String.join(List.map(r.events, fn e -> event_name(e.event)), ",")
     let (t, x, along, height) = sums_of(r.path)
     let parts =
@@ -489,29 +514,114 @@ mod PhysicsSuite do
       events_ok: names == token(row, 19) && Skee.Physics.rattles(r) == GoldenIo.int(token(row, 18)),
       count_ok: List.length(r.path) == GoldenIo.int(token(row, 21)),
       check: every(List.map(parts, fn p -> Tuple.second(p))),
-      first_diff: String.join(List.map(bad, fn p -> Tuple.first(p)), "+")
+      first_diff: String.join(List.map(bad, fn p -> Tuple.first(p)), "+"),
+      pair_differs: pair_differs
     }
   end
 
-  fn replay(k : Skee.Consts.Consts, tables : List(Table), row : List(String)) : ShotVerdict do
-    let t = table_at(tables, token(row, 1))
-    judge(row, Skee.Physics.simulate_shot(k, shot_launch(k, row), t, ball_of(token(row, 2)), GoldenIo.u64(token(row, 3))))
+  -- ---- Swift's libm, replayed ----
+  -- A shot depends on libm through its four sin and cos pairs, and a wobbler's sway
+  -- and a bean's lane height. The rows hold what Swift got for all of them, so a
+  -- replay can run on Swift's values and needs no tolerance on any target.
+  fn swift_pair(row : List(String), i : Int) : Skee.Physics.SinCos do
+    { sine: at(row, i), cosine: at(row, i + 1) }
   end
 
+  fn book_from(n : Int, entries : List(List(String))) : (Skee.Physics.SineBook, List(List(String))) do
+    if n == 0 do
+      (NoSines, entries)
+    else
+      do
+        let half = n / 2
+        let (left, rest) = book_from(half, entries)
+        match rest do
+        Cons(entry, more) -> do
+          let (right, after) = book_from(n - half - 1, more)
+          (SineNode(left, at(entry, 0), at(entry, 1), right), after)
+        end
+        Nil -> panic("golden sines ran out")
+        end
+      end
+    end
+  end
+
+  -- The rows are sorted by argument.
+  -- An argument not in the book asks libm: a bean's height on an unrecorded step,
+  -- whose result nothing keeps. Any other miss would show in the replay.
+  fn sine_book(rows : List(List(String))) : Skee.Physics.SineBook do
+    let entries = GoldenIo.of_kind(rows, "sine")
+    Tuple.first(book_from(List.length(entries), entries))
+  end
+
+  fn swift_trig(book : Skee.Physics.SineBook, row : List(String)) : Skee.Physics.ShotTrig do
+    {
+      aim_angle: swift_pair(row, 27),
+      incline: swift_pair(row, 29),
+      tilt: swift_pair(row, 31),
+      hinge_angle: swift_pair(row, 33),
+      sines: book
+    }
+  end
+
+  fn same_pair(p : Skee.Physics.SinCos, row : List(String), i : Int) : Bool do
+    same_bits(p.sine, token(row, i)) && same_bits(p.cosine, token(row, i + 1))
+  end
+
+  -- Whether this target's sin and cos of a shot's angles are not what Swift got.
+  -- Swift's release build takes each pair from one __sincos_stret, which is not
+  -- always sin(), so this happens natively too, though seldom.
+  fn pair_differs(trig : Skee.Physics.ShotTrig, row : List(String)) : Bool do
+    !(same_pair(trig.aim_angle, row, 27) && same_pair(trig.incline, row, 29) && same_pair(trig.tilt, row, 31) && same_pair(trig.hinge_angle, row, 33))
+  end
+
+  -- Whether the rows hold every libm value this shot took. Natively the sines need
+  -- no book: they are the same libm.
+  fn replayable(row : List(String)) : Bool do
+    !Harness.on_js() || token(row, 35) == "1"
+  end
+
+  fn shot_table(tables : List(Table), row : List(String)) : Table do
+    table_at(tables, token(row, 1))
+  end
+
+  fn shipped(k : Skee.Consts.Consts, tables : List(Table), row : List(String)) : ShotVerdict do
+    let t = shot_table(tables, row)
+    let l = shot_launch(k, row)
+    judge(row, Skee.Physics.simulate_shot(k, l, t, ball_of(token(row, 2)), GoldenIo.u64(token(row, 3))), pair_differs(Skee.Physics.shot_trig(l, t), row))
+  end
+
+  fn replayed(k : Skee.Consts.Consts, tables : List(Table), book : Skee.Physics.SineBook, row : List(String)) : ShotVerdict do
+    let t = shot_table(tables, row)
+    let l = shot_launch(k, row)
+    judge(row, Skee.Physics.simulate_with(k, swift_trig(book, row), l, t, ball_of(token(row, 2)), GoldenIo.u64(token(row, 3))), false)
+  end
+
+  doc """Every golden shot as the game would throw it, on this target's libm."""
   fn verdicts(rows : List(List(String))) : List(ShotVerdict) do
     let k = consts()
     let tables = tables_of(rows)
-    List.map(GoldenIo.of_kind(rows, "shot"), fn row -> replay(k, tables, row))
+    List.map(GoldenIo.of_kind(rows, "shot"), fn row -> shipped(k, tables, row))
   end
 
-  -- The declared tolerance for a shot on JS, in metres. V8's sin and cos differ
-  -- from Darwin's by an ulp, and bounces amplify that. It covers position values
-  -- and the mean gap of the path sums, nothing else: holes, events, phases, every
-  -- time, sample counts, Some against None and NaN against a number get no
-  -- tolerance at all, and native gets none anywhere.
-  -- Measured worst case: see the DIVERGENCE line the runner prints.
-  fn js_path_tolerance() : Float do
-    0.00000001
+  doc """Every golden shot it can replay, on the libm values Swift got."""
+  fn replays(rows : List(List(String))) : List(ShotVerdict) do
+    let k = consts()
+    let tables = tables_of(rows)
+    let book = sine_book(rows)
+    List.map(List.filter(GoldenIo.of_kind(rows, "shot"), replayable), fn row -> replayed(k, tables, book, row))
+  end
+
+  -- The limit on a shot as shipped, in metres: one millimetre, which nobody can see
+  -- on a board a metre long. It is a limit, not a bound on what libm can do. Bounces
+  -- multiply a last-bit difference, and nothing stops that from growing past any
+  -- number. What proves the port is the replay above, with no tolerance at all. This
+  -- only says a shipped shot has not visibly left Swift's. It covers position values
+  -- and the mean gap of the path sums. Holes, events, phases, every time, sample
+  -- counts, Some against None and NaN against a number get no tolerance, on JS or
+  -- natively, and natively a shot gets none unless its pair differs.
+  -- Measured: see the DIVERGENCE line the runner prints.
+  fn visible_gap() : Float do
+    0.001
   end
 
   fn describe(v : ShotVerdict) : String do
@@ -526,12 +636,21 @@ mod PhysicsSuite do
     if shape_ok(v) && v.check.same do
       Passed(1)
     else
-      if Harness.on_js() && shape_ok(v) && v.check.gap <= js_path_tolerance() do
+      if shape_ok(v) && v.check.gap <= visible_gap() && (Harness.on_js() || v.pair_differs) do
         Drifted(1, 1, v.check.ulps)
       else
         Mismatch(describe(v))
       end
     end
+  end
+
+  -- A replay shares every libm value with Swift, so nothing may differ at all.
+  fn exact_outcome(v : ShotVerdict) : Outcome do
+    if shape_ok(v) && v.check.same do Passed(1) else Mismatch(describe(v)) end
+  end
+
+  fn replay_case(vs : List(ShotVerdict)) : Outcome do
+    all(Cons(expect(!List.is_empty(vs), "replayed nothing"), List.map(vs, exact_outcome)))
   end
 
   fn count_if(vs : List(ShotVerdict), keep : ShotVerdict -> Bool) : Int do
@@ -542,10 +661,15 @@ mod PhysicsSuite do
     List.fold_left(vs, 0.0, fn (acc, v) -> Skee.Maths.max_float(acc, pick(v)))
   end
 
+  doc """Replays that match Swift, of how many, as one line."""
+  fn replay_line(vs : List(ShotVerdict), all_shots : List(ShotVerdict)) : String do
+    "REPLAY shots=" ++ int_to_string(List.length(vs)) ++ " of " ++ int_to_string(List.length(all_shots)) ++ " bit_exact=" ++ int_to_string(count_if(vs, fn v -> shape_ok(v) && v.check.same)) ++ " tolerance=none"
+  end
+
   doc """The measured divergence from Swift over every golden shot, as one line."""
   fn divergence_line(vs : List(ShotVerdict)) : String do
     let n = fn p -> int_to_string(count_if(vs, p))
-    "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
+    "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " pairs_differ=" ++ n(fn v -> v.pair_differs) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
   end
 
   -- ---- What counts as drift ----
@@ -578,7 +702,8 @@ mod PhysicsSuite do
       events_ok: true,
       count_ok: true,
       check: c,
-      first_diff: "self"
+      first_diff: "self",
+      pair_differs: true
     }
   end
 
@@ -591,11 +716,29 @@ mod PhysicsSuite do
   end
 
   fn is_tolerated(c : ShotCheck, what : String) : Outcome do
-    let want_drift = Harness.on_js()
     match outcome_of(verdict_of(c)) do
-    Mismatch(text) -> if want_drift do Mismatch(what ++ ": " ++ text) else Passed(1) end
+    Mismatch(text) -> Mismatch(what ++ ": " ++ text)
     Passed(_) -> Mismatch(what ++ " was passed")
-    Drifted(_, _, _) -> if want_drift do Passed(1) else Mismatch(what ++ " drifted on native") end
+    Drifted(_, _, _) -> Passed(1)
+    end
+  end
+
+  -- Natively, a pair that agrees with Swift's leaves nothing to excuse a gap.
+  fn needs_a_cause(c : ShotCheck) : Outcome do
+    let v = verdict_of(c)
+    match outcome_of({ v with pair_differs: false }) do
+    Mismatch(text) -> if Harness.on_js() do Mismatch(text) else Passed(1) end
+    Passed(_) -> Mismatch("a gap was passed")
+    Drifted(_, _, _) -> if Harness.on_js() do Passed(1) else Mismatch("a gap with no cause drifted on native") end
+    end
+  end
+
+  fn replay_is_exact() : Outcome do
+    let gap = position(0.000000001, zero_bits())
+    match exact_outcome(verdict_of(gap)) do
+    Mismatch(_) -> Passed(1)
+    Passed(_) -> Mismatch("a replay let a gap through")
+    Drifted(_, _, _) -> Mismatch("a replay filed a gap as drift")
     end
   end
 
@@ -608,7 +751,7 @@ mod PhysicsSuite do
     let zero = zero_bits()
     let k = consts()
     let sums = sums_row(zero, zero, zero, zero)
-    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance")])
+    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance"), needs_a_cause(position(0.000000001, zero)), replay_is_exact()])
   end
 
   fn agreement_is_not_difference() : Outcome do
@@ -1157,6 +1300,47 @@ mod PhysicsSuite do
     end
   end
 
+  fn is_release(o : StrokeOutcome) : Bool do
+    match o do
+    Release(_) -> true
+    NoThrow -> false
+    StrokeFoul -> false
+    end
+  end
+
+  fn same_launch(a : Launch, b : Launch) : Bool do
+    a.power == b.power && a.speed == b.speed && a.from == b.from && a.aim == b.aim && a.start == b.start && a.fold == b.fold && a.spin == b.spin && a.skid == b.skid
+  end
+
+  -- StrokeTests.deterministic.
+  fn flicks_replay() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let shaky = flick({ s with wobble: 4.0 })
+    match (analyze(k, shaky), analyze(k, shaky)) do
+    (Release(a), Release(b)) -> expect(same_launch(a, b), "the same flick threw differently")
+    _ -> Mismatch("a shaky flick did not throw")
+    end
+  end
+
+  -- ReleaseTests.oldSavesStillDecode: no speed, so a power from the line.
+  fn old_saves_still_decode() : Outcome do
+    let k = consts()
+    let old : Skee.Physics.SavedLaunch =
+      {
+        saved_power: 0.6,
+        saved_aim: 0.0,
+        saved_start: Some(0.0),
+        saved_fold: Some(0.0),
+        saved_spin: None,
+        saved_skid: None,
+        saved_speed: None,
+        saved_from: None
+      }
+    let want = Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+    expect(same_launch(Skee.Physics.launch_of_saved(k, old), want), "an old save changed")
+  end
+
   fn is_no_throw(o : StrokeOutcome) : Bool do
     match o do
     NoThrow -> true
@@ -1245,7 +1429,7 @@ mod PhysicsSuite do
       NoThrow -> false
       Release(_) -> false
       end
-    all([expect(!is_no_throw(past), "past the crease is fine"), expect(foul, "dragging is a foul")])
+    all([expect(is_release(past), "past the crease is fine"), expect(foul, "dragging is a foul")])
   end
 
   fn not_a_throw() : Outcome do
@@ -1294,21 +1478,23 @@ mod PhysicsSuite do
       case("where you touch down sets the line", fn () -> touch_down_sets_the_line()),
       case("touching the lane centre rolls down the middle", fn () -> lane_centre_rolls_down_the_middle()),
       case("lifting past the crease is fine, dragging is a foul", fn () -> foul_rules()),
-      case("not every touch is a throw", fn () -> not_a_throw())
+      case("not every touch is a throw", fn () -> not_a_throw()),
+      case("the same flick throws the same", fn () -> flicks_replay()),
+      case("old saves still decode", fn () -> old_saves_still_decode())
     ]
   end
 
   fn cases() : List(Case) do
     let rows = golden()
-    cases_of(rows, verdicts(rows), bulk_result(rows))
+    cases_of(rows, verdicts(rows), replays(rows), bulk_result(rows))
   end
 
   doc """The suite, given shots already replayed: replaying is the slow part."""
-  fn cases_of(rows : List(List(String)), shots : List(ShotVerdict), bulk : BulkRun) : List(Case) do
-    List.append(golden_cases(rows, shots, bulk), ported_cases())
+  fn cases_of(rows : List(List(String)), shots : List(ShotVerdict), exact : List(ShotVerdict), bulk : BulkRun) : List(Case) do
+    List.append(golden_cases(rows, shots, exact, bulk), ported_cases())
   end
 
-  fn golden_cases(rows : List(List(String)), shots : List(ShotVerdict), bulk : BulkRun) : List(Case) do
+  fn golden_cases(rows : List(List(String)), shots : List(ShotVerdict), exact : List(ShotVerdict), bulk : BulkRun) : List(Case) do
     [
       case("a structural difference is never drift", fn () -> drift_is_only_position()),
       case("NaN agrees with NaN", fn () -> agreement_is_not_difference()),
@@ -1318,9 +1504,12 @@ mod PhysicsSuite do
       case("inverse speed curve on a lane with no gaps", fn () -> dead_inverse_case(rows)),
       case("hinge launch angle", fn () -> angle_case(rows)),
       case("launch construction and mirroring", fn () -> launch_case(rows)),
+      case("launches read back from a save", fn () -> saved_case(rows)),
       case("hole facts", fn () -> all(List.map(GoldenIo.of_kind(rows, "holefacts"), hole_facts_row))),
       case("board geometry", fn () -> board_case(rows)),
-      case("golden shots", fn () -> all(List.map(shots, outcome_of))),
+      case("golden shots on Swift's libm values, every bit", fn () -> replay_case(exact)),
+      case("the goldens hold shots whose pair is not plain sin and cos", fn () -> expect(count_if(shots, fn v -> v.pair_differs) > 0, "no such shot: were these built without optimisation?")),
+      case("golden shots as shipped", fn () -> all(List.map(shots, outcome_of))),
       case("bulk golden shots", fn () -> bulk_outcome(bulk)),
       case("lane start", fn () -> lane_start_case(rows)),
       case("golden flicks", fn () -> flick_case(rows)),

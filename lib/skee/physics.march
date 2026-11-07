@@ -63,6 +63,38 @@ mod Skee.Physics do
     }
   end
 
+  -- A launch as a save holds it. Saves from before thumb throws have no speed or
+  -- release point, and older ones lack more.
+  type SavedLaunch = {
+    saved_power : Float,
+    saved_aim : Float,
+    saved_start : Option(Float),
+    saved_fold : Option(Float),
+    saved_spin : Option(Float),
+    saved_skid : Option(Float),
+    saved_speed : Option(Float),
+    saved_from : Option(Float)
+  }
+
+  pfn or_zero(x : Option(Float)) : Float needs () do
+    match x do
+    Some(v) -> v
+    None -> 0.0
+    end
+  end
+
+  doc """Launch.init(from:): a save with no speed is a power from the line."""
+  fn launch_of_saved(k : Skee.Consts.Consts, s : SavedLaunch) : Launch needs () do
+    let start = or_zero(s.saved_start)
+    let fold = or_zero(s.saved_fold)
+    let spin = or_zero(s.saved_spin)
+    let skid = or_zero(s.saved_skid)
+    match s.saved_speed do
+    Some(speed) -> launch_of_speed(k, speed, or_zero(s.saved_from), s.saved_aim, start, fold, spin, skid)
+    None -> launch_of_power(k, s.saved_power, s.saved_aim, start, fold, spin, skid)
+    end
+  end
+
   doc """The left-right mirror image of a throw."""
   fn mirrored_launch(k : Skee.Consts.Consts, l : Launch) : Launch needs () do
     launch_of_speed(k, l.speed, l.from, -l.aim, -l.start, l.fold, -l.spin, l.skid)
@@ -158,9 +190,30 @@ mod Skee.Physics do
   end
 
   -- ---- The shot ----
+  -- The sine and cosine of one angle.
+  type SinCos = { sine : Float, cosine : Float }
+
+  -- Sines already known, by argument: a search tree. Anything else asks libm, so
+  -- NoSines is libm itself.
+  type SineBook = NoSines | SineNode(SineBook, Float, Float, SineBook)
+
+  -- Every answer a shot takes from libm: the pairs it needs at release, and the
+  -- sines it needs step by step. This is the shot's whole contact with libm, and
+  -- libm is the only thing that can tell two runs of it apart. Swift's optimiser
+  -- takes each pair from one __sincos_stret, which now and then is not sin(), and V8
+  -- has a libm of its own. Handed what Swift got, a shot is Swift's to the last bit.
+  type ShotTrig = {
+    aim_angle : SinCos,
+    incline : SinCos,
+    tilt : SinCos,
+    hinge_angle : SinCos,
+    sines : SineBook
+  }
+
   -- Everything fixed for one shot.
   type ShotSetup = {
     k : Skee.Consts.Consts,
+    trig : ShotTrig,
     throw : Launch,
     table : Table,
     ball : BallKind,
@@ -245,10 +298,23 @@ mod Skee.Physics do
     end
   end
 
+  pfn sine_of(book : SineBook, x : Float) : Float needs () do
+    match book do
+    NoSines -> Math.sin(x)
+    SineNode(left, arg, value, right) -> do
+      if x < arg do
+        sine_of(left, x)
+      else
+        if arg < x do sine_of(right, x) else if x == arg do value else Math.sin(x) end end
+      end
+    end
+    end
+  end
+
   -- Sideways shove from a wobbler's sway, in m/s^2.
   pfn sway(c : ShotSetup, sim : ShotSim, strength : Float) : Float needs () do
     if is_wobbler(c.ball) do
-      strength *. Math.sin(c.k.tau *. 1.6 *. sim.t +. sim.sway_phase)
+      strength *. sine_of(c.trig.sines, c.k.tau *. 1.6 *. sim.t +. sim.sway_phase)
     else
       0.0
     end
@@ -257,7 +323,7 @@ mod Skee.Physics do
   -- How high a bean is on the lane right now: the path shows the hop.
   pfn lane_height(c : ShotSetup, sim : ShotSim) : Float needs () do
     if sim.t < sim.hop_until do
-      0.035 *. Math.sin(c.k.pi *. (sim.hop_until -. sim.t) /. 0.14)
+      0.035 *. sine_of(c.trig.sines, c.k.pi *. (sim.hop_until -. sim.t) /. 0.14)
     else
       0.0
     end
@@ -363,16 +429,15 @@ mod Skee.Physics do
 
   -- ShotOver the hinge: the ball leaves at the launch angle, carrying `hinge.carry`.
   pfn leave_lane(c : ShotSetup, sim : ShotSim, b : LaneBall) : ShotResult needs () do
-    let hinge = c.table.hinge
-    let beta = launch_angle(hinge, c.throw.fold)
-    let carried = b.lvs *. hinge.carry
+    let beta = c.trig.hinge_angle
+    let carried = b.lvs *. c.table.hinge.carry
     let launched = emit({ sim with hinge_speed: Some(b.lvs) }, ShotLaunched)
     let ball =
       {
         p: vec2(b.lx, 0.0),
-        v: vec2(b.lvx, carried *. Math.cos(beta)),
+        v: vec2(b.lvx, carried *. beta.cosine),
         z: 0.0,
-        vz: carried *. Math.sin(beta),
+        vz: carried *. beta.sine,
         mode: BallAirborne,
         resting: 0.0,
         nudges: 0
@@ -741,6 +806,7 @@ mod Skee.Physics do
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
   pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : ShotSim needs () do
     let rng0 = Skee.Rng.seed(seed)
+    -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
     let blank : ShotSim =
       {
         t: 0.0,
@@ -774,12 +840,26 @@ mod Skee.Physics do
     end
   end
 
-  -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
+  pfn sin_cos(x : Float) : SinCos needs () do
+    { sine: Math.sin(x), cosine: Math.cos(x) }
+  end
+
+  doc """What this target's libm says about a throw on a table."""
+  fn shot_trig(l : Launch, t : Table) : ShotTrig needs () do
+    {
+      aim_angle: sin_cos(l.aim *. t.lane.max_aim_angle),
+      incline: sin_cos(t.lane.incline),
+      tilt: sin_cos(t.board.tilt),
+      hinge_angle: sin_cos(launch_angle(t.hinge, l.fold)),
+      sines: NoSines
+    }
+  end
+
   doc """
-  One ball from release to rest. Random balls take their mischief from `seed`,
-  so the same throw with the same seed is still the same shot.
+  One ball from release to rest, on the libm answers in `trig`. Only a test wants
+  this: the game throws with `simulate_shot`.
   """
-  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
+  fn simulate_with(k : Skee.Consts.Consts, trig : ShotTrig, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
     let lane = t.lane
     let board = t.board
     let w = board.ring_walls
@@ -787,19 +867,19 @@ mod Skee.Physics do
     let half_lane = lane.width /. 2.0 -. board.ball_radius
     let v0 =
       l.speed *. Skee.Items.speed_scale(ball) *. (1.0 -. lane.skid_loss *. l.skid)
-    let angle = l.aim *. lane.max_aim_angle
     let c =
       {
         k: k,
+        trig: trig,
         throw: l,
         table: t,
         ball: ball,
         half_lane: half_lane,
         hook_pull: l.spin *. lane.hook,
-        slope_pull: -g *. Math.sin(lane.incline),
-        lane_friction: lane.rolling_friction *. g *. Math.cos(lane.incline),
-        in_plane: add(vec2(0.0, -g *. Math.sin(board.tilt)), board.wind),
-        normal_pull: g *. Math.cos(board.tilt),
+        slope_pull: -g *. trig.incline.sine,
+        lane_friction: lane.rolling_friction *. g *. trig.incline.cosine,
+        in_plane: add(vec2(0.0, -g *. trig.tilt.sine), board.wind),
+        normal_pull: g *. trig.tilt.cosine,
         half_board: board.board_width /. 2.0 -. board.ball_radius,
         back: board.board_height -. board.ball_radius,
         walls: [w.wall40, w.wall30, w.wall20, w.wall10]
@@ -808,11 +888,19 @@ mod Skee.Physics do
       {
         lx: l.start *. half_lane,
         ls: l.from,
-        lvx: v0 *. Math.sin(angle),
-        lvs: v0 *. Math.cos(angle),
+        lvx: v0 *. trig.aim_angle.sine,
+        lvs: v0 *. trig.aim_angle.cosine,
         dud: false
       }
     run_lane(c, start_sim(k, ball, seed), b)
+  end
+
+  doc """
+  One ball from release to rest. Random balls take their mischief from `seed`,
+  so the same throw with the same seed is still the same shot.
+  """
+  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Skee.U64.U64) : ShotResult needs () do
+    simulate_with(k, shot_trig(l, t), l, t, ball, seed)
   end
 
   doc """How many lips the ball rattled on: the near-miss count."""

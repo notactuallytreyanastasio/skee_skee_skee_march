@@ -5,10 +5,12 @@ mod PhysicsMain do
   fn main(_c : Cap(IO.Console)) : () do
     let rows = PhysicsSuite.golden()
     let shots = PhysicsSuite.verdicts(rows)
+    let exact = PhysicsSuite.replays(rows)
     let bulk = PhysicsSuite.bulk_result(rows)
+    println(PhysicsSuite.replay_line(exact, shots))
     println(PhysicsSuite.divergence_line(shots))
     println(PhysicsSuite.bulk_line(bulk))
-    Harness.report("physics", PhysicsSuite.cases_of(rows, shots, bulk))
+    Harness.report("physics", PhysicsSuite.cases_of(rows, shots, exact, bulk))
   end
 
 end
