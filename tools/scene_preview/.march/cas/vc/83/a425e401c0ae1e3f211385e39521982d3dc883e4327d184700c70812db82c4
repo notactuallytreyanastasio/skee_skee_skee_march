@@ -1,0 +1,4 @@
+sat
+index	0
+patterns	(PVec 1 0 (as TrieEmpty M_TrieNode) (as Nil M_List))
+automaton	(Automaton (PVec 0 0 (as TrieEmpty M_TrieNode$M_AcNode) (as Nil M_List$M_AcNode)) (PVec 0 0 (as TrieEmpty M_TrieNode) (as Nil M_List)))

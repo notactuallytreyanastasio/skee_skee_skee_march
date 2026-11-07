@@ -16,6 +16,12 @@ let package = Package(
             "GoldenSupport",
             .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
             .product(name: "SkeeScene", package: "SkeeSkeeSkee"),
+            .product(name: "SkeeRender", package: "SkeeSkeeSkee"),
+        ]),
+        .executableTarget(name: "scene-snapshot", dependencies: [
+            .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
+            .product(name: "SkeeScene", package: "SkeeSkeeSkee"),
+            .product(name: "SkeeRender", package: "SkeeSkeeSkee"),
         ]),
     ]
 )

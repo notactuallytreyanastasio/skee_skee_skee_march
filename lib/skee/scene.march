@@ -1835,22 +1835,23 @@ mod Skee.Scene do
   -- ---- Order ----
   doc """
   Painting order, back to front. SceneKit sorts by depth per pixel; this
-  draws the board's layers bottom up, then what stands in front of it, then
-  the lane, the trough, and the ball last.
+  draws the board's layers bottom up (the top cap's underside sits behind
+  the pockets' coins from the player's eye), then the side walls and bulbs,
+  then the lane, the trough, and the ball last.
   """
   fn layer(r : Role) : Int needs () do
     match r do
     FloorPart -> 0
     PanelPart -> 1
-    ZonePart -> 2
-    HaloPart(_) -> 3
-    PitPart -> 4
-    RimPart -> 5
-    LipPart -> 6
-    BadgePart -> 7
-    CoinPart(_) -> 8
-    SideWall -> 9
-    BackCap -> 9
+    BackCap -> 2
+    ZonePart -> 3
+    HaloPart(_) -> 4
+    PitPart -> 5
+    RimPart -> 6
+    LipPart -> 7
+    BadgePart -> 8
+    CoinPart(_) -> 9
+    SideWall -> 10
     BulbPart -> 10
     BodyPart -> 11
     LaneSlab -> 12

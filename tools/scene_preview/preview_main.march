@@ -1,0 +1,134 @@
+mod PreviewMain do
+
+  -- Writes one frame of Skee.Scene.draw as SVG, for looking at the scene
+  -- outside the browser. Not part of the game.
+  --   tools/scene_preview/preview.sh <stage> <width> <height> > out.svg
+  needs IO.Console
+  needs IO.Process
+
+  fn num(x : Float) : String do
+    float_to_string(int_to_float(float_round(x *. 100.0)) /. 100.0)
+  end
+
+  fn colour(c : Skee.Scene.Rgba) : String do
+    "rgba(" ++ int_to_string(c.red) ++ "," ++ int_to_string(c.green) ++ "," ++ int_to_string(c.blue) ++ "," ++ float_to_string(c.alpha) ++ ")"
+  end
+
+  fn pt(p : Skee.Maths.Vec2) : String do
+    num(p.x) ++ " " ++ num(p.y)
+  end
+
+  fn ring(ps : List(Skee.Maths.Vec2)) : String do
+    match ps do
+    Cons(first, rest) -> "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> " L" ++ pt(p)), "") ++ " Z"
+    Nil -> ""
+    end
+  end
+
+  fn step(s : Skee.Scene.PathStep) : String do
+    match s do
+    MoveTo(a) -> " M" ++ pt(a)
+    LineTo(a) -> " L" ++ pt(a)
+    QuadTo(a, b) -> " Q" ++ pt(a) ++ " " ++ pt(b)
+    CubicTo(a, b, c) -> " C" ++ pt(a) ++ " " ++ pt(b) ++ " " ++ pt(c)
+    ClosePath -> " Z"
+    end
+  end
+
+  fn path_d(sh : Skee.Scene.Shape) : String do
+    match sh do
+    Poly(ps) -> ring(ps)
+    Holed(a, b) -> ring(a) ++ " " ++ ring(b)
+    Polys(rs) -> String.join(List.map(rs, ring), " ")
+    Disc(c, r) -> "M" ++ num(c.x -. r) ++ " " ++ num(c.y) ++ " a" ++ num(r) ++ " " ++ num(r) ++ " 0 1 0 " ++ num(2.0 *. r) ++ " 0 a" ++ num(r) ++ " " ++ num(r) ++ " 0 1 0 " ++ num(-2.0 *. r) ++ " 0 Z"
+    Outline(steps) -> String.join(List.map(steps, step), "")
+    end
+  end
+
+  fn rule(sh : Skee.Scene.Shape) : String do
+    match sh do
+    Holed(_, _) -> "evenodd"
+    _ -> "nonzero"
+    end
+  end
+
+  fn matrix(a : Skee.Scene.Affine) : String do
+    "matrix(" ++ String.join(List.map([a.a, a.b, a.c, a.d, a.e, a.f], float_to_string), " ") ++ ")"
+  end
+
+  fn blend(b : Skee.Scene.Blend) : String do
+    match b do
+    Over -> ""
+    Lighter -> " style=\"mix-blend-mode:plus-lighter\""
+    end
+  end
+
+  fn cap(p : Skee.Scene.Pen) : String do
+    let c = match p.ends do
+    ButtEnd -> "butt"
+    RoundEnd -> "round"
+    end
+    let j = match p.corners do
+    MitreCorner -> "miter"
+    RoundCorner -> "round"
+    end
+    " stroke-linecap=\"" ++ c ++ "\" stroke-linejoin=\"" ++ j ++ "\""
+  end
+
+  fn op_svg(i : Int, op : Skee.Scene.DrawOp) : String do
+    match op do
+    ClearTo(c) -> "<rect x=\"-10\" y=\"-10\" width=\"5000\" height=\"5000\" fill=\"" ++ colour(c) ++ "\"/>"
+    FillShape(sh, Flat(c), b) -> "<path d=\"" ++ path_d(sh) ++ "\" fill=\"" ++ colour(c) ++ "\" fill-rule=\"" ++ rule(sh) ++ "\"" ++ blend(b) ++ "/>"
+    FillShape(sh, RadialPaint(g), b) -> do
+      let id = "g" ++ int_to_string(i)
+      let stops = String.join(List.map(g.stops, fn s -> "<stop offset=\"" ++ float_to_string(s.offset) ++ "\" stop-color=\"" ++ colour(s.colour) ++ "\"/>"), "")
+      "<defs><radialGradient id=\"" ++ id ++ "\" gradientUnits=\"userSpaceOnUse\" gradientTransform=\"" ++ matrix(g.frame) ++ "\" cx=\"" ++ num(g.outer.x) ++ "\" cy=\"" ++ num(g.outer.y) ++ "\" r=\"" ++ num(g.outer_radius) ++ "\" fx=\"" ++ num(g.inner.x) ++ "\" fy=\"" ++ num(g.inner.y) ++ "\" fr=\"" ++ num(g.inner_radius) ++ "\">" ++ stops ++ "</radialGradient></defs><path d=\"" ++ path_d(sh) ++ "\" fill=\"url(#" ++ id ++ ")\"" ++ blend(b) ++ "/>"
+    end
+    StrokeShape(sh, p, b) -> "<path d=\"" ++ path_d(sh) ++ "\" fill=\"none\" stroke=\"" ++ colour(p.ink) ++ "\" stroke-width=\"" ++ num(p.width) ++ "\"" ++ cap(p) ++ blend(b) ++ "/>"
+    DrawText(t) -> do
+      let edge = match t.edge do
+      Some(p) -> " stroke=\"" ++ colour(p.ink) ++ "\" stroke-width=\"" ++ num(p.width) ++ "\" stroke-linejoin=\"round\" paint-order=\"stroke\""
+      None -> ""
+      end
+      "<text transform=\"" ++ matrix(t.frame) ++ "\" x=\"" ++ num(t.middle.x) ++ "\" y=\"" ++ num(t.middle.y) ++ "\" text-anchor=\"middle\" dominant-baseline=\"central\" style=\"font:" ++ String.replace_all(t.font, "'", "") ++ "\" fill=\"" ++ colour(t.fill) ++ "\"" ++ edge ++ ">" ++ t.words ++ "</text>"
+    end
+    PushClip(sh) -> "<clipPath id=\"c" ++ int_to_string(i) ++ "\"><path d=\"" ++ path_d(sh) ++ "\"/></clipPath><g clip-path=\"url(#c" ++ int_to_string(i) ++ ")\">"
+    PopClip -> "</g>"
+    end
+  end
+
+  fn nth_arg(argv : List(String), i : Int) : String do
+    match List.nth_opt(argv, i) do
+    Some(x) -> x
+    None -> "-"
+    end
+  end
+
+  fn main(_c : Cap(IO.Console), _p : Cap(IO.Process)) : () do
+    let k = Skee.Consts.make()
+    let argv = process_argv()
+    let index = match string_to_int(nth_arg(argv, 2)) do
+    Some(n) -> n
+    None -> 0
+    end
+    let w = match string_to_float(nth_arg(argv, 3)) do
+    Some(x) -> x
+    None -> 390.0
+    end
+    let h = match string_to_float(nth_arg(argv, 4)) do
+    Some(x) -> x
+    None -> 844.0
+    end
+    let stages = SceneSuite.stages()
+    let pick = match List.nth_opt(stages, index) do
+    Some((_, s)) -> s
+    None -> panic("no stage")
+    end
+    let scene = { pick with viewport: Skee.Camera.viewport(w, h) }
+    let ops = Skee.Scene.draw(k, scene)
+    println("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" ++ num(w) ++ "\" height=\"" ++ num(h) ++ "\" viewBox=\"0 0 " ++ num(w) ++ " " ++ num(h) ++ "\">")
+    List.each(List.enumerate(ops), fn e -> println(op_svg(Tuple.first(e), Tuple.second(e))))
+    println("</svg>")
+  end
+
+end

@@ -1,0 +1,4 @@
+sat
+v	(Vec (PVec 2 3 TrieEmpty (as Nil M_List)))
+i	(- 1)
+arr	(PVec 0 0 TrieEmpty (as Nil M_List))
