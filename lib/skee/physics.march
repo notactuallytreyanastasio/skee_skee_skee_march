@@ -33,15 +33,7 @@ mod Skee.Physics do
   end
 
   doc """A throw from the release line at a power. Clamps every input."""
-  fn launch_of_power(
-    k : Skee.Consts.Consts,
-    power : Float,
-    aim : Float,
-    start : Float,
-    fold : Float,
-    spin : Float,
-    skid : Float
-  ) : Launch needs () do
+  fn launch_of_power(k : Skee.Consts.Consts, power : Float, aim : Float, start : Float, fold : Float, spin : Float, skid : Float) : Launch needs () do
     let clamped = clamp(power, 0.0, 1.0)
     {
       power: clamped,
@@ -56,16 +48,7 @@ mod Skee.Physics do
   end
 
   doc """A throw let go mid-lane at a speed. Clamps every input."""
-  fn launch_of_speed(
-    k : Skee.Consts.Consts,
-    speed : Float,
-    from : Float,
-    aim : Float,
-    start : Float,
-    fold : Float,
-    spin : Float,
-    skid : Float
-  ) : Launch needs () do
+  fn launch_of_speed(k : Skee.Consts.Consts, speed : Float, from : Float, aim : Float, start : Float, fold : Float, spin : Float, skid : Float) : Launch needs () do
     let lane = standard_lane(k)
     let clamped = clamp(speed, 0.0, lane.max_speed *. 1.3)
     {
@@ -176,7 +159,7 @@ mod Skee.Physics do
 
   -- ---- The shot ----
   -- Everything fixed for one shot.
-  type Shot = {
+  type ShotSetup = {
     k : Skee.Consts.Consts,
     throw : Launch,
     table : Table,
@@ -193,7 +176,7 @@ mod Skee.Physics do
   }
 
   -- What every phase carries forward. `events` and `path` are newest first.
-  type Sim = {
+  type ShotSim = {
     t : Float,
     step : Int,
     events : List(TimedEvent),
@@ -212,7 +195,7 @@ mod Skee.Physics do
   -- The ball on the lane. `dud` is Swift's events.contains(.dud).
   type LaneBall = { lx : Float, ls : Float, lvx : Float, lvs : Float, dud : Bool }
 
-  type BoardMode = Airborne | Rolling
+  type BoardMode = BallAirborne | BallRolling
 
   -- The ball past the hinge. `z` is height above the board.
   type BoardBall = {
@@ -227,7 +210,7 @@ mod Skee.Physics do
 
   -- How a step on the board ended: go on, leave the loop as Swift's `break`
   -- does, or the shot is over.
-  type Turn = Carry(Sim, BoardBall) | Stop(Sim, BoardBall) | Over(ShotResult)
+  type BoardTurn = KeepGoing(ShotSim, BoardBall) | StopHere(ShotSim, BoardBall) | ShotOver(ShotResult)
 
   pfn is_bean(b : BallKind) : Bool needs () do
     match b do
@@ -260,7 +243,7 @@ mod Skee.Physics do
   end
 
   -- Sideways shove from a wobbler's sway, in m/s^2.
-  pfn sway(c : Shot, sim : Sim, strength : Float) : Float needs () do
+  pfn sway(c : ShotSetup, sim : ShotSim, strength : Float) : Float needs () do
     if is_wobbler(c.ball) do
       strength *. Math.sin(c.k.tau *. 1.6 *. sim.t +. sim.sway_phase)
     else
@@ -269,7 +252,7 @@ mod Skee.Physics do
   end
 
   -- How high a bean is on the lane right now: the path shows the hop.
-  pfn lane_height(c : Shot, sim : Sim) : Float needs () do
+  pfn lane_height(c : ShotSetup, sim : ShotSim) : Float needs () do
     if sim.t < sim.hop_until do
       0.035 *. Math.sin(c.k.pi *. (sim.hop_until -. sim.t) /. 0.14)
     else
@@ -277,25 +260,25 @@ mod Skee.Physics do
     end
   end
 
-  pfn sample(sim : Sim, phase : PathPhase, x : Float, along : Float, h : Float) : Sim needs () do
+  pfn sample(sim : ShotSim, phase : PathPhase, x : Float, along : Float, h : Float) : ShotSim needs () do
     { sim with path: Cons({ t: sim.t, phase: phase, px: x, along: along, height: h }, sim.path) }
   end
 
   -- Record at 120 Hz (every 2nd 240 Hz step), so a 120 Hz display never
   -- interpolates across a bounce.
-  pfn record(sim : Sim, phase : PathPhase, x : Float, along : Float, h : Float) : Sim needs () do
+  pfn record(sim : ShotSim, phase : PathPhase, x : Float, along : Float, h : Float) : ShotSim needs () do
     if sim.step % 2 == 0 do sample(sim, phase, x, along, h) else sim end
   end
 
-  pfn emit(sim : Sim, e : ShotEvent) : Sim needs () do
+  pfn emit(sim : ShotSim, e : ShotEvent) : ShotSim needs () do
     { sim with events: Cons({ event: e, at: sim.t }, sim.events) }
   end
 
-  pfn tick(c : Shot, sim : Sim) : Sim needs () do
+  pfn tick(c : ShotSetup, sim : ShotSim) : ShotSim needs () do
     { sim with t: sim.t +. c.table.dt, step: sim.step + 1 }
   end
 
-  pfn finish(c : Shot, sim : Sim, hole : Hole) : ShotResult needs () do
+  pfn finish(c : ShotSetup, sim : ShotSim, hole : Hole) : ShotResult needs () do
     {
       launch: c.throw,
       hole: hole,
@@ -309,12 +292,13 @@ mod Skee.Physics do
   end
 
   -- A bean takes off on the lane: two draws, in this order.
-  pfn lane_hop(c : Shot, sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+  pfn lane_hop(c : ShotSetup, sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
     if is_bean(c.ball) && sim.t >= sim.next_hop && b.lvs > 0.0 do
       do
         let (shove, r1) = Skee.Rng.next_unit(c.k, sim.rng)
         let (wait, r2) = Skee.Rng.next_unit(c.k, r1)
-        let hopped = emit({ sim with rng: r2, hop_until: sim.t +. 0.14, next_hop: sim.t +. 0.22 +. wait *. 0.2 }, ShotHop)
+        let hopped =
+          emit({ sim with rng: r2, hop_until: sim.t +. 0.14, next_hop: sim.t +. 0.22 +. wait *. 0.2 }, ShotHop)
         (hopped, { b with lvx: b.lvx +. (shove -. 0.5) *. 0.7 })
       end
     else
@@ -323,7 +307,7 @@ mod Skee.Physics do
   end
 
   -- One step of rolling up the incline, before the rails.
-  pfn lane_motion(c : Shot, sim : Sim, b : LaneBall) : LaneBall needs () do
+  pfn lane_motion(c : ShotSetup, sim : ShotSim, b : LaneBall) : LaneBall needs () do
     let dt = c.table.dt
     let speed = Math.sqrt(b.lvx *. b.lvx +. b.lvs *. b.lvs)
     let f = if speed > 0.0 do c.lane_friction /. speed else 0.0 end
@@ -332,7 +316,7 @@ mod Skee.Physics do
     { b with lx: b.lx +. vx *. dt, ls: b.ls +. vs *. dt, lvx: vx, lvs: vs }
   end
 
-  pfn lane_rails(c : Shot, sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+  pfn lane_rails(c : ShotSetup, sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
     if Math.abs(b.lx) > c.half_lane do
       do
         let x = if b.lx > 0.0 do c.half_lane else -c.half_lane end
@@ -345,7 +329,7 @@ mod Skee.Physics do
   end
 
   -- The first time forward speed runs out, the ball is a dud.
-  pfn lane_stall(sim : Sim, b : LaneBall) : (Sim, LaneBall) needs () do
+  pfn lane_stall(sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
     if b.lvs <= 0.0 && !b.dud do
       (emit(sim, ShotDud), { b with dud: true })
     else
@@ -353,7 +337,7 @@ mod Skee.Physics do
     end
   end
 
-  pfn run_lane(c : Shot, sim0 : Sim, b0 : LaneBall) : ShotResult needs () do
+  pfn run_lane(c : ShotSetup, sim0 : ShotSim, b0 : LaneBall) : ShotResult needs () do
     if b0.ls < c.table.lane.length do
       do
         let recorded = record(sim0, OnLane, b0.lx, b0.ls, lane_height(c, sim0))
@@ -374,30 +358,35 @@ mod Skee.Physics do
     end
   end
 
-  -- Over the hinge: the ball leaves at the launch angle, carrying `hinge.carry`.
-  pfn leave_lane(c : Shot, sim : Sim, b : LaneBall) : ShotResult needs () do
+  -- ShotOver the hinge: the ball leaves at the launch angle, carrying `hinge.carry`.
+  pfn leave_lane(c : ShotSetup, sim : ShotSim, b : LaneBall) : ShotResult needs () do
     let hinge = c.table.hinge
     let beta = launch_angle(hinge, c.throw.fold)
     let carried = b.lvs *. hinge.carry
     let launched = emit({ sim with hinge_speed: Some(b.lvs) }, ShotLaunched)
-    let ball = {
-      p: vec2(b.lx, 0.0),
-      v: vec2(b.lvx, carried *. Math.cos(beta)),
-      z: 0.0,
-      vz: carried *. Math.sin(beta),
-      mode: Airborne,
-      resting: 0.0,
-      nudges: 0
-    }
+    let ball =
+      {
+        p: vec2(b.lx, 0.0),
+        v: vec2(b.lvx, carried *. Math.cos(beta)),
+        z: 0.0,
+        vz: carried *. Math.sin(beta),
+        mode: BallAirborne,
+        resting: 0.0,
+        nudges: 0
+      }
     run_board(c, launched, ball)
   end
 
   -- A marshmallow's drift toward the bullseye, in m/s^2.
-  pfn drift(c : Shot, p : Vec2) : Vec2 needs () do
+  pfn drift(c : ShotSetup, p : Vec2) : Vec2 needs () do
     if is_marshmallow(c.ball) do
       do
         let to = sub(c.table.board.ring_center, p)
-        if length(to) > 0.01 do scale(normalized(to), 1.6) else vec2(0.0, 0.0) end
+        if length(to) > 0.01 do
+          scale(normalized(to), 1.6)
+        else
+          vec2(0.0, 0.0)
+        end
       end
     else
       vec2(0.0, 0.0)
@@ -405,11 +394,11 @@ mod Skee.Physics do
   end
 
   -- The pull on a ball in the plane of the board, before friction.
-  pfn board_pull(c : Shot, sim : Sim, p : Vec2) : Vec2 needs () do
+  pfn board_pull(c : ShotSetup, sim : ShotSim, p : Vec2) : Vec2 needs () do
     add(add(c.in_plane, vec2(sway(c, sim, 4.0), 0.0)), drift(c, p))
   end
 
-  pfn scan_lips(c : Shot, rel : Vec2, d : Float, walls : List(Float), i : Int) : Option((Int, Vec2)) needs () do
+  pfn scan_lips(c : ShotSetup, rel : Vec2, d : Float, walls : List(Float), i : Int) : Option((Int, Vec2)) needs () do
     let board = c.table.board
     match walls do
     Nil -> None
@@ -428,13 +417,13 @@ mod Skee.Physics do
 
   -- The ring wall whose top the ball is coming down on, with the unit vector
   -- pointing to the side of the wall the ball's centre is on.
-  pfn lip_under(c : Shot, p : Vec2) : Option((Int, Vec2)) needs () do
+  pfn lip_under(c : ShotSetup, p : Vec2) : Option((Int, Vec2)) needs () do
     let rel = sub(p, c.table.board.ring_center)
     scan_lips(c, rel, length(rel), c.walls, 0)
   end
 
   -- Coming down through lip height near a ring wall is the rattle.
-  pfn lip_hit(c : Shot, sim : Sim, b : BoardBall, prev_z : Float) : (Sim, BoardBall) needs () do
+  pfn lip_hit(c : ShotSetup, sim : ShotSim, b : BoardBall, prev_z : Float) : (ShotSim, BoardBall) needs () do
     let board = c.table.board
     if prev_z >= board.lip_height && b.z < board.lip_height && -b.vz >= board.lip_min_fall do
       match lip_under(c, b.p) do
@@ -450,14 +439,14 @@ mod Skee.Physics do
     end
   end
 
-  pfn first_contact(sim : Sim, p : Vec2) : Sim needs () do
+  pfn first_contact(sim : ShotSim, p : Vec2) : ShotSim needs () do
     match sim.first_landing do
     Some(_) -> sim
     None -> emit({ sim with first_landing: Some(p) }, ShotLanded)
     end
   end
 
-  pfn touch_down(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn touch_down(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     let board = c.table.board
     if b.z <= 0.0 do
       do
@@ -465,7 +454,7 @@ mod Skee.Physics do
         let v = scale(b.v, board.landing_grip)
         let landed = first_contact(sim, b.p)
         if vz < 0.15 do
-          (landed, { b with z: 0.0, vz: 0.0, v: v, mode: Rolling })
+          (landed, { b with z: 0.0, vz: 0.0, v: v, mode: BallRolling })
         else
           (landed, { b with z: 0.0, vz: vz, v: v })
         end
@@ -475,19 +464,20 @@ mod Skee.Physics do
     end
   end
 
-  pfn fly(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn fly(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     let dt = c.table.dt
     let v = add(b.v, scale(board_pull(c, sim, b.p), dt))
     let vz = b.vz -. c.normal_pull *. dt
     let p = add(b.p, scale(v, dt))
     let z = b.z +. vz *. dt
-    let (bounced, after) = lip_hit(c, { sim with peak: max_float(sim.peak, z) }, { b with v: v, vz: vz, p: p, z: z }, b.z)
+    let (bounced, after) =
+      lip_hit(c, { sim with peak: max_float(sim.peak, z) }, { b with v: v, vz: vz, p: p, z: z }, b.z)
     touch_down(c, bounced, after)
   end
 
   -- Mostly under the lip: a bean dances in its ring, and only now and then jumps
   -- out of it. Four draws, in this order.
-  pfn board_hop(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn board_hop(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     if is_bean(c.ball) && sim.hops < 3 && sim.t >= sim.next_hop do
       do
         let (lift, r1) = Skee.Rng.next_unit(c.k, sim.rng)
@@ -495,15 +485,16 @@ mod Skee.Physics do
         let (up, r3) = Skee.Rng.next_unit(c.k, r2)
         let (wait, r4) = Skee.Rng.next_unit(c.k, r3)
         let shove = vec2((across -. 0.5) *. 0.5, up *. 0.35)
-        let hopped = emit({ sim with rng: r4, hops: sim.hops + 1, next_hop: sim.t +. 0.25 +. wait *. 0.25 }, ShotHop)
-        (hopped, { b with vz: 0.3 +. lift *. 0.55, v: add(b.v, shove), mode: Airborne })
+        let hopped =
+          emit({ sim with rng: r4, hops: sim.hops + 1, next_hop: sim.t +. 0.25 +. wait *. 0.25 }, ShotHop)
+        (hopped, { b with vz: 0.3 +. lift *. 0.55, v: add(b.v, shove), mode: BallAirborne })
       end
     else
       (sim, b)
     end
   end
 
-  pfn roll(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn roll(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     let dt = c.table.dt
     let speed = length(b.v)
     let pull = board_pull(c, sim, b.p)
@@ -517,7 +508,7 @@ mod Skee.Physics do
     board_hop(c, sim, { b with v: v, p: add(b.p, scale(v, dt)) })
   end
 
-  pfn bounce_off_wall(c : Shot, p0 : Vec2, v0 : Vec2, radial : Vec2, d : Float, wall : Float) : (Vec2, Vec2) needs () do
+  pfn bounce_off_wall(c : ShotSetup, v0 : Vec2, radial : Vec2, d : Float, wall : Float) : (Vec2, Vec2) needs () do
     let board = c.table.board
     let side = if d >= wall do 1.0 else -1.0 end
     let n = scale(radial, side)
@@ -530,12 +521,12 @@ mod Skee.Physics do
     end
   end
 
-  pfn scan_walls(c : Shot, p : Vec2, v : Vec2, radial : Vec2, d : Float, walls : List(Float)) : (Vec2, Vec2) needs () do
+  pfn scan_walls(c : ShotSetup, p : Vec2, v : Vec2, radial : Vec2, d : Float, walls : List(Float)) : (Vec2, Vec2) needs () do
     match walls do
     Nil -> (p, v)
     Cons(wall, rest) -> do
       if Math.abs(d -. wall) < c.table.board.ball_radius do
-        bounce_off_wall(c, p, v, radial, d, wall)
+        bounce_off_wall(c, v, radial, d, wall)
       else
         scan_walls(c, p, v, radial, d, rest)
       end
@@ -545,13 +536,17 @@ mod Skee.Physics do
 
   -- Push the ball out of any ring wall face it overlaps and reflect the
   -- velocity component into the wall.
-  pfn collide_ring_walls(c : Shot, p : Vec2, v : Vec2) : (Vec2, Vec2) needs () do
+  pfn collide_ring_walls(c : ShotSetup, p : Vec2, v : Vec2) : (Vec2, Vec2) needs () do
     let rel = sub(p, c.table.board.ring_center)
     let d = length(rel)
-    if d > 0.0 do scan_walls(c, p, v, scale(rel, 1.0 /. d), d, c.walls) else (p, v) end
+    if d > 0.0 do
+      scan_walls(c, p, v, scale(rel, 1.0 /. d), d, c.walls)
+    else
+      (p, v)
+    end
   end
 
-  pfn ring_walls(c : Shot, b : BoardBall) : BoardBall needs () do
+  pfn ring_walls(c : ShotSetup, b : BoardBall) : BoardBall needs () do
     if b.z < c.table.board.lip_height do
       do
         let (p, v) = collide_ring_walls(c, b.p, b.v)
@@ -562,7 +557,7 @@ mod Skee.Physics do
     end
   end
 
-  pfn side_walls(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn side_walls(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     if Math.abs(b.p.x) > c.half_board do
       do
         let x = if b.p.x > 0.0 do c.half_board else -c.half_board end
@@ -574,7 +569,7 @@ mod Skee.Physics do
     end
   end
 
-  pfn back_wall(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn back_wall(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     if b.p.y > c.back do
       do
         let vy = -Math.abs(b.v.y) *. c.table.board.backwall_restitution
@@ -616,11 +611,11 @@ mod Skee.Physics do
     end
   end
 
-  pfn along_board(c : Shot, b : BoardBall) : Float needs () do
+  pfn along_board(c : ShotSetup, b : BoardBall) : Float needs () do
     c.table.lane.length +. b.p.y
   end
 
-  pfn capture(c : Shot, sim : Sim, b : BoardBall) : Option(Hole) needs () do
+  pfn capture(c : ShotSetup, sim : ShotSim, b : BoardBall) : Option(Hole) needs () do
     let board = c.table.board
     if b.z < board.ball_radius *. 0.5 && length(b.v) <= board.capture_speed do
       hole_under(board, b.p, is_none(sim.first_landing) && !sim.touched_wall)
@@ -636,8 +631,13 @@ mod Skee.Physics do
     end
   end
 
-  pfn drop_in(c : Shot, sim : Sim, b : BoardBall, hole : Hole) : ShotResult needs () do
-    let landed = if is_none(sim.first_landing) do { sim with first_landing: Some(b.p) } else sim end
+  pfn drop_in(c : ShotSetup, sim : ShotSim, b : BoardBall, hole : Hole) : ShotResult needs () do
+    let landed =
+      if is_none(sim.first_landing) do
+        { sim with first_landing: Some(b.p) }
+      else
+        sim
+      end
     finish(c, emit(sample(landed, OnBoard, b.p.x, along_board(c, b), 0.0), ShotDropped(hole)), hole)
   end
 
@@ -654,37 +654,38 @@ mod Skee.Physics do
   end
 
   -- Counts time at rest, and nudges or stops the ball when it has rested enough.
-  pfn rest(c : Shot, sim : Sim, b : BoardBall) : Turn needs () do
+  pfn rest(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
     let board = c.table.board
-    let moving = match b.mode do
-      Airborne -> true
-      Rolling -> length(b.v) >= 0.05
+    let moving =
+      match b.mode do
+      BallAirborne -> true
+      BallRolling -> length(b.v) >= 0.05
       end
     if moving do
-      Carry(sim, { b with resting: 0.0 })
+      KeepGoing(sim, { b with resting: 0.0 })
     else
       do
         let resting = b.resting +. c.table.dt
         if resting > 0.2 do
           if zone(board, b.p) != Gutter && b.nudges < 6 do
-            Carry(sim, nudge(board, b))
+            KeepGoing(sim, nudge(board, b))
           else
-            Stop(sim, { b with resting: resting })
+            StopHere(sim, { b with resting: resting })
           end
         else
-          Carry(sim, { b with resting: resting })
+          KeepGoing(sim, { b with resting: resting })
         end
       end
     end
   end
 
   -- What the step left: captured, gone past the bottom, or still in play.
-  pfn after_step(c : Shot, sim : Sim, b : BoardBall) : Turn needs () do
+  pfn after_step(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
     match capture(c, sim, b) do
-    Some(hole) -> Over(drop_in(c, sim, b, hole))
+    Some(hole) -> ShotOver(drop_in(c, sim, b, hole))
     None -> do
       if b.p.y < -c.table.board.ball_radius do
-        Over(finish(c, emit(sample(sim, OnBoard, b.p.x, along_board(c, b), b.z), ShotGutter), Gutter))
+        ShotOver(finish(c, emit(sample(sim, OnBoard, b.p.x, along_board(c, b), b.z), ShotGutter), Gutter))
       else
         rest(c, sim, b)
       end
@@ -694,19 +695,19 @@ mod Skee.Physics do
 
   pfn phase_of(b : BoardBall) : PathPhase needs () do
     match b.mode do
-    Airborne -> InAir
-    Rolling -> OnBoard
+    BallAirborne -> InAir
+    BallRolling -> OnBoard
     end
   end
 
-  pfn move_on_board(c : Shot, sim : Sim, b : BoardBall) : (Sim, BoardBall) needs () do
+  pfn move_on_board(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     match b.mode do
-    Airborne -> fly(c, sim, b)
-    Rolling -> roll(c, sim, b)
+    BallAirborne -> fly(c, sim, b)
+    BallRolling -> roll(c, sim, b)
     end
   end
 
-  pfn board_step(c : Shot, sim0 : Sim, b0 : BoardBall) : Turn needs () do
+  pfn board_step(c : ShotSetup, sim0 : ShotSim, b0 : BoardBall) : BoardTurn needs () do
     let recorded = record(sim0, phase_of(b0), b0.p.x, along_board(c, b0), b0.z)
     let (moved, b1) = move_on_board(c, recorded, b0)
     let (sided, b2) = side_walls(c, moved, ring_walls(c, b1))
@@ -715,18 +716,18 @@ mod Skee.Physics do
   end
 
   -- The clock ran out, or the ball came to rest with nothing left to try.
-  pfn stop_shot(c : Shot, sim : Sim, b : BoardBall) : ShotResult needs () do
+  pfn stop_shot(c : ShotSetup, sim : ShotSim, b : BoardBall) : ShotResult needs () do
     let hole = zone(c.table.board, b.p)
     let last = sample(sim, OnBoard, b.p.x, along_board(c, b), b.z)
     finish(c, emit(last, if hole == Gutter do ShotGutter else ShotSettled(hole) end), hole)
   end
 
-  pfn run_board(c : Shot, sim : Sim, b : BoardBall) : ShotResult needs () do
+  pfn run_board(c : ShotSetup, sim : ShotSim, b : BoardBall) : ShotResult needs () do
     if sim.t < c.table.max_duration do
       match board_step(c, sim, b) do
-      Carry(s, n) -> run_board(c, s, n)
-      Stop(s, n) -> stop_shot(c, s, n)
-      Over(r) -> r
+      KeepGoing(s, n) -> run_board(c, s, n)
+      StopHere(s, n) -> stop_shot(c, s, n)
+      ShotOver(r) -> r
       end
     else
       stop_shot(c, sim, b)
@@ -734,24 +735,24 @@ mod Skee.Physics do
   end
 
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
-  pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : Sim needs () do
+  pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Skee.U64.U64) : ShotSim needs () do
     let rng0 = Skee.Rng.seed(seed)
-    -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
-    let blank : Sim = {
-      t: 0.0,
-      step: 0,
-      events: [],
-      path: [],
-      hinge_speed: None,
-      first_landing: None,
-      peak: 0.0,
-      touched_wall: false,
-      rng: rng0,
-      next_hop: 0.0,
-      hop_until: 0.0,
-      hops: 0,
-      sway_phase: 0.0
-    }
+    let blank : ShotSim =
+      {
+        t: 0.0,
+        step: 0,
+        events: [],
+        path: [],
+        hinge_speed: None,
+        first_landing: None,
+        peak: 0.0,
+        touched_wall: false,
+        rng: rng0,
+        next_hop: 0.0,
+        hop_until: 0.0,
+        hops: 0,
+        sway_phase: 0.0
+      }
     if is_bean(ball) do
       do
         let (u, r) = Skee.Rng.next_unit(k, rng0)
@@ -769,6 +770,7 @@ mod Skee.Physics do
     end
   end
 
+  -- The annotation is load-bearing natively: tools/repros/none_float_field.march.
   doc """
   One ball from release to rest. Random balls take their mischief from `seed`,
   so the same throw with the same seed is still the same shot.
@@ -779,30 +781,33 @@ mod Skee.Physics do
     let w = board.ring_walls
     let g = t.gravity
     let half_lane = lane.width /. 2.0 -. board.ball_radius
-    let v0 = l.speed *. Skee.Items.speed_scale(ball) *. (1.0 -. lane.skid_loss *. l.skid)
+    let v0 =
+      l.speed *. Skee.Items.speed_scale(ball) *. (1.0 -. lane.skid_loss *. l.skid)
     let angle = l.aim *. lane.max_aim_angle
-    let c = {
-      k: k,
-      throw: l,
-      table: t,
-      ball: ball,
-      half_lane: half_lane,
-      hook_pull: l.spin *. lane.hook,
-      slope_pull: -g *. Math.sin(lane.incline),
-      lane_friction: lane.rolling_friction *. g *. Math.cos(lane.incline),
-      in_plane: add(vec2(0.0, -g *. Math.sin(board.tilt)), board.wind),
-      normal_pull: g *. Math.cos(board.tilt),
-      half_board: board.board_width /. 2.0 -. board.ball_radius,
-      back: board.board_height -. board.ball_radius,
-      walls: [w.wall40, w.wall30, w.wall20, w.wall10]
-    }
-    let b = {
-      lx: l.start *. half_lane,
-      ls: l.from,
-      lvx: v0 *. Math.sin(angle),
-      lvs: v0 *. Math.cos(angle),
-      dud: false
-    }
+    let c =
+      {
+        k: k,
+        throw: l,
+        table: t,
+        ball: ball,
+        half_lane: half_lane,
+        hook_pull: l.spin *. lane.hook,
+        slope_pull: -g *. Math.sin(lane.incline),
+        lane_friction: lane.rolling_friction *. g *. Math.cos(lane.incline),
+        in_plane: add(vec2(0.0, -g *. Math.sin(board.tilt)), board.wind),
+        normal_pull: g *. Math.cos(board.tilt),
+        half_board: board.board_width /. 2.0 -. board.ball_radius,
+        back: board.board_height -. board.ball_radius,
+        walls: [w.wall40, w.wall30, w.wall20, w.wall10]
+      }
+    let b =
+      {
+        lx: l.start *. half_lane,
+        ls: l.from,
+        lvx: v0 *. Math.sin(angle),
+        lvs: v0 *. Math.cos(angle),
+        dud: false
+      }
     run_lane(c, start_sim(k, ball, seed), b)
   end
 

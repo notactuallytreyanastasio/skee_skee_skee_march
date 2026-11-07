@@ -23,11 +23,16 @@ mod Skee.Stroke do
   derive Show for FlickMetrics
 
   -- A time with an x and a y: positions, then velocities, then accelerations.
-  type Track = { tt : Float, tx : Float, ty : Float }
+  type FlickTrack = { tt : Float, tx : Float, ty : Float }
 
   doc """A geometry with the standard give past the crease."""
   fn flick_geometry(crease_y : Float, lane_center_x : Float, lane_half_width : Float) : FlickGeometry needs () do
-    { crease_y: crease_y, lane_center_x: lane_center_x, lane_half_width: lane_half_width, foul_give: 140.0 }
+    {
+      crease_y: crease_y,
+      lane_center_x: lane_center_x,
+      lane_half_width: lane_half_width,
+      foul_give: 140.0
+    }
   end
 
   fn foul_y(g : FlickGeometry) : Float needs () do
@@ -49,7 +54,7 @@ mod Skee.Stroke do
   end
 
   -- Differences of neighbours. Pairs with no time between them drop out.
-  pfn diff_go(a : Track, xs : List(Track), acc : List(Track)) : List(Track) needs () do
+  pfn diff_go(a : FlickTrack, xs : List(FlickTrack), acc : List(FlickTrack)) : List(FlickTrack) needs () do
     match xs do
     Nil -> List.reverse(acc)
     Cons(b, rest) -> do
@@ -63,31 +68,31 @@ mod Skee.Stroke do
     end
   end
 
-  pfn diff(xs : List(Track)) : List(Track) needs () do
+  pfn diff(xs : List(FlickTrack)) : List(FlickTrack) needs () do
     match xs do
     Nil -> []
     Cons(a, rest) -> diff_go(a, rest, [])
     end
   end
 
-  pfn sum_x(xs : List(Track)) : Float needs () do
+  pfn sum_x(xs : List(FlickTrack)) : Float needs () do
     List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.tx)
   end
 
-  pfn sum_y(xs : List(Track)) : Float needs () do
+  pfn sum_y(xs : List(FlickTrack)) : Float needs () do
     List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.ty)
   end
 
-  pfn sum_t(xs : List(Track)) : Float needs () do
+  pfn sum_t(xs : List(FlickTrack)) : Float needs () do
     List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.tt)
   end
 
-  pfn averaged(cur : Track, window : List(Track)) : Track needs () do
+  pfn averaged(cur : FlickTrack, window : List(FlickTrack)) : FlickTrack needs () do
     let n = count(window)
     { tt: cur.tt, tx: sum_x(window) /. n, ty: sum_y(window) /. n }
   end
 
-  pfn smooth_go(before : List(Track), xs : List(Track), acc : List(Track)) : List(Track) needs () do
+  pfn smooth_go(before : List(FlickTrack), xs : List(FlickTrack), acc : List(FlickTrack)) : List(FlickTrack) needs () do
     match xs do
     Nil -> List.reverse(acc)
     Cons(cur, rest) -> do
@@ -98,24 +103,24 @@ mod Skee.Stroke do
   end
 
   -- Each entry becomes the mean of itself and its neighbours.
-  pfn smooth(xs : List(Track)) : List(Track) needs () do
+  pfn smooth(xs : List(FlickTrack)) : List(FlickTrack) needs () do
     smooth_go([], xs, [])
   end
 
-  pfn flip(xs : List(Track)) : List(Track) needs () do
+  pfn flip(xs : List(FlickTrack)) : List(FlickTrack) needs () do
     List.map(xs, fn e -> { tt: e.tt, tx: e.tx, ty: -e.ty })
   end
 
   -- The first entry with the greatest upward speed, as Swift's max(by:) keeps.
-  pfn fastest(v0 : Track, xs : List(Track)) : Track needs () do
+  pfn fastest(v0 : FlickTrack, xs : List(FlickTrack)) : FlickTrack needs () do
     List.fold_left(xs, v0, fn (best, e) -> if best.ty < e.ty do e else best end)
   end
 
-  pfn last_of(v0 : Track, xs : List(Track)) : Track needs () do
+  pfn last_of(v0 : FlickTrack, xs : List(FlickTrack)) : FlickTrack needs () do
     List.fold_left(xs, v0, fn (_, e) -> e)
   end
 
-  pfn start_time(v : List(Track), peak : Float, fallback : Float) : Float needs () do
+  pfn start_time(v : List(FlickTrack), peak : Float, fallback : Float) : Float needs () do
     match List.find(v, fn e -> e.ty > peak *. 0.08) do
     Some(e) -> e.tt
     None -> fallback
@@ -123,27 +128,30 @@ mod Skee.Stroke do
   end
 
   -- Lift-off speed: a line through the last few velocities, read at the end.
-  pfn speed_at_end(tail : List(Track), last_v : Track, end_t : Float) : Float needs () do
+  pfn speed_at_end(tail : List(FlickTrack), last_v : FlickTrack, end_t : Float) : Float needs () do
     if List.length(tail) >= 2 do
       do
         let n = count(tail)
         let mt = sum_t(tail) /. n
         let mv = sum_y(tail) /. n
-        let num = List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.tt -. mt) *. (e.ty -. mv))
-        let den = List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.tt -. mt) *. (e.tt -. mt))
-        mv +. (if den > 0.0 do num /. den else 0.0 end) *. (end_t -. mt)
+        let num =
+          List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.tt -. mt) *. (e.ty -. mv))
+        let den =
+          List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.tt -. mt) *. (e.tt -. mt))
+        let slope = if den > 0.0 do num /. den else 0.0 end
+        mv +. slope *. (end_t -. mt)
       end
     else
       last_v.ty
     end
   end
 
-  pfn mean_or_zero(sum : Float, xs : List(Track)) : Float needs () do
+  pfn mean_or_zero(sum : Float, xs : List(FlickTrack)) : Float needs () do
     if List.is_empty(xs) do 0.0 else sum /. count(xs) end
   end
 
   -- RMS jerk over the flick.
-  pfn rms_jerk(jf : List(Track)) : Float needs () do
+  pfn rms_jerk(jf : List(FlickTrack)) : Float needs () do
     if List.is_empty(jf) do
       0.0
     else
@@ -158,22 +166,14 @@ mod Skee.Stroke do
 
   -- The first sample nearest the moment of peak speed.
   pfn aim_to(first : FlickSample, samples : List(FlickSample), peak_t : Float) : FlickSample needs () do
-    List.fold_left(samples, first, fn (best, s) ->
-      if Math.abs(s.sample_t -. peak_t) < Math.abs(best.sample_t -. peak_t) do s else best end
-    )
+    List.fold_left(samples, first, fn (best, s) -> if Math.abs(s.sample_t -. peak_t) < Math.abs(best.sample_t -. peak_t) do s else best end)
   end
 
-  pfn throw_of(
-    k : Skee.Consts.Consts,
-    samples : List(FlickSample),
-    first : FlickSample,
-    last : FlickSample,
-    v0 : Track,
-    v : List(Track),
-    g : FlickGeometry,
-    fold : Float,
-    tn : FlickTuning
-  ) : (StrokeOutcome, Option(FlickMetrics)) needs () do
+  pfn some_metrics(peak : Float, release : Float, flick_time : Float, jerk : Float, snap : Float, side : Float, speed : Float) : Option(FlickMetrics) needs () do
+    Some({ peak_speed: peak, release_speed: release, flick_duration: flick_time, jerk: jerk, snap: snap, side: side, flick_speed: speed })
+  end
+
+  pfn throw_of(k : Skee.Consts.Consts, samples : List(FlickSample), first : FlickSample, last : FlickSample, v0 : FlickTrack, v : List(FlickTrack), g : FlickGeometry, fold : Float, tn : FlickTuning) : (StrokeOutcome, Option(FlickMetrics)) needs () do
     let a = smooth(diff(flip(v)))
     let j = diff(flip(a))
     let top = fastest(v0, v)
@@ -192,25 +192,21 @@ mod Skee.Stroke do
             let a_side = mean_or_zero(sum_x(a_tail), a_tail)
             let unit_accel = peak /. flick_time
             let base = tn.release_weight *. release +. (1.0 -. tn.release_weight) *. peak
-            let speed = base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, a_up /. unit_accel)))
+            let speed =
+              base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, a_up /. unit_accel)))
             let rms = rms_jerk(List.filter(j, fn e -> e.tt >= start_t))
             let jerk = rms *. flick_time *. flick_time /. peak
             let skid = (jerk -. tn.smooth_jerk) *. tn.skid_per_jerk
             let from = aim_from(first, samples, start_t)
             let to = aim_to(first, samples, top.tt)
-            let aim = Math.atan2(to.sample_x -. from.sample_x, max_float(from.sample_y -. to.sample_y, 1.0)) /. tn.full_aim_angle
+            let aim =
+              Math.atan2(to.sample_x -. from.sample_x, max_float(from.sample_y -. to.sample_y, 1.0)) /. tn.full_aim_angle
             let power = (speed -. tn.slowest) /. (tn.fastest -. tn.slowest)
-            let l = Skee.Physics.launch_of_power(k, power, aim, lane_start(k, first.sample_x, g, tn), fold, 0.0, skid)
-            let metrics = {
-              peak_speed: peak,
-              release_speed: release,
-              flick_duration: flick_time,
-              jerk: jerk,
-              snap: a_up /. unit_accel,
-              side: a_side /. unit_accel,
-              flick_speed: speed
-            }
-            (Release(l), Some(metrics))
+            let l =
+              Skee.Physics.launch_of_power(k, power, aim, lane_start(k, first.sample_x, g, tn), fold, 0.0, skid)
+            let metrics =
+              some_metrics(peak, release, flick_time, jerk, a_up /. unit_accel, a_side /. unit_accel, speed)
+            (Release(l), metrics)
           end
         else
           (NoThrow, None)
@@ -221,23 +217,19 @@ mod Skee.Stroke do
     end
   end
 
-  pfn track_of(samples : List(FlickSample)) : List(Track) needs () do
+  pfn track_of(samples : List(FlickSample)) : List(FlickTrack) needs () do
     List.map(samples, fn s -> { tt: s.sample_t, tx: s.sample_x, ty: s.sample_y })
   end
 
-  pfn read_motion(
-    k : Skee.Consts.Consts,
-    samples : List(FlickSample),
-    first : FlickSample,
-    last : FlickSample,
-    g : FlickGeometry,
-    fold : Float,
-    tn : FlickTuning
-  ) : (StrokeOutcome, Option(FlickMetrics)) needs () do
+  pfn read_motion(k : Skee.Consts.Consts, samples : List(FlickSample), first : FlickSample, last : FlickSample, g : FlickGeometry, fold : Float, tn : FlickTuning) : (StrokeOutcome, Option(FlickMetrics)) needs () do
     let v = smooth(diff(track_of(samples)))
     match v do
     Cons(v0, _) -> do
-      if List.length(v) >= 3 do throw_of(k, samples, first, last, v0, v, g, fold, tn) else (NoThrow, None) end
+      if List.length(v) >= 3 do
+        throw_of(k, samples, first, last, v0, v, g, fold, tn)
+      else
+        (NoThrow, None)
+      end
     end
     Nil -> (NoThrow, None)
     end
@@ -248,13 +240,7 @@ mod Skee.Stroke do
   end
 
   doc """What a flick came to, and what was measured if it was a throw."""
-  fn measure_flick(
-    k : Skee.Consts.Consts,
-    samples : List(FlickSample),
-    g : FlickGeometry,
-    fold : Float,
-    tn : FlickTuning
-  ) : (StrokeOutcome, Option(FlickMetrics)) needs () do
+  fn measure_flick(k : Skee.Consts.Consts, samples : List(FlickSample), g : FlickGeometry, fold : Float, tn : FlickTuning) : (StrokeOutcome, Option(FlickMetrics)) needs () do
     match samples do
     Nil -> (NoThrow, None)
     Cons(first, _) -> do
@@ -279,13 +265,7 @@ mod Skee.Stroke do
   end
 
   doc """What a flick came to: nothing, a foul, or a throw."""
-  fn analyze_flick(
-    k : Skee.Consts.Consts,
-    samples : List(FlickSample),
-    g : FlickGeometry,
-    fold : Float,
-    tn : FlickTuning
-  ) : StrokeOutcome needs () do
+  fn analyze_flick(k : Skee.Consts.Consts, samples : List(FlickSample), g : FlickGeometry, fold : Float, tn : FlickTuning) : StrokeOutcome needs () do
     let (outcome, _) = measure_flick(k, samples, g, fold, tn)
     outcome
   end

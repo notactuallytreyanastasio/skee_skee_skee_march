@@ -1,9 +1,9 @@
 mod PhysicsTest do
 
-  -- Pending. When the first case exists, add:
-  --   test "physics suite" do
-  --     assert (Harness.failures(PhysicsSuite.cases()) == [])
-  --   end
   needs IO.Console
+
+  test "physics suite" do
+    assert Harness.failures(PhysicsSuite.cases()) == []
+  end
 
 end

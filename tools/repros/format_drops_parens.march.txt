@@ -1,0 +1,9 @@
+-- `forge format` removes the parentheses around an `if` used as an operand, which
+-- leaves a file that no longer parses. Feed this to `forge format --stdin`:
+mod Repro do
+  fn f(a : Float, b : Float, c : Float) : Float do
+    a +. (if b > 0.0 do b else 0.0 end) *. c
+  end
+end
+-- Output: a +. if b > 0.0 do b else 0.0 end *. c   [syntax_error at `if`]
+-- Workaround: bind the `if` to a name first.

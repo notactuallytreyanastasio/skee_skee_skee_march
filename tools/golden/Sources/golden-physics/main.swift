@@ -301,6 +301,41 @@ for x in [100.0, 313.0, 500.0] {
     g.line("lanestartflat", f64(x), f64(laneStart(touchX: x, in: flat)))
 }
 
+// ---- Bulk ----
+// Many more shots than can be written out, for a tight hole-match rate. Inputs come
+// from a seeded SplitMix64 that March replays; each shot leaves only its hole, its
+// event count and its path length. Written after everything else, so the rows
+// above are unaffected by how many there are.
+var bulkRng = SplitMix64(seed: 0xB01C_5EED)
+var combos: [(Int, BallKind)] = []
+for base in bases {
+    for ball in BallKind.allCases {
+        let id = tableId(ball.modify(base))
+        combos.append((id, ball))
+        g.line("bulkcombo", i(id), ball.rawValue)
+    }
+}
+g.line("bulkseed", u64(0xB01C_5EED))
+@MainActor func unit(_ lo: Double, _ hi: Double) -> Double { lo + bulkRng.nextUnit() * (hi - lo) }
+var bulkRow: [String] = []
+for n in 0..<20000 {
+    let (id, ball) = combos[n % combos.count]
+    let power = unit(0.3, 0.95)
+    let aim = unit(-0.5, 0.5)
+    let start = unit(-1, 1)
+    let fold = unit(0, 1)
+    let spin = unit(-1, 1)
+    let skid = unit(0, 1)
+    let seed = bulkRng.next()
+    let l = Launch(power: power, aim: aim, start: start, fold: fold, spin: spin, skid: skid)
+    let res = simulateShot(l, on: tables[id], ball: ball, seed: seed)
+    bulkRow.append("\(res.hole.rawValue).\(res.events.count).\(res.path.count)")
+    if bulkRow.count == 100 {
+        g.line("bulk", bulkRow.joined(separator: ","))
+        bulkRow = []
+    }
+}
+
 for key in seen.keys.sorted() { print(key, seen[key]!) }
 print("shots", shots, "tables", tables.count)
 try g.write()

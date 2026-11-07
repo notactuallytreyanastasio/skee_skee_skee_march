@@ -743,8 +743,15 @@ mod Skee.Scoring do
     let view = { view_balls: balls, view_payline: line, view_streak_after: streak }
     let charm_steps =
       fn charm -> List.map(Skee.Items.charm_effects(charm, view), fn e -> step(FromCharm(charm), e))
-    let steps =
-      List.concat([[step(FromBase, SetBase(Chips(0), 1.0))], pull_steps(c.context_pull), List.flat_map(List.enumerate(balls), fn pair -> ball_steps(Tuple.first(pair), Tuple.second(pair))), payline_steps(line, c.pairs_pay), List.flat_map(c.context_charms, charm_steps), if c.context_fever do [step(FromFever, TimesMult(2.0))] else [] end, free_game_steps(c.context_pull)])
+    let opening = [step(FromBase, SetBase(Chips(0), 1.0))]
+    let banked = pull_steps(c.context_pull)
+    let thrown =
+      List.flat_map(List.enumerate(balls), fn pair -> ball_steps(Tuple.first(pair), Tuple.second(pair)))
+    let lined = payline_steps(line, c.pairs_pay)
+    let charmed = List.flat_map(c.context_charms, charm_steps)
+    let fevered = if c.context_fever do [step(FromFever, TimesMult(2.0))] else [] end
+    let doubled = free_game_steps(c.context_pull)
+    let steps = List.concat([opening, banked, thrown, lined, charmed, fevered, doubled])
     let folded =
       List.fold_left(steps, { chips: Chips(0), mult: 1.0, tickets: Tickets(0) }, apply_step)
     {

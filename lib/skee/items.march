@@ -237,7 +237,7 @@ mod Skee.Items do
   end
 
   doc """Added to the frames of a boss round."""
-  fn frame_delta(b : Boss) : Int needs () do
+  fn frame_delta(b : Boss) : { Int | _ == 0 || _ == -1 } needs () do
     match b do
     TallLips -> 0
     SlickLane -> 0
@@ -290,7 +290,7 @@ mod Skee.Items do
   -- ---- Difficulty ----
   -- Swift's clamp on Ints. Not Skee.Maths.clamp_int: when hi < lo that one (it is
   -- Math.clamp_int) can return lo, where min(max(x, lo), hi) is always hi.
-  pfn clamp_swift(x : Int, lo : Int, hi : Int) : Int needs () do
+  pfn clamp_swift(x : Int, lo : Int, hi : Int) : { Int | _ <= hi && (hi < lo || _ >= lo) } needs () do
     Math.min_int(Math.max_int(x, lo), hi)
   end
 

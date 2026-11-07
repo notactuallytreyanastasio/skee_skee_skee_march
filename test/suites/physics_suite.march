@@ -20,7 +20,9 @@ mod PhysicsSuite do
     let lane = Skee.Types.standard_lane(consts())
     all(List.map(GoldenIo.of_kind(rows, "curve"), fn row ->
       match row do
-      [p, want] -> GoldenIo.expect_float(Skee.Physics.release_speed(lane, f(p)), want, "release_speed " ++ p)
+      Cons(p, Cons(want, Nil)) -> do
+        GoldenIo.expect_float(Skee.Physics.release_speed(lane, f(p)), want, "release_speed " ++ p)
+      end
       _ -> Mismatch("bad curve row")
       end
     ))
@@ -30,7 +32,9 @@ mod PhysicsSuite do
     let lane = Skee.Types.standard_lane(consts())
     all(List.map(GoldenIo.of_kind(rows, "inverse"), fn row ->
       match row do
-      [v, want] -> GoldenIo.expect_float(Skee.Physics.power_for_speed(lane, f(v)), want, "power_for_speed " ++ v)
+      Cons(v, Cons(want, Nil)) -> do
+        GoldenIo.expect_float(Skee.Physics.power_for_speed(lane, f(v)), want, "power_for_speed " ++ v)
+      end
       _ -> Mismatch("bad inverse row")
       end
     ))
@@ -40,7 +44,9 @@ mod PhysicsSuite do
     let hinge = Skee.Types.standard_hinge(consts())
     all(List.map(GoldenIo.of_kind(rows, "angle"), fn row ->
       match row do
-      [fold, want] -> GoldenIo.expect_float(Skee.Physics.launch_angle(hinge, f(fold)), want, "launch_angle " ++ fold)
+      Cons(fold, Cons(want, Nil)) -> do
+        GoldenIo.expect_float(Skee.Physics.launch_angle(hinge, f(fold)), want, "launch_angle " ++ fold)
+      end
       _ -> Mismatch("bad angle row")
       end
     ))
@@ -73,12 +79,14 @@ mod PhysicsSuite do
   end
 
   fn launch_power_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
-    let l = Skee.Physics.launch_of_power(k, at(row, 0), at(row, 1), at(row, 2), at(row, 3), at(row, 4), at(row, 5))
+    let l =
+      Skee.Physics.launch_of_power(k, at(row, 0), at(row, 1), at(row, 2), at(row, 3), at(row, 4), at(row, 5))
     expect_launch(l, slice(row, 6, 8), "launch_of_power")
   end
 
   fn launch_speed_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
-    let l = Skee.Physics.launch_of_speed(k, at(row, 0), at(row, 1), at(row, 2), at(row, 3), at(row, 4), at(row, 5), at(row, 6))
+    let l =
+      Skee.Physics.launch_of_speed(k, at(row, 0), at(row, 1), at(row, 2), at(row, 3), at(row, 4), at(row, 5), at(row, 6))
     all([expect_launch(l, slice(row, 7, 8), "launch_of_speed"), expect_launch(Skee.Physics.mirrored_launch(k, l), slice(row, 15, 8), "mirrored")])
   end
 
@@ -107,7 +115,7 @@ mod PhysicsSuite do
 
   fn hole_facts_row(row : List(String)) : Outcome do
     match row do
-    [name, face, mirror, pocket] -> do
+    Cons(name, Cons(face, Cons(mirror, Cons(pocket, Nil)))) -> do
       let h = hole_of(name)
       all([expect_int(Skee.Physics.face_value(h), GoldenIo.int(face), "face " ++ name), expect_hole(Skee.Physics.mirrored(h), mirror, "mirrored " ++ name), expect(Skee.Physics.is_pocket(h) == (pocket == "1"), "is_pocket " ++ name)])
     end
@@ -147,7 +155,12 @@ mod PhysicsSuite do
       capture_speed: at(r, 8),
       pockets_need_flight: token(r, 9) == "1",
       lip_min_fall: at(r, 10),
-      ring_walls: { wall40: at(r, 11), wall30: at(r, 12), wall20: at(r, 13), wall10: at(r, 14) },
+      ring_walls: {
+        wall40: at(r, 11),
+        wall30: at(r, 12),
+        wall20: at(r, 13),
+        wall10: at(r, 14)
+      },
       pockets: {
         left: { pocket_hole: PocketLeft, center: vec(r, 15), radius: at(r, 17) },
         right: { pocket_hole: PocketRight, center: vec(r, 18), radius: at(r, 20) }
@@ -255,32 +268,73 @@ mod PhysicsSuite do
     end
   end
 
-  -- Bit equality, and the bits as text for messages. Every comparison of a
-  -- Float here goes through this: == cannot tell 0.0 from -0.0.
-  fn same_bits(x : Float, token : String) : Bool do
-    Skee.U64.equal(GoldenIo.float_bits(x), GoldenIo.u64(token))
+  -- How a set of Floats compared with Swift's. Times are kept apart from
+  -- positions: t only ever adds dt, so no libm reaches it and it must be exact.
+  type ShotCheck = { same : Bool, gap : Float, ulps : Int, time_gap : Float }
+
+  fn fine() : ShotCheck do
+    { same: true, gap: 0.0, ulps: 0, time_gap: 0.0 }
   end
 
-  fn gap(x : Float, token : String) : Float do
-    Math.abs(x -. f(token))
+  fn differs() : ShotCheck do
+    { same: false, gap: 0.0, ulps: 0, time_gap: 0.0 }
   end
 
-  -- One golden shot, replayed. What Swift said against what March did.
+  fn both(a : ShotCheck, b : ShotCheck) : ShotCheck do
+    {
+      same: a.same && b.same,
+      gap: Skee.Maths.max_float(a.gap, b.gap),
+      ulps: Math.max_int(a.ulps, b.ulps),
+      time_gap: Skee.Maths.max_float(a.time_gap, b.time_gap)
+    }
+  end
+
+  fn every(checks : List(ShotCheck)) : ShotCheck do
+    List.fold_left(checks, fine(), both)
+  end
+
+  -- Bit equality: == cannot tell 0.0 from -0.0.
+  fn same_bits(x : Float, want : String) : Bool do
+    Skee.U64.equal(GoldenIo.float_bits(x), GoldenIo.u64(want))
+  end
+
+  fn position(x : Float, want : String) : ShotCheck do
+    let ulps = GoldenIo.ulps_between(GoldenIo.float_bits(x), GoldenIo.u64(want))
+    {
+      same: same_bits(x, want),
+      gap: Math.abs(x -. f(want)),
+      ulps: ulps,
+      time_gap: 0.0
+    }
+  end
+
+  fn time(x : Float, want : String) : ShotCheck do
+    {
+      same: same_bits(x, want),
+      gap: 0.0,
+      ulps: 0,
+      time_gap: Math.abs(x -. f(want))
+    }
+  end
+
+  -- One golden shot, replayed: what Swift said against what March did.
   type ShotVerdict = {
     index : String,
     hole_ok : Bool,
     events_ok : Bool,
-    floats_exact : Bool,
     count_ok : Bool,
-    path_gap : Float,
-    time_gap : Float,
+    check : ShotCheck,
     first_diff : String
   }
 
   fn shot_launch(k : Skee.Consts.Consts, row : List(String)) : Launch do
     match token(row, 4) do
-    "p" -> Skee.Physics.launch_of_power(k, at(row, 5), at(row, 7), at(row, 8), at(row, 9), at(row, 10), at(row, 11))
-    _ -> Skee.Physics.launch_of_speed(k, at(row, 5), at(row, 6), at(row, 7), at(row, 8), at(row, 9), at(row, 10), at(row, 11))
+    "p" -> do
+      Skee.Physics.launch_of_power(k, at(row, 5), at(row, 7), at(row, 8), at(row, 9), at(row, 10), at(row, 11))
+    end
+    _ -> do
+      Skee.Physics.launch_of_speed(k, at(row, 5), at(row, 6), at(row, 7), at(row, 8), at(row, 9), at(row, 10), at(row, 11))
+    end
     end
   end
 
@@ -292,49 +346,23 @@ mod PhysicsSuite do
     )
   end
 
-  -- Float tokens, in pairs with what they should equal.
-  fn check_all(pairs : List((Float, String))) : (Bool, Float) do
-    List.fold_left(pairs, (true, 0.0), fn (acc, pair) ->
-      match (acc, pair) do
-      ((ok, worst), (x, want)) -> (ok && same_bits(x, want), Skee.Maths.max_float(worst, gap(x, want)))
-      end
-    )
-  end
-
-  fn option_token(x : Option(Float), want : String) : (Bool, Float) do
+  fn option_check(x : Option(Float), want : String) : ShotCheck do
     match x do
-    Some(v) -> if want == "none" do (false, 0.0) else check_all([(v, want)]) end
-    None -> (want == "none", 0.0)
+    Some(v) -> if want == "none" do differs() else position(v, want) end
+    None -> if want == "none" do fine() else differs() end
     end
   end
 
-  -- One sampled token against the path sample at its index.
-  fn sample_check(path_at : Int -> Option(PathSample), text : String) : (Bool, Float) do
-    match String.split(text, ":") do
-    [index, phase, t, x, along, height] -> do
-      match path_at(GoldenIo.int(index)) do
-      Some(s) -> do
-        let (exact, worst) = check_all([(s.t, t), (s.px, x), (s.along, along), (s.height, height)])
-        (exact && phase_name(s.phase) == phase, worst)
-      end
-      None -> (false, 0.0)
-      end
-    end
-    _ -> panic("bad golden sample")
-    end
-  end
-
-  fn index_path(path : List(PathSample), i : Int, wanted : List(Int), acc : List((Int, PathSample))) : List((Int, PathSample)) do
-    match (path, wanted) do
-    (Nil, _) -> List.reverse(acc)
-    (_, Nil) -> List.reverse(acc)
-    (Cons(s, rest), Cons(w, more)) -> do
-      if i == w do
-        index_path(rest, i + 1, more, Cons((i, s), acc))
+  fn landing_check(l : Option(Skee.Maths.Vec2), want_x : String, want_y : String) : ShotCheck do
+    match l do
+    Some(p) -> do
+      if want_x == "none" do
+        differs()
       else
-        index_path(rest, i + 1, wanted, acc)
+        both(position(p.x, want_x), position(p.y, want_y))
       end
     end
+    None -> if want_x == "none" do fine() else differs() end
     end
   end
 
@@ -345,59 +373,80 @@ mod PhysicsSuite do
     end
   end
 
-  -- The sampled path against March's. Walks the path once.
-  fn samples_check(path : List(PathSample), token : String) : (Bool, Float) do
-    let wanted = String.split(token, ",")
-    let found = index_path(path, 0, List.map(wanted, sample_index), [])
-    let lookup = fn i -> List.find(found, fn pair -> Tuple.first(pair) == i)
-    List.fold_left(wanted, (true, 0.0), fn (acc, text) ->
-      let (ok, worst) = acc
-      let (one, w) = sample_check(fn i ->
-        match lookup(i) do
-        Some(pair) -> Some(Tuple.second(pair))
-        None -> None
-        end
-      , text)
-      (ok && one, Skee.Maths.max_float(worst, w))
-    )
-  end
-
-  fn times_check(events : List(TimedEvent), token : String) : (Bool, Float) do
-    let want = String.split(token, ",")
-    if List.length(want) == List.length(events) do
-      check_all(List.zip(List.map(events, fn e -> e.at), want))
-    else
-      (false, 0.0)
+  fn one_sample(s : PathSample, text : String) : ShotCheck do
+    match String.split(text, ":") do
+    Cons(_, Cons(phase, Cons(t, Cons(x, Cons(along, Cons(height, Nil)))))) -> do
+      let phase_check = if phase_name(s.phase) == phase do fine() else differs() end
+      every([phase_check, time(s.t, t), position(s.px, x), position(s.along, along), position(s.height, height)])
+    end
+    _ -> panic("bad golden sample")
     end
   end
 
-  fn landing_check(l : Option(Skee.Maths.Vec2), want_x : String, want_y : String) : (Bool, Float) do
-    match l do
-    Some(p) -> if want_x == "none" do (false, 0.0) else check_all([(p.x, want_x), (p.y, want_y)]) end
-    None -> (want_x == "none", 0.0)
+  -- Walks the path once. Goldens hold ascending indices, so each sample is met in
+  -- turn; one past the end of March's path is a difference.
+  fn walk_samples(path : List(PathSample), i : Int, wanted : List(String), acc : ShotCheck) : ShotCheck do
+    match (path, wanted) do
+    (_, Nil) -> acc
+    (Nil, Cons(_, _)) -> both(acc, differs())
+    (Cons(s, rest), Cons(text, more)) -> do
+      if i == sample_index(text) do
+        walk_samples(rest, i + 1, more, both(acc, one_sample(s, text)))
+      else
+        walk_samples(rest, i + 1, wanted, acc)
+      end
+    end
+    end
+  end
+
+  fn times_check(events : List(TimedEvent), want : String) : ShotCheck do
+    let tokens = String.split(want, ",")
+    if List.length(tokens) == List.length(events) do
+      every(List.map(List.zip(events, tokens), fn pair ->
+        match pair do
+        (e, want_t) -> time(e.at, want_t)
+        end
+      ))
+    else
+      differs()
+    end
+  end
+
+  -- Whether the sums over every sample are the same. A sum's gap adds up every
+  -- sample's and is no distance on the board, so it is not counted as a gap.
+  fn sums_check(t : Float, x : Float, along : Float, height : Float, row : List(String)) : ShotCheck do
+    if same_bits(x, token(row, 23)) && same_bits(along, token(row, 24)) && same_bits(height, token(row, 25)) do
+      time(t, token(row, 22))
+    else
+      both(differs(), time(t, token(row, 22)))
     end
   end
 
   fn judge(row : List(String), r : ShotResult) : ShotVerdict do
     let names = String.join(List.map(r.events, fn e -> event_name(e.event)), ",")
-    let (hinge_ok, hinge_gap) = option_token(r.hinge_speed, token(row, 13))
-    let (landing_ok, landing_gap) = landing_check(r.first_landing, token(row, 14), token(row, 15))
-    let (single_ok, single_gap) = check_all([(r.peak_height, token(row, 16)), (r.duration, token(row, 17))])
-    let (times_ok, times_gap) = times_check(r.events, token(row, 20))
     let (t, x, along, height) = sums_of(r.path)
-    let (sums_ok, _) = check_all([(t, token(row, 22)), (x, token(row, 23)), (along, token(row, 24)), (height, token(row, 25))])
-    let (samples_ok, sample_gap) = samples_check(r.path, token(row, 26))
-    let count_ok = List.length(r.path) == GoldenIo.int(token(row, 21))
-    let parts = [("hinge", hinge_ok), ("landing", landing_ok), ("peak/duration", single_ok), ("times", times_ok), ("sums", sums_ok), ("samples", samples_ok)]
-    let bad = List.filter(parts, fn p -> !Tuple.second(p))
+    let parts =
+      [
+        ("hinge", option_check(r.hinge_speed, token(row, 13))),
+        ("landing", landing_check(r.first_landing, token(row, 14), token(row, 15))),
+        ("peak", position(r.peak_height, token(row, 16))),
+        ("duration", time(r.duration, token(row, 17))),
+        ("times", times_check(r.events, token(row, 20))),
+        ("sums", sums_check(t, x, along, height, row)),
+        ("samples", walk_samples(r.path, 0, String.split(token(row, 26), ","), fine()))
+      ]
+    let bad =
+      List.filter(parts, fn p ->
+        match p do
+        (_, c) -> !c.same
+        end
+      )
     {
       index: token(row, 0),
       hole_ok: hole_name(r.hole) == token(row, 12),
       events_ok: names == token(row, 19) && Skee.Physics.rattles(r) == GoldenIo.int(token(row, 18)),
-      floats_exact: List.is_empty(bad),
-      count_ok: count_ok,
-      path_gap: sample_gap,
-      time_gap: Skee.Maths.max_float(single_gap, Skee.Maths.max_float(times_gap, Skee.Maths.max_float(hinge_gap, landing_gap))),
+      count_ok: List.length(r.path) == GoldenIo.int(token(row, 21)),
+      check: every(List.map(parts, fn p -> Tuple.second(p))),
       first_diff: String.join(List.map(bad, fn p -> Tuple.first(p)), "+")
     }
   end
@@ -407,79 +456,140 @@ mod PhysicsSuite do
     judge(row, Skee.Physics.simulate_shot(k, shot_launch(k, row), t, ball_of(token(row, 2)), GoldenIo.u64(token(row, 3))))
   end
 
-  fn exact(v : ShotVerdict) : Bool do
-    v.hole_ok && v.events_ok && v.floats_exact && v.count_ok
+  fn verdicts(rows : List(List(String))) : List(ShotVerdict) do
+    let k = consts()
+    let tables = tables_of(rows)
+    List.map(GoldenIo.of_kind(rows, "shot"), fn row -> replay(k, tables, row))
+  end
+
+  -- The declared tolerance for a shot on JS, in metres. V8's sin and cos differ
+  -- from Darwin's by an ulp, and bounces amplify that. Holes, events, every time
+  -- and the sample counts get no tolerance at all, and native gets none anywhere.
+  -- Measured worst case: see the DIVERGENCE line the runner prints.
+  fn js_path_tolerance() : Float do
+    0.00000001
   end
 
   fn describe(v : ShotVerdict) : String do
-    "shot " ++ v.index ++ ": hole " ++ show(v.hole_ok) ++ " events " ++ show(v.events_ok) ++ " count " ++ show(v.count_ok) ++ " differs in " ++ v.first_diff
+    "shot " ++ v.index ++ ": hole " ++ show(v.hole_ok) ++ " events " ++ show(v.events_ok) ++ " count " ++ show(v.count_ok) ++ " differs in " ++ v.first_diff ++ " by " ++ float_to_string(v.check.gap) ++ " m, " ++ float_to_string(v.check.time_gap) ++ " s"
+  end
+
+  fn shape_ok(v : ShotVerdict) : Bool do
+    v.hole_ok && v.events_ok && v.count_ok && v.check.time_gap == 0.0
   end
 
   fn outcome_of(v : ShotVerdict) : Outcome do
-    if exact(v) do Passed(1) else Mismatch(describe(v)) end
+    if shape_ok(v) && v.check.same do
+      Passed(1)
+    else
+      if Harness.on_js() && shape_ok(v) && v.check.gap <= js_path_tolerance() do
+        Drifted(1, 1, v.check.ulps)
+      else
+        Mismatch(describe(v))
+      end
+    end
   end
 
-  fn shots_where(rows : List(List(String)), keep : List(String) -> Bool) : Outcome do
-    let k = consts()
-    let tables = tables_of(rows)
-    all(List.map(List.filter(GoldenIo.of_kind(rows, "shot"), keep), fn row -> outcome_of(replay(k, tables, row))))
+  fn count_if(vs : List(ShotVerdict), keep : ShotVerdict -> Bool) : Int do
+    List.length(List.filter(vs, keep))
   end
 
-  fn is_dud(row : List(String)) : Bool do
-    token(row, 13) == "none"
+  fn worst(vs : List(ShotVerdict), pick : ShotVerdict -> Float) : Float do
+    List.fold_left(vs, 0.0, fn (acc, v) -> Skee.Maths.max_float(acc, pick(v)))
   end
 
-  -- What a run of golden shots came to, for the record: docs/PORT.md asks for the
-  -- hole mismatch rate and the worst divergence to be measured, not assumed.
-  type Divergence = {
-    shots : Int,
-    bit_exact : Int,
-    holes_differ : Int,
-    events_differ : Int,
-    counts_differ : Int,
-    worst_path : Float,
-    worst_time : Float,
-    worst_shot : String
+  doc """The measured divergence from Swift over every golden shot, as one line."""
+  fn divergence_line(vs : List(ShotVerdict)) : String do
+    let n = fn p -> int_to_string(count_if(vs, p))
+    "DIVERGENCE shots=" ++ int_to_string(List.length(vs)) ++ " bit_exact=" ++ n(fn v -> shape_ok(v) && v.check.same) ++ " holes_differ=" ++ n(fn v -> !v.hole_ok) ++ " events_differ=" ++ n(fn v -> !v.events_ok) ++ " path_counts_differ=" ++ n(fn v -> !v.count_ok) ++ " worst_position_gap_m=" ++ float_to_string(worst(vs, fn v -> v.check.gap)) ++ " worst_time_gap_s=" ++ float_to_string(worst(vs, fn v -> v.check.time_gap))
+  end
+
+  -- ---- BulkRun ----
+  fn draw(k : Skee.Consts.Consts, r : Skee.Rng.Rng, lo : Float, hi : Float) : (Float, Skee.Rng.Rng) do
+    let (u, next) = Skee.Rng.next_unit(k, r)
+    (lo +. u *. (hi -. lo), next)
+  end
+
+  fn bulk_shot(k : Skee.Consts.Consts, tables : List(Table), combo : List(String), r0 : Skee.Rng.Rng) : (String, Skee.Rng.Rng) do
+    let (power, r1) = draw(k, r0, 0.3, 0.95)
+    let (aim, r2) = draw(k, r1, -0.5, 0.5)
+    let (start, r3) = draw(k, r2, -1.0, 1.0)
+    let (fold, r4) = draw(k, r3, 0.0, 1.0)
+    let (spin, r5) = draw(k, r4, -1.0, 1.0)
+    let (skid, r6) = draw(k, r5, 0.0, 1.0)
+    let (seed, r7) = Skee.Rng.next(r6)
+    let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
+    let res =
+      Skee.Physics.simulate_shot(k, l, table_at(tables, token(combo, 0)), ball_of(token(combo, 1)), seed)
+    (hole_name(res.hole) ++ "." ++ int_to_string(List.length(res.events)) ++ "." ++ int_to_string(List.length(res.path)), r7)
+  end
+
+  type BulkRun = {
+    rng_now : Skee.Rng.Rng,
+    position : Int,
+    compared : Int,
+    differing : List(String)
   }
 
-  fn tally_shot(d : Divergence, v : ShotVerdict) : Divergence do
-    let flag = fn ok -> if ok do 0 else 1 end
+  fn bulk_step(k : Skee.Consts.Consts, tables : List(Table), combos : List(List(String)), b : BulkRun, want : String) : BulkRun do
+    let combo = List.nth(combos, b.position % List.length(combos))
+    let (got, r) = bulk_shot(k, tables, combo, b.rng_now)
+    let bad =
+      if got == want do
+        b.differing
+      else
+        Cons(int_to_string(b.position) ++ " " ++ got ++ " want " ++ want, b.differing)
+      end
     {
-      shots: d.shots + 1,
-      bit_exact: d.bit_exact + 1 - flag(exact(v)),
-      holes_differ: d.holes_differ + flag(v.hole_ok),
-      events_differ: d.events_differ + flag(v.events_ok),
-      counts_differ: d.counts_differ + flag(v.count_ok),
-      worst_path: Skee.Maths.max_float(d.worst_path, v.path_gap),
-      worst_time: Skee.Maths.max_float(d.worst_time, v.time_gap),
-      worst_shot: if v.path_gap > d.worst_path do v.index else d.worst_shot end
+      rng_now: r,
+      position: b.position + 1,
+      compared: b.compared + 1,
+      differing: bad
     }
   end
 
-  fn measure(rows : List(List(String))) : Divergence do
+  fn bulk_result(rows : List(List(String))) : BulkRun do
     let k = consts()
     let tables = tables_of(rows)
-    let start = {
-      shots: 0,
-      bit_exact: 0,
-      holes_differ: 0,
-      events_differ: 0,
-      counts_differ: 0,
-      worst_path: 0.0,
-      worst_time: 0.0,
-      worst_shot: "none"
-    }
-    List.fold_left(GoldenIo.of_kind(rows, "shot"), start, fn (d, row) -> tally_shot(d, replay(k, tables, row)))
+    let combos = GoldenIo.of_kind(rows, "bulkcombo")
+    let seed = token(List.nth(GoldenIo.of_kind(rows, "bulkseed"), 0), 0)
+    let wanted =
+      List.flat_map(GoldenIo.of_kind(rows, "bulk"), fn row -> String.split(token(row, 0), ","))
+    let start =
+      {
+        rng_now: Skee.Rng.seed(GoldenIo.u64(seed)),
+        position: 0,
+        compared: 0,
+        differing: []
+      }
+    List.fold_left(wanted, start, fn (b, want) -> bulk_step(k, tables, combos, b, want))
   end
 
-  fn divergence_text() : String do
-    let d = measure(golden())
-    "shots=" ++ int_to_string(d.shots) ++ " bit_exact=" ++ int_to_string(d.bit_exact) ++ " holes_differ=" ++ int_to_string(d.holes_differ) ++ " events_differ=" ++ int_to_string(d.events_differ) ++ " path_counts_differ=" ++ int_to_string(d.counts_differ) ++ " worst_path_gap_m=" ++ float_to_string(d.worst_path) ++ " (shot " ++ d.worst_shot ++ ") worst_time_gap=" ++ float_to_string(d.worst_time)
+  fn bulk_outcome(b : BulkRun) : Outcome do
+    if List.is_empty(b.differing) do
+      if b.compared > 0 do
+        Passed(b.compared)
+      else
+        Mismatch("compared nothing")
+      end
+    else
+      Mismatch(int_to_string(List.length(b.differing)) ++ " of " ++ int_to_string(b.compared) ++ " differ: " ++ String.join(List.take(List.reverse(b.differing), 5), " | "))
+    end
+  end
+
+  doc """The hole, event count and path length of every bulk shot, as one line."""
+  fn bulk_line(b : BulkRun) : String do
+    "BULK shots=" ++ int_to_string(b.compared) ++ " differ=" ++ int_to_string(List.length(b.differing))
   end
 
   -- ---- Flicks ----
   fn geometry_of(r : List(String)) : FlickGeometry do
-    { crease_y: at(r, 0), lane_center_x: at(r, 1), lane_half_width: at(r, 2), foul_give: at(r, 3) }
+    {
+      crease_y: at(r, 0),
+      lane_center_x: at(r, 1),
+      lane_half_width: at(r, 2),
+      foul_give: at(r, 3)
+    }
   end
 
   fn tuning_of(r : List(String)) : FlickTuning do
@@ -497,13 +607,17 @@ mod PhysicsSuite do
 
   fn sample_of(text : String) : FlickSample do
     match String.split(text, ":") do
-    [t, x, y] -> { sample_t: f(t), sample_x: f(x), sample_y: f(y) }
+    Cons(t, Cons(x, Cons(y, Nil))) -> { sample_t: f(t), sample_x: f(x), sample_y: f(y) }
     _ -> panic("bad golden flick sample")
     end
   end
 
   fn samples_of(text : String) : List(FlickSample) do
-    if text == "empty" do [] else List.map(String.split(text, ","), sample_of) end
+    if text == "empty" do
+      []
+    else
+      List.map(String.split(text, ","), sample_of)
+    end
   end
 
   -- aim goes through atan2, so it may drift on JS. Nothing else in a Launch does.
@@ -512,7 +626,16 @@ mod PhysicsSuite do
   end
 
   fn expect_metrics(m : Skee.Stroke.FlickMetrics, want : List(String)) : Outcome do
-    let fields = [m.peak_speed, m.release_speed, m.flick_duration, m.jerk, m.snap, m.side, m.flick_speed]
+    let fields =
+      [
+        m.peak_speed,
+        m.release_speed,
+        m.flick_duration,
+        m.jerk,
+        m.snap,
+        m.side,
+        m.flick_speed
+      ]
     all(List.map(List.zip(fields, want), fn pair ->
       match pair do
       (got, bits) -> GoldenIo.expect_float(got, bits, "metric")
@@ -522,8 +645,8 @@ mod PhysicsSuite do
 
   fn flick_outcome(got : (StrokeOutcome, Option(Skee.Stroke.FlickMetrics)), want : List(String)) : Outcome do
     match (got, want) do
-    ((NoThrow, None), ["none"]) -> Passed(1)
-    ((StrokeFoul, None), ["foul"]) -> Passed(1)
+    ((NoThrow, None), Cons("none", Nil)) -> Passed(1)
+    ((StrokeFoul, None), Cons("foul", Nil)) -> Passed(1)
     ((Release(l), Some(m)), Cons("release", rest)) -> do
       all([expect_flick_launch(l, List.take(rest, 8)), expect_metrics(m, List.drop(rest, 8))])
     end
@@ -556,19 +679,500 @@ mod PhysicsSuite do
     all(List.append(List.map(GoldenIo.of_kind(rows, "lanestart"), fn row -> lane_start_row(k, duo, row)), List.map(GoldenIo.of_kind(rows, "lanestartflat"), fn row -> lane_start_row(k, flat, row))))
   end
 
+  -- ---- The Swift tests, ported ----
+  fn power_shot(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, start : Float, fold : Float, spin : Float, skid : Float) : ShotResult do
+    let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
+    Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.U64.make(0, 0))
+  end
+
+  fn std(k : Skee.Consts.Consts) : Table do
+    Skee.Types.standard_table(k)
+  end
+
+  fn plain(k : Skee.Consts.Consts, power : Float, aim : Float) : ShotResult do
+    power_shot(k, std(k), power, aim, 0.0, 0.0, 0.0, 0.0)
+  end
+
+  -- PhysicsTests.sweep: power 0 to 1 at a fixed aim.
+  fn sweep(k : Skee.Consts.Consts, aim : Float, start : Float, steps : Int) : List(ShotResult) do
+    List.map(List.range(0, steps + 1), fn i -> power_shot(k, std(k), int_to_float(i) /. int_to_float(steps), aim, start, 0.0, 0.0, 0.0))
+  end
+
+  fn same_event(a : TimedEvent, b : TimedEvent) : Bool do
+    a.event == b.event && a.at == b.at
+  end
+
+  fn same_sample(a : PathSample, b : PathSample) : Bool do
+    a.t == b.t && a.phase == b.phase && a.px == b.px && a.along == b.along && a.height == b.height
+  end
+
+  fn same_events(a : List(TimedEvent), b : List(TimedEvent)) : Bool do
+    List.length(a) == List.length(b) && List.all(List.zip(a, b), fn pair -> same_event(Tuple.first(pair), Tuple.second(pair)))
+  end
+
+  fn same_path(a : List(PathSample), b : List(PathSample)) : Bool do
+    List.length(a) == List.length(b) && List.all(List.zip(a, b), fn pair -> same_sample(Tuple.first(pair), Tuple.second(pair)))
+  end
+
+  fn same_shot(a : ShotResult, b : ShotResult) : Bool do
+    a.hole == b.hole && a.duration == b.duration && a.peak_height == b.peak_height && same_events(a.events, b.events) && same_path(a.path, b.path)
+  end
+
+  fn has_event(r : ShotResult, e : ShotEvent) : Bool do
+    List.any(r.events, fn x -> x.event == e)
+  end
+
+  fn is_some(o : Option(a)) : Bool do
+    match o do
+    Some(_) -> true
+    None -> false
+    end
+  end
+
+  fn landing_y(r : ShotResult) : Float do
+    match r.first_landing do
+    Some(p) -> p.y
+    None -> panic("no landing")
+    end
+  end
+
+  fn landing_x(r : ShotResult) : Float do
+    match r.first_landing do
+    Some(p) -> p.x
+    None -> panic("no landing")
+    end
+  end
+
+  fn hinge(r : ShotResult) : Float do
+    match r.hinge_speed do
+    Some(v) -> v
+    None -> 0.0
+    end
+  end
+
+  fn identical_launches() : Outcome do
+    let k = consts()
+    let a = power_shot(k, std(k), 0.55, 0.1, -0.2, 0.3, 0.0, 0.0)
+    let b = power_shot(k, std(k), 0.55, 0.1, -0.2, 0.3, 0.0, 0.0)
+    expect(same_shot(a, b), "identical launches differ")
+  end
+
+  fn weak_shot_is_a_dud() : Outcome do
+    let r = plain(consts(), 0.05, 0.0)
+    all([expect(r.hole == Gutter, "hole"), expect(has_event(r, ShotDud), "dud"), expect(!is_some(r.hinge_speed), "hinge"), expect(List.all(r.path, fn s -> s.phase == OnLane), "phases")])
+  end
+
+  fn clearing_the_hinge() : Outcome do
+    let r = plain(consts(), 0.6, 0.0)
+    all([expect(is_some(r.hinge_speed), "hinge"), expect(List.any(r.path, fn s -> s.phase == InAir), "air")])
+  end
+
+  fn clean(r : ShotResult) : Bool do
+    !has_event(r, ShotBackwall) && Skee.Physics.rattles(r) == 0 && is_some(r.first_landing)
+  end
+
+  fn rising(ys : List(Float), slack : Float) : Bool do
+    match ys do
+    Cons(a, Cons(b, rest)) -> a <= b +. slack && rising(Cons(b, rest), slack)
+    Cons(_, Nil) -> true
+    Nil -> true
+    end
+  end
+
+  fn clean_landings_rise() : Outcome do
+    let k = consts()
+    let landings = List.map(List.filter(sweep(k, 0.0, 0.0, 400), clean), landing_y)
+    let table = std(k)
+    let slack = table.board.ball_radius
+    let first = List.nth(landings, 0)
+    let last = List.nth(landings, List.length(landings) - 1)
+    all([expect(List.length(landings) > 10, "too few clean flights"), expect(rising(landings, slack), "landings fall with power"), expect(last -. first > 0.5, "landings span too little")])
+  end
+
+  fn every_hole_reachable() : Outcome do
+    let k = consts()
+    let aims = List.map(List.range(0, 21), fn i -> -1.0 +. int_to_float(i) *. 0.1)
+    let results =
+      List.flat_map(aims, fn aim -> List.flat_map([-1.0, 0.0, 1.0], fn start -> sweep(k, aim, start, 120)))
+    all(List.map(Skee.HoleMap.all_holes(), fn h -> expect(List.any(results, fn r -> r.hole == h), "never reached " ++ show(h))))
+  end
+
+  fn mirrored_launches() : Outcome do
+    let k = consts()
+    all(List.map(List.range(0, 13), fn i ->
+      let p = 0.3 +. int_to_float(i) *. 0.05
+      let a = power_shot(k, std(k), p, 0.4, 0.2, 0.0, 0.0, 0.0)
+      let b = power_shot(k, std(k), p, -0.4, -0.2, 0.0, 0.0, 0.0)
+      expect(Skee.Physics.mirrored(a.hole) == b.hole, "mirror at " ++ float_to_string(p))
+    ))
+  end
+
+  fn folding_lofts() : Outcome do
+    let k = consts()
+    let flat = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let folded = power_shot(k, std(k), 0.6, 0.0, 0.0, 1.0, 0.0, 0.0)
+    all([expect(landing_y(folded) < landing_y(flat), "landing"), expect(folded.peak_height > flat.peak_height, "peak")])
+  end
+
+  fn shots_terminate() : Outcome do
+    let k = consts()
+    let table = std(k)
+    expect(List.all(sweep(k, 0.3, 0.0, 60), fn r -> r.duration < table.max_duration +. 0.01), "shot ran on")
+  end
+
+  fn launch_clamps() : Outcome do
+    let k = consts()
+    let l = Skee.Physics.launch_of_power(k, 3.0, -9.0, 4.0, -1.0, 7.0, -2.0)
+    expect(l.power == 1.0 && l.aim == -1.0 && l.start == 1.0 && l.fold == 0.0 && l.spin == 1.0 && l.skid == 0.0, "clamps")
+  end
+
+  fn power_and_speed_invert() : Outcome do
+    let lane = Skee.Types.standard_lane(consts())
+    all(List.map(List.range(0, 21), fn i ->
+      let p = int_to_float(i) *. 0.05
+      expect(Math.abs(Skee.Physics.power_for_speed(lane, Skee.Physics.release_speed(lane, p)) -. p) < 0.000000001, "invert")
+    ))
+  end
+
+  fn power_range_is_spent_scoring() : Outcome do
+    let lane = Skee.Types.standard_lane(consts())
+    all([expect(Skee.Physics.release_speed(lane, 0.0) == lane.min_speed, "min"), expect(Skee.Physics.release_speed(lane, lane.knee) == lane.scoring_speed, "knee"), expect(lane.knee < 0.2, "knee size")])
+  end
+
+  fn every_scoring_ball_drops() : Outcome do
+    let k = consts()
+    let results = List.flat_map([-0.4, 0.0, 0.3], fn aim -> sweep(k, aim, 0.0, 200))
+    all(List.map(List.filter(results, fn r -> r.hole != Gutter), fn r ->
+      match List.reverse(r.events) do
+      Cons(e, _) -> expect(e.event == ShotDropped(r.hole), "last event of " ++ show(r.hole))
+      Nil -> Mismatch("no events")
+      end
+    ))
+  end
+
+  fn holes_sit_in_a_column() : Outcome do
+    let table = std(consts())
+    let b = table.board
+    let ys =
+      List.map([Ring10, Ring20, Ring30, Ring40, Ring50], fn h ->
+        let c = Skee.Physics.hole_center(b, h)
+        c.y
+      )
+    let centred =
+      List.map([Ring40, Ring30, Ring20, Ring10], fn h ->
+        let c = Skee.Physics.hole_center(b, h)
+        expect(c.x == 0.0 && Skee.Physics.zone(b, c) == h, "column " ++ show(h))
+      )
+    all(Cons(expect(rising(ys, 0.0), "column order"), centred))
+  end
+
+  fn spin_hooks() : Outcome do
+    let k = consts()
+    let flat = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let hook = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, 1.0, 0.0)
+    let back = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, -1.0, 0.0)
+    all([expect(landing_x(hook) > landing_x(flat) +. 0.02, "hook"), expect(landing_x(back) < landing_x(flat) -. 0.02, "back")])
+  end
+
+  fn skid_loses_speed() : Outcome do
+    let k = consts()
+    let flat = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let skid = power_shot(k, std(k), 0.6, 0.0, 0.0, 0.0, 0.0, 1.0)
+    expect(hinge(skid) < hinge(flat) *. 0.95, "skid")
+  end
+
+  fn ball_shot(k : Skee.Consts.Consts, ball : BallKind, seed : Int) : ShotResult do
+    let l = Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+    Skee.Physics.simulate_shot(k, l, Skee.Items.modify_for_ball(ball, std(k)), ball, Skee.U64.make(0, seed))
+  end
+
+  fn seeds_matter(k : Skee.Consts.Consts, ball : BallKind) : Outcome do
+    let shots = List.map(List.range(0, 8), fn s -> ball_shot(k, ball, s))
+    let first = ball_shot(k, ball, 0)
+    all([expect(same_shot(ball_shot(k, ball, 5), ball_shot(k, ball, 5)), "replay"), expect(List.any(shots, fn r -> !same_shot(r, first)), show(ball) ++ " ignores its seed")])
+  end
+
+  fn random_balls_replay() : Outcome do
+    let k = consts()
+    all([seeds_matter(k, JumpingBean), seeds_matter(k, Wobbler)])
+  end
+
+  fn classic_ignores_seed() : Outcome do
+    let k = consts()
+    expect(same_shot(ball_shot(k, ClassicBall, 1), ball_shot(k, ClassicBall, 2)), "classic used its seed")
+  end
+
+  fn bean_hops() : Outcome do
+    let k = consts()
+    let hops =
+      List.map(List.range(0, 20), fn s ->
+        let r = ball_shot(k, JumpingBean, s)
+        List.length(List.filter(r.events, fn e -> e.event == ShotHop))
+      )
+    expect(List.fold_left(hops, 0, fn (a, b) -> a + b) > 20, "too few hops")
+  end
+
+  fn comet_leaves_faster() : Outcome do
+    let k = consts()
+    expect(hinge(ball_shot(k, Comet, 0)) > hinge(ball_shot(k, ClassicBall, 0)), "comet")
+  end
+
+  fn fifties(k : Skee.Consts.Consts, ball : BallKind) : Int do
+    let t = Skee.Items.modify_for_ball(ball, std(k))
+    let grid =
+      List.flat_map(List.range(0, 31), fn i -> List.map(List.range(0, 7), fn j -> (0.3 +. int_to_float(i) *. 0.02, -0.3 +. int_to_float(j) *. 0.1)))
+    let shots =
+      List.map(grid, fn pair ->
+        let l =
+          Skee.Physics.launch_of_power(k, Tuple.first(pair), Tuple.second(pair), 0.0, 0.0, 0.0, 0.0)
+        Skee.Physics.simulate_shot(k, l, t, ball, Skee.U64.make(0, 0))
+      )
+    List.length(List.filter(shots, fn r -> r.hole == Ring50))
+  end
+
+  fn marshmallow_finds_the_bullseye() : Outcome do
+    let k = consts()
+    expect(fifties(k, Marshmallow) > fifties(k, ClassicBall), "marshmallow")
+  end
+
+  fn shot_starts_where_let_go() : Outcome do
+    let k = consts()
+    let l = Skee.Physics.launch_of_speed(k, 3.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0)
+    let r = Skee.Physics.simulate_shot(k, l, std(k), ClassicBall, Skee.U64.make(0, 0))
+    match r.path do
+    Cons(s, _) -> expect(Math.abs(s.along -. 0.8) < 0.000000001, "first sample")
+    Nil -> Mismatch("no path")
+    end
+  end
+
+  fn power_means_speed_from_the_line() : Outcome do
+    let k = consts()
+    let l = Skee.Physics.launch_of_power(k, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
+    expect(l.from == 0.0 && l.speed == Skee.Physics.release_speed(Skee.Types.standard_lane(k), 0.5), "release")
+  end
+
+  -- StrokeTests.flick: minimum-jerk motion lifted partway through, at 120 Hz.
+  type StrokeSpec = {
+    distance : Float,
+    stroke_time : Float,
+    lift : Float,
+    y0 : Float,
+    x0 : Float,
+    lateral : Float -> Float,
+    wobble : Float
+  }
+
+  fn stroke() : StrokeSpec do
+    {
+      distance: 220.0,
+      stroke_time: 0.16,
+      lift: 0.8,
+      y0: 820.0,
+      x0: 313.0,
+      lateral: fn _ -> 0.0,
+      wobble: 0.0
+    }
+  end
+
+  fn stroke_at(s : StrokeSpec, t : Float) : FlickSample do
+    let v = t /. s.stroke_time
+    let d =
+      s.distance *. (10.0 *. Math.pow(v, 3.0) -. 15.0 *. Math.pow(v, 4.0) +. 6.0 *. Math.pow(v, 5.0))
+    let w = s.wobble *. Math.sin(t *. 90.0)
+    { sample_t: t, sample_x: s.x0 +. s.lateral(v), sample_y: s.y0 -. d -. w }
+  end
+
+  fn stroke_go(s : StrokeSpec, t : Float, dt : Float, acc : List(FlickSample)) : List(FlickSample) do
+    if t <= s.stroke_time *. s.lift +. 0.000000001 do
+      stroke_go(s, t +. dt, dt, Cons(stroke_at(s, t), acc))
+    else
+      List.reverse(acc)
+    end
+  end
+
+  fn flick(s : StrokeSpec) : List(FlickSample) do
+    stroke_go(s, 0.0, 1.0 /. 120.0, [])
+  end
+
+  fn duo() : FlickGeometry do
+    Skee.Stroke.flick_geometry(445.0, 313.0, 260.0)
+  end
+
+  fn analyze(k : Skee.Consts.Consts, s : List(FlickSample)) : StrokeOutcome do
+    Skee.Stroke.analyze_flick(k, s, duo(), 0.0, Skee.Types.standard_tuning())
+  end
+
+  fn thrown(k : Skee.Consts.Consts, s : StrokeSpec) : Launch do
+    match analyze(k, flick(s)) do
+    Release(l) -> l
+    NoThrow -> panic("no throw")
+    StrokeFoul -> panic("foul")
+    end
+  end
+
+  fn is_no_throw(o : StrokeOutcome) : Bool do
+    match o do
+    NoThrow -> true
+    StrokeFoul -> false
+    Release(_) -> false
+    end
+  end
+
+  fn natural_flick_is_clean() : Outcome do
+    let l = thrown(consts(), stroke())
+    expect(l.skid < 0.15 && Math.abs(l.aim) < 0.05 && Math.abs(l.spin) < 0.1 && l.from == 0.0, "natural")
+  end
+
+  fn faster_and_longer_flicks() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let slow = thrown(k, { s with stroke_time: 0.24 })
+    let fast = thrown(k, { s with stroke_time: 0.12 })
+    let long = thrown(k, { s with distance: 300.0 })
+    let short = thrown(k, { s with distance: 150.0 })
+    all([expect(fast.power > slow.power +. 0.15, "quicker"), expect(long.power > short.power +. 0.1, "longer")])
+  end
+
+  fn easing_off_costs_speed() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let snap = thrown(k, { s with lift: 0.6 })
+    let lazy = thrown(k, { s with lift: 0.97 })
+    expect(snap.power > lazy.power, "snap")
+  end
+
+  fn shaky_flick_skids() : Outcome do
+    let s = stroke()
+    let l = thrown(consts(), { s with wobble: 9.0 })
+    expect(l.skid > 0.4, "skid")
+  end
+
+  fn curl(u : Float) : Float do
+    if u > 0.55 do 90.0 *. Math.pow(u -. 0.55, 2.0) *. 10.0 else 0.0 end
+  end
+
+  fn curling_thumb_rolls_straight() : Outcome do
+    let s = stroke()
+    let l = thrown(consts(), { s with lateral: curl })
+    expect(l.spin == 0.0 && Math.abs(l.aim) < 0.1, "curl")
+  end
+
+  fn flicking_right_aims_right() : Outcome do
+    let s = stroke()
+    let l = thrown(consts(), { s with lateral: fn u -> 40.0 *. u })
+    expect(l.aim > 0.1, "right")
+  end
+
+  fn crooked_flick_is_a_trim() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let slope = 220.0 *. Math.tan(k.pi /. 18.0)
+    let crooked = thrown(k, { s with lateral: fn u -> slope *. u })
+    let lane = Skee.Types.standard_lane(k)
+    let drift = Math.tan(crooked.aim *. lane.max_aim_angle) *. (lane.length +. 0.58)
+    expect(drift > 0.02 && drift < 0.08, "drift")
+  end
+
+  fn touch_down_sets_the_line() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let l = thrown(k, { s with x0: 120.0, lateral: fn u -> 80.0 *. u })
+    let want = Skee.Stroke.lane_start(k, 120.0, duo(), Skee.Types.standard_tuning())
+    expect(Math.abs(l.start -. want) < 0.000000001 && l.start < -0.7, "line")
+  end
+
+  fn lane_centre_rolls_down_the_middle() : Outcome do
+    let k = consts()
+    let tn = Skee.Types.standard_tuning()
+    all([expect(Skee.Stroke.lane_start(k, 313.0, duo(), tn) == 0.0, "centre"), expect(Skee.Stroke.lane_start(k, 573.0, duo(), tn) == 1.0, "edge")])
+  end
+
+  fn foul_rules() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let past = analyze(k, flick({ s with distance: 520.0, stroke_time: 0.2 }))
+    let dragged = flick({ s with distance: 700.0, stroke_time: 0.5, lift: 1.0 })
+    let foul =
+      match analyze(k, dragged) do
+      StrokeFoul -> true
+      NoThrow -> false
+      Release(_) -> false
+      end
+    all([expect(!is_no_throw(past), "past the crease is fine"), expect(foul, "dragging is a foul")])
+  end
+
+  fn not_a_throw() : Outcome do
+    let k = consts()
+    let s = stroke()
+    let above = analyze(k, flick({ s with y0: 400.0 }))
+    let tap = analyze(k, flick({ s with distance: 8.0, stroke_time: 0.1 }))
+    let pull = analyze(k, flick({ s with distance: -200.0, y0: 500.0 }))
+    all([expect(is_no_throw(above), "above the crease"), expect(is_no_throw(tap), "tap"), expect(is_no_throw(pull), "pull")])
+  end
+
+  fn ported_cases() : List(Case) do
+    [
+      case("identical launches give identical shots", fn () -> identical_launches()),
+      case("a weak shot is a dud", fn () -> weak_shot_is_a_dud()),
+      case("clearing the hinge reports launch speed", fn () -> clearing_the_hinge()),
+      case("clean landings move up the board with power", fn () -> clean_landings_rise()),
+      case("an overpowered shot hits the backwall", fn () -> expect(has_event(plain(consts(), 1.0, 0.0), ShotBackwall), "backwall")),
+      case("a straight shot can score fifty", fn () -> expect(List.any(sweep(consts(), 0.0, 0.0, 400), fn r -> r.hole == Ring50), "no fifty")),
+      case("every hole is reachable", fn () -> every_hole_reachable()),
+      case("a mirrored launch gives the mirrored hole", fn () -> mirrored_launches()),
+      case("folding the hinge lofts the ball shorter", fn () -> folding_lofts()),
+      case("some shots rattle on a lip", fn () -> expect(List.any(sweep(consts(), 0.0, 0.0, 400), fn r -> Skee.Physics.rattles(r) > 0), "no rattle")),
+      case("shots always terminate", fn () -> shots_terminate()),
+      case("launch clamps its inputs", fn () -> launch_clamps()),
+      case("power and speed invert", fn () -> power_and_speed_invert()),
+      case("most of the power range is spent where balls score", fn () -> power_range_is_spent_scoring()),
+      case("every scoring ball drops through a hole", fn () -> every_scoring_ball_drops()),
+      case("holes sit in a column below the centre", fn () -> holes_sit_in_a_column()),
+      case("spin hooks the ball", fn () -> spin_hooks()),
+      case("a jerky stroke skids and loses speed", fn () -> skid_loses_speed()),
+      case("random balls replay from their seed", fn () -> random_balls_replay()),
+      case("a classic ball ignores the seed", fn () -> classic_ignores_seed()),
+      case("a bean hops", fn () -> bean_hops()),
+      case("a comet leaves faster", fn () -> comet_leaves_faster()),
+      case("a marshmallow finds the bullseye", fn () -> marshmallow_finds_the_bullseye()),
+      case("a shot starts where it was let go", fn () -> shot_starts_where_let_go()),
+      case("power still means speed from the line", fn () -> power_means_speed_from_the_line()),
+      case("a natural flick is clean", fn () -> natural_flick_is_clean()),
+      case("quicker and longer flicks throw harder", fn () -> faster_and_longer_flicks()),
+      case("easing off before letting go costs speed", fn () -> easing_off_costs_speed()),
+      case("a shaky flick skids", fn () -> shaky_flick_skids()),
+      case("a thumb that curls still rolls straight", fn () -> curling_thumb_rolls_straight()),
+      case("flicking right aims right", fn () -> flicking_right_aims_right()),
+      case("a slightly crooked flick is only a trim", fn () -> crooked_flick_is_a_trim()),
+      case("where you touch down sets the line", fn () -> touch_down_sets_the_line()),
+      case("touching the lane centre rolls down the middle", fn () -> lane_centre_rolls_down_the_middle()),
+      case("lifting past the crease is fine, dragging is a foul", fn () -> foul_rules()),
+      case("not every touch is a throw", fn () -> not_a_throw())
+    ]
+  end
+
   fn cases() : List(Case) do
     let rows = golden()
+    cases_of(rows, verdicts(rows), bulk_result(rows))
+  end
+
+  doc """The suite, given shots already replayed: replaying is the slow part."""
+  fn cases_of(rows : List(List(String)), shots : List(ShotVerdict), bulk : BulkRun) : List(Case) do
+    List.append(golden_cases(rows, shots, bulk), ported_cases())
+  end
+
+  fn golden_cases(rows : List(List(String)), shots : List(ShotVerdict), bulk : BulkRun) : List(Case) do
     [
-      case("speed curve", fn -> curve_case(rows)),
-      case("inverse speed curve", fn -> inverse_case(rows)),
-      case("hinge launch angle", fn -> angle_case(rows)),
-      case("launch construction and mirroring", fn -> launch_case(rows)),
-      case("hole facts", fn -> all(List.map(GoldenIo.of_kind(rows, "holefacts"), hole_facts_row))),
-      case("board geometry", fn -> board_case(rows)),
-      case("golden shots that never leave the lane", fn -> shots_where(rows, is_dud)),
-      case("golden shots over the hinge", fn -> shots_where(rows, fn row -> !is_dud(row))),
-      case("lane start", fn -> lane_start_case(rows)),
-      case("golden flicks", fn -> flick_case(rows))
+      case("speed curve", fn () -> curve_case(rows)),
+      case("inverse speed curve", fn () -> inverse_case(rows)),
+      case("hinge launch angle", fn () -> angle_case(rows)),
+      case("launch construction and mirroring", fn () -> launch_case(rows)),
+      case("hole facts", fn () -> all(List.map(GoldenIo.of_kind(rows, "holefacts"), hole_facts_row))),
+      case("board geometry", fn () -> board_case(rows)),
+      case("golden shots", fn () -> all(List.map(shots, outcome_of))),
+      case("bulk golden shots", fn () -> bulk_outcome(bulk)),
+      case("lane start", fn () -> lane_start_case(rows)),
+      case("golden flicks", fn () -> flick_case(rows))
     ]
   end
 

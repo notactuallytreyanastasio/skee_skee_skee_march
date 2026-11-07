@@ -300,4 +300,51 @@ odd.kindScale = [.warmup: 0.1, .feature: 0.7, .boss: 3.3]
 odd.targetScale = 1.1
 for ante in -1...5 { for kind in RoundKind.allCases { targetLine(odd, ante, kind) } }
 
+// ---- BallTests and DifficultyTests, as values ----
+
+let throwOne = Launch(power: 0.6, aim: 0)
+
+/// What the Swift tests read from a shot, for a throw that depends on a seed.
+@MainActor func seedLine(_ ball: BallKind, _ seed: UInt64) {
+    let shot = simulateShot(throwOne, on: .standard, ball: ball, seed: seed)
+    g.line("ball_shot", ball.rawValue, u64(seed), shot.hole.rawValue, i(shot.events.count), i(shot.path.count),
+           i(shot.events.filter { $0 == .hop }.count))
+}
+for ball in [BallKind.bean, .wobbler] { for seed in UInt64(0)..<20 { seedLine(ball, seed) } }
+for seed in UInt64(1)...2 { seedLine(.classic, seed) }
+
+// aCometLeavesFaster.
+g.line("hinge_speed", "classic", f64(simulateShot(throwOne, on: .standard).hingeSpeed!))
+g.line("hinge_speed", "comet",
+       f64(simulateShot(throwOne, on: BallKind.comet.modify(.standard), ball: .comet).hingeSpeed!))
+
+// aMarshmallowFindsTheBullseye: every shot of the test, because Swift's
+// floating stride is what decides which powers and aims those are.
+for ball in [BallKind.marshmallow, .classic] {
+    let t = ball.modify(.standard)
+    for p in stride(from: 0.3, through: 0.9, by: 0.02) {
+        for a in stride(from: -0.3, through: 0.3, by: 0.1) {
+            g.line("fifty", ball.rawValue, f64(p), f64(a), simulateShot(Launch(power: p, aim: a), on: t, ball: ball).hole.rawValue)
+        }
+    }
+}
+
+// lastAnteIsStillPlayable, stopping where the Swift test stops.
+let windowAims = Array(stride(from: -0.8, through: 0.8, by: 0.2))
+g.line(["window_aims"] + windowAims.map(f64))
+for boss in Boss.allCases {
+    let t = boss.modify(difficultyTable(ante: 8))
+    var best = 0.0
+    for aim in windowAims {
+        var hits = 0
+        for n in 0...400 where simulateShot(Launch(power: Double(n) / 400, aim: aim), on: t).hole == .ring50 {
+            hits += 1
+        }
+        best = max(best, Double(hits) / 400)
+        if best >= 0.015 { break }
+    }
+    precondition(best >= 0.015)
+    g.line("window", boss.rawValue, f64(best))
+}
+
 try g.write()

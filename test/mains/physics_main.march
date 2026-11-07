@@ -3,8 +3,12 @@ mod PhysicsMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    println("DIVERGENCE " ++ PhysicsSuite.divergence_text())
-    Harness.report("physics", PhysicsSuite.cases())
+    let rows = PhysicsSuite.golden()
+    let shots = PhysicsSuite.verdicts(rows)
+    let bulk = PhysicsSuite.bulk_result(rows)
+    println(PhysicsSuite.divergence_line(shots))
+    println(PhysicsSuite.bulk_line(bulk))
+    Harness.report("physics", PhysicsSuite.cases_of(rows, shots, bulk))
   end
 
 end

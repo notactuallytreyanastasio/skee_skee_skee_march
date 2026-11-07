@@ -421,12 +421,15 @@ mod ItemsSuite do
     Cons(flight, Cons(left, Cons(right, floats))) -> do
       let want = table_floats(t)
       if List.length(want) == List.length(floats) do
-        let kinds = [
-          expect_string(bool_token(d.pockets_need_flight), flight, what ++ " flight"),
-          expect_string(hole_raw(d.pockets.left.pocket_hole), left, what ++ " left"),
-          expect_string(hole_raw(d.pockets.right.pocket_hole), right, what ++ " right")
-        ]
-        all(List.append(kinds, List.map(List.zip(want, floats), fn pair -> field_matches(pair, what))))
+        do
+          let kinds =
+            [
+              expect_string(bool_token(d.pockets_need_flight), flight, what ++ " flight"),
+              expect_string(hole_raw(d.pockets.left.pocket_hole), left, what ++ " left"),
+              expect_string(hole_raw(d.pockets.right.pocket_hole), right, what ++ " right")
+            ]
+          all(List.append(kinds, List.map(List.zip(want, floats), fn pair -> field_matches(pair, what))))
+        end
       else
         Mismatch(what ++ ": row has " ++ int_to_string(List.length(floats)) ++ " floats")
       end
@@ -606,6 +609,168 @@ mod ItemsSuite do
     all(List.map(table_rows(pick), fn row -> table_row(std, alt, row)))
   end
 
+  -- ---- BallTests and DifficultyTests, through the simulator ----
+  fn throw_one(k : Skee.Consts.Consts) : Launch do
+    Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
+  end
+
+  fn seed_of(n : Int) : Skee.U64.U64 do
+    Skee.U64.make(0, n)
+  end
+
+  fn hops(r : ShotResult) : Int do
+    List.length(List.filter(r.events, fn e -> e.event == ShotHop))
+  end
+
+  fn ball_shot_row(k : Skee.Consts.Consts, std : Table, row : List(String)) : Outcome do
+    match row do
+    Cons(ball, Cons(seed, Cons(hole, Cons(events, Cons(path, Cons(hop_count, Nil)))))) -> do
+      let b = lookup(all_balls(), ball_raw, ball)
+      let shot = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(seed))
+      let again = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(seed))
+      let what = ball ++ " seed " ++ seed
+      all([expect_string(hole_raw(shot.hole), hole, what ++ " hole"), expect_int(List.length(shot.events), GoldenIo.int(events), what ++ " events"), expect_int(List.length(shot.path), GoldenIo.int(path), what ++ " path"), expect_int(hops(shot), GoldenIo.int(hop_count), what ++ " hops"), expect_int(List.length(again.path), List.length(shot.path), what ++ " replays")])
+    end
+    _ -> Mismatch("bad ball_shot row")
+    end
+  end
+
+  fn path_length(r : ShotResult) : Int do
+    List.length(r.path)
+  end
+
+  fn path_lengths(ball : BallKind, k : Skee.Consts.Consts, std : Table) : List(Int) do
+    List.map(List.range(0, 8), fn n -> path_length(Skee.Physics.simulate_shot(k, throw_one(k), std, ball, seed_of(n))))
+  end
+
+  -- randomBallsReplayFromTheirSeed, for the paths' lengths: Swift accepts any
+  -- difference in the paths, and a change of length is one.
+  fn random_balls_use_their_seed() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    all(List.map([JumpingBean, Wobbler], fn ball -> expect(List.length(List.dedup(List.sort_by(path_lengths(ball, k, std), fn (a, b) -> a <= b))) > 1, ball_raw(ball) ++ " ignores its seed")))
+  end
+
+  fn a_classic_ball_ignores_the_seed() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    let a = Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, seed_of(1))
+    let b = Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, seed_of(2))
+    all([expect(a.hole == b.hole, "a classic ball changed hole with its seed"), expect_int(List.length(a.path), List.length(b.path), "classic path")])
+  end
+
+  fn a_bean_hops() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    let total =
+      List.fold_left(List.range(0, 20), 0, fn (acc, n) -> acc + hops(Skee.Physics.simulate_shot(k, throw_one(k), std, JumpingBean, seed_of(n))))
+    expect(total > 20, "20 beans hopped " ++ int_to_string(total) ++ " times")
+  end
+
+  fn hinge_speed_of(k : Skee.Consts.Consts, ball : BallKind) : Float do
+    let t = modify_for_ball(ball, Skee.Types.standard_table(k))
+    let shot = Skee.Physics.simulate_shot(k, throw_one(k), t, ball, seed_of(0))
+    match shot.hinge_speed do
+    Some(v) -> v
+    None -> 0.0
+    end
+  end
+
+  fn hinge_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
+    match row do
+    Cons(ball, Cons(speed, Nil)) -> do
+      GoldenIo.expect_libm_float(hinge_speed_of(k, lookup(all_balls(), ball_raw, ball)), speed, ball ++ " hinge speed")
+    end
+    _ -> Mismatch("bad hinge_speed row")
+    end
+  end
+
+  fn a_comet_leaves_faster() : Outcome do
+    let k = Skee.Consts.make()
+    let goldens = all(List.map(rows("hinge_speed"), fn row -> hinge_row(k, row)))
+    all([goldens, expect(hinge_speed_of(k, Comet) > hinge_speed_of(k, ClassicBall), "a comet is no faster")])
+  end
+
+  fn aimed(k : Skee.Consts.Consts, power : Float, aim : Float) : Launch do
+    Skee.Physics.launch_of_power(k, power, aim, 0.0, 0.0, 0.0, 0.0)
+  end
+
+  fn fifty_row(k : Skee.Consts.Consts, std : Table, row : List(String)) : (String, Outcome) do
+    match row do
+    Cons(ball, Cons(power, Cons(aim, Cons(hole, Nil)))) -> do
+      let b = lookup(all_balls(), ball_raw, ball)
+      let l = aimed(k, GoldenIo.float_of_bits(power), GoldenIo.float_of_bits(aim))
+      let shot = Skee.Physics.simulate_shot(k, l, modify_for_ball(b, std), b, seed_of(0))
+      let found = hole_raw(shot.hole)
+      (if found == "ring50" do ball else "-" end, expect_string(found, hole, ball ++ " " ++ power ++ " " ++ aim))
+    end
+    _ -> ("-", Mismatch("bad fifty row"))
+    end
+  end
+
+  fn a_marshmallow_finds_the_bullseye() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    let results = List.map(rows("fifty"), fn row -> fifty_row(k, std, row))
+    let fifties =
+      fn ball -> List.length(List.filter(results, fn r -> Tuple.first(r) == ball))
+    let soft = fifties("marshmallow")
+    let plain = fifties("classic")
+    all([all(List.map(results, fn r -> Tuple.second(r))), expect(soft > plain, "marshmallow " ++ int_to_string(soft) ++ " fifties, classic " ++ int_to_string(plain))])
+  end
+
+  fn later_antes_tighten_the_table() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    let early = difficulty_table(1, std, 8)
+    let late = difficulty_table(8, std, 8)
+    let e = early.board
+    let l = late.board
+    all([expect(l.center_hole_radius < e.center_hole_radius, "the 50 did not shrink"), expect(l.lip_band > e.lip_band, "the lips did not widen")])
+  end
+
+  fn hits_at(k : Skee.Consts.Consts, t : Table, aim : Float) : Int do
+    let shots =
+      List.map(List.range(0, 401), fn n -> Skee.Physics.simulate_shot(k, aimed(k, int_to_float(n) /. 400.0, aim), t, ClassicBall, seed_of(0)))
+    List.length(List.filter(shots, fn s -> s.hole == Ring50))
+  end
+
+  -- The best share of powers that find the 50, stopping as soon as it is enough.
+  fn best_window(k : Skee.Consts.Consts, t : Table, aims : List(Float), best : Float) : Float do
+    match aims do
+    Nil -> best
+    Cons(aim, rest) -> do
+      let found = Skee.Maths.max_float(best, int_to_float(hits_at(k, t, aim)) /. 400.0)
+      if found >= 0.015 do found else best_window(k, t, rest, found) end
+    end
+    end
+  end
+
+  fn window_row(k : Skee.Consts.Consts, aims : List(Float), row : List(String)) : Outcome do
+    match row do
+    Cons(boss, Cons(best, Nil)) -> do
+      let b = lookup(all_bosses(), boss_raw, boss)
+      let t = modify_for_boss(b, difficulty_table(8, Skee.Types.standard_table(k), 8))
+      let found = best_window(k, t, aims, 0.0)
+      all([GoldenIo.expect_float(found, best, boss ++ " window"), expect(found >= 0.015, boss ++ ": no window for the 50 at the last ante")])
+    end
+    _ -> Mismatch("bad window row")
+    end
+  end
+
+  fn last_ante_is_still_playable() : Outcome do
+    let k = Skee.Consts.make()
+    let aims =
+      List.map(List.flat_map(rows("window_aims"), fn row -> row), GoldenIo.float_of_bits)
+    all(List.map(rows("window"), fn row -> window_row(k, aims, row)))
+  end
+
+  fn ball_shots() : Outcome do
+    let k = Skee.Consts.make()
+    let std = Skee.Types.standard_table(k)
+    all(List.map(rows("ball_shot"), fn row -> ball_shot_row(k, std, row)))
+  end
+
   -- No golden row may go unread: the kinds above must account for every line,
   -- and the table cases must partition the table rows.
   fn coverage() : Outcome do
@@ -623,7 +788,12 @@ mod ItemsSuite do
         "table",
         "frame",
         "target_std",
-        "target"
+        "target",
+        "ball_shot",
+        "hinge_speed",
+        "fifty",
+        "window_aims",
+        "window"
       ]
     let known = List.fold_left(kinds, 0, fn (acc, kind) -> acc + List.length(rows(kind)))
     let picks = [no_modifiers, only_ball, only_power, only_boss, only_ante, stacked_row]
@@ -652,6 +822,14 @@ mod ItemsSuite do
       case("standard targets", fn () -> all(List.map(rows("target_std"), target_std_row))),
       case("targets", fn () -> all(List.map(rows("target"), target_row))),
       case("no antes, no target", fn () -> no_antes_no_target()),
+      case("random balls replay from their seed", fn () -> ball_shots()),
+      case("random balls use their seed", fn () -> random_balls_use_their_seed()),
+      case("a classic ball ignores the seed", fn () -> a_classic_ball_ignores_the_seed()),
+      case("a bean hops", fn () -> a_bean_hops()),
+      case("a comet leaves faster", fn () -> a_comet_leaves_faster()),
+      case("a marshmallow finds the bullseye", fn () -> a_marshmallow_finds_the_bullseye()),
+      case("later antes tighten the table", fn () -> later_antes_tighten_the_table()),
+      case("the last ante is still playable", fn () -> last_ante_is_still_playable()),
       case("every golden row is read", fn () -> coverage())
     ]
   end
