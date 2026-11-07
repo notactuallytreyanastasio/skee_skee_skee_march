@@ -1,6 +1,6 @@
 -- COMPILER BUG: prefix minus lowers to a call of the name `negate`, and a user
 -- function called `negate` captures it. This program never terminates: the
--- literal -1.0 inside negate calls negate. Interpreter, native and JS all
+-- literal -1.0 inside negate calls negate. Native and JS (both observed)
 -- recurse until the stack runs out.
 mod NegateShadow do
   needs IO.Console

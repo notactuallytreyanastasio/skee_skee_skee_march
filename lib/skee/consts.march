@@ -13,7 +13,9 @@ mod Skee.Consts do
     tau : Float,
     dt : Float,
     unit53 : Float,
-    floor_u1 : Float
+    floor_u1 : Float,
+    infinity : Float,
+    nan : Float
   }
 
   -- Only ever called on the fixed strings below, and the rng suite pins each
@@ -32,7 +34,9 @@ mod Skee.Consts do
       tau: parse("6.283185307179586"),
       dt: parse("0.004166666666666667"),
       unit53: parse("1.1102230246251565e-16"),
-      floor_u1: 0.000000000001
+      floor_u1: 0.000000000001,
+      infinity: parse("1e308") *. 10.0,
+      nan: Math.sqrt(-1.0)
     }
   end
 

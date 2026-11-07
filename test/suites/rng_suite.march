@@ -247,6 +247,15 @@ mod RngSuite do
     ))
   end
 
+  fn div_row(row : List(String)) : Outcome do
+    match row do
+    Cons(a, Cons(b, Cons(want, Nil))) -> do
+      GoldenIo.expect_float(Skee.Maths.ieee_div(Skee.Consts.make(), f(a), f(b)), want, "div " ++ a ++ " " ++ b)
+    end
+    _ -> Mismatch("bad div row")
+    end
+  end
+
   fn clamp_nan() : Outcome do
     match kind("clampnan") do
     Cons(Cons(want, Nil), Nil) -> do
@@ -286,6 +295,7 @@ mod RngSuite do
       case("clamp keeps Swift's argument order", fn () -> all(List.map(kind("clamp"), clamp_row))),
       case("clamp leaves NaN alone", fn () -> clamp_nan()),
       case("clamp on Ints", fn () -> all(List.map(kind("clampi"), clamp_int_row))),
+      case("ieee_div divides by zero as Swift does", fn () -> all(List.map(kind("div"), div_row))),
       case("degrees", fn () -> all(List.map(kind("deg"), degrees_row))),
       case("Vec2 examples from MathAndRandomTests", fn () -> vec_examples()),
       case("Vec2 ops", fn () -> all(List.map(kind("vec"), vec_row))),

@@ -28,6 +28,27 @@ mod Skee.Maths do
     Math.clamp_int(x, lo, hi)
   end
 
+  -- atan2 is the portable way to see a zero's sign: 1 /. x panics natively.
+  pfn is_negative(x : Float) : Bool needs () do
+    if x == 0.0 do Math.atan2(x, -1.0) < 0.0 else x < 0.0 end
+  end
+
+  doc """
+  a / b with IEEE results for b == 0: `/.` panics on zero natively, while Swift
+  and JS give an infinity or NaN. Use it for any divisor that can reach zero.
+  """
+  fn ieee_div(k : Skee.Consts.Consts, a : Float, b : Float) : Float needs () do
+    if b != 0.0 do
+      a /. b
+    else
+      if a == 0.0 || a != a do
+        k.nan
+      else
+        if is_negative(a) == is_negative(b) do k.infinity else -k.infinity end
+      end
+    end
+  end
+
   doc """Degrees to radians, in Swift's order: d * pi / 180."""
   fn degrees(k : Skee.Consts.Consts, d : Float) : Float needs () do
     d *. k.pi /. 180.0

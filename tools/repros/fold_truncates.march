@@ -1,0 +1,29 @@
+-- COMPILER BUG, JS only, silent. The emitter prints Float literals at 12
+-- significant digits, and opt.fold turns computed constants into literals, even
+-- through an inlined function and a record field. Expected: three "exact".
+--   march --target js -o /tmp/x/f.mjs                         prints TRUNC x3
+--   march --target js --disable-pass opt.fold -o /tmp/x/f.mjs prints exact x3
+mod FoldTruncates do
+  needs IO.Console
+
+  type R = { a : Float, b : Float }
+
+  fn k() : Float do
+    240.0
+  end
+
+  fn r() : R do
+    { a: 4.5, b: 1.3 }
+  end
+
+  fn say(x : Float, text : String) : () do
+    println(if Some(x) == string_to_float(text) do "exact" else "TRUNC" end)
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let q = r()
+    say(1.0 /. 240.0, "0.004166666666666667")
+    say(1.0 /. k(), "0.004166666666666667")
+    say(q.a *. q.b, "5.8500000000000005")
+  end
+end

@@ -1,0 +1,19 @@
+-- TOOL BUG, silent data loss. Save as x.march and run `forge format --stdin < x.march`.
+-- The body of `match do` becomes the literal text `match do ... end`, and a
+-- multi-statement lambda inside a list literal becomes `fn (x) -> ...`. The
+-- printer falls back to a summary (lib/ast printing, ECond -> "match do ... end",
+-- EBlock -> "..."), and the summary is written over the source.
+mod X do
+  fn f(x : Int) : Int do
+    match do
+      x > 0 -> 1
+      true -> 2
+    end
+  end
+
+  fn g(xs : List(Int)) : List(List(Int)) do
+    [List.map(xs, fn x ->
+      let y = x + 1
+      y)]
+  end
+end

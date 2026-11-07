@@ -24,7 +24,13 @@ let package = Package(
         .executableTarget(name: "golden-items", dependencies: [
             "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
         ]),
+        .executableTarget(name: "golden-rooms", dependencies: [
+            "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
+        ]),
         .executableTarget(name: "golden-run", dependencies: [
+            "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
+        ]),
+        .executableTarget(name: "golden-bots", dependencies: [
             "GoldenSupport", .product(name: "SkeeCore", package: "SkeeSkeeSkee"),
         ]),
     ]

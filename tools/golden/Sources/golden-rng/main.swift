@@ -1,6 +1,6 @@
 import Foundation
 import GoldenSupport
-import SkeeCore
+@testable import SkeeCore
 
 // RNG and float goldens, from the real SplitMix64, Vec2, clamp and degrees.
 var g = GoldenFile(module: "Rng")
@@ -125,6 +125,12 @@ for n in 0..<200 {
 }
 let z = Vec2.zero.normalized
 g.line("veczero", f64(z.x), f64(z.y), f64(Vec2.zero.length))
+
+// Division by zero: IEEE on Swift and JS, a panic in native March.
+let divisors: [(Double, Double)] = [
+    (1, 0), (-1, 0), (1, -0.0), (-1, -0.0), (0, 0), (-0.0, 0), (0, -0.0), (2.5, 0.5), (1, 3), (-7, 2), (0, 5),
+]
+for (a, d) in divisors { g.line("div", f64(a), f64(d), f64(a / d)) }
 
 // The default spec values, read from the real structs: each row is a dotted
 // field name and its bits. Only the fields that are plain numbers are here;
