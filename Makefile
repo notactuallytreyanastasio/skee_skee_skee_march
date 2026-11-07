@@ -6,7 +6,7 @@ SWIFT_FLAGS := -c release -Xswiftc -enable-testing
 GOLDEN_DIR := tools/golden
 GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
-.PHONY: test test-js test-native check check-purity format golden build web serve playtest selftest clean
+.PHONY: test test-js test-native check check-purity format golden build web serve playtest audio-check selftest clean
 
 # Native: every test block, plus the purity guard.
 test: check-purity
@@ -99,6 +99,13 @@ serve: web
 # tools/playtest/shots/. Needs `npm install` in tools/playtest once.
 playtest:
 	node tools/playtest/playtest.mjs http://127.0.0.1:$(PORT)/
+
+# The audio: the shipped worklet under node and in headless Chrome against the
+# Swift Synth's golden samples, then the game's AudioContext, both paths, and
+# one throw's cue timeline. Serves dist/ itself on port 8139.
+audio-check: web
+	node tools/audio_check/worklet_node.mjs
+	node tools/audio_check/audio_playtest.mjs
 
 # Proves every guard goes red on a planted violation.
 selftest:

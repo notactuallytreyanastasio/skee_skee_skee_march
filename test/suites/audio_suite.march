@@ -31,7 +31,9 @@ mod AudioSuite do
       end
     end
     (Nil, Cons(_, _)) -> Mismatch(what ++ ": " ++ int_to_string(i) ++ " samples, want more")
-    (Cons(_, _), Nil) -> Mismatch(what ++ ": more than the " ++ int_to_string(i) ++ " samples wanted")
+    (Cons(_, _), Nil) -> do
+      Mismatch(what ++ ": more than the " ++ int_to_string(i) ++ " samples wanted")
+    end
     end
   end
 
@@ -60,7 +62,16 @@ mod AudioSuite do
   -- ---- Skee.SynthFeed ----
   fn a_play_is_synth_play() : Outcome do
     let sounds =
-      [SndLaunch, SndDrop(Ring50), SndCombo(6), SndTallyChips(11), SndPullWin(400), SndBanner("FEVER"), SndJackpot, SndFrameDone]
+      [
+        SndLaunch,
+        SndDrop(Ring50),
+        SndCombo(6),
+        SndTallyChips(11),
+        SndPullWin(400),
+        SndBanner("FEVER"),
+        SndJackpot,
+        SndFrameDone
+      ]
     all(List.map(sounds, fn snd -> play_matches(snd)))
   end
 
@@ -81,14 +92,27 @@ mod AudioSuite do
   end
 
   fn commands_apply_in_order() : Outcome do
-    let s = Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.9), CmdDrum(true), CmdRumble(0.2), CmdDrum(false)])
+    let s =
+      Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.9), CmdDrum(true), CmdRumble(0.2), CmdDrum(false)])
     all([expect(s.rumble_target == Skee.Synth.f32(s.c, 0.2), "last rumble wins"), expect(!s.drum, "last drum wins")])
   end
 
   -- A cue that arrives before block i plays from the start of block i: the
   -- same samples as Skee.Synth playing it after i blocks.
   fn script_hump_at_3(i : Int) : List(Skee.SynthFeed.AudioCmd) do
-    if i == 0 do [CmdRumble(0.6)] else if i == 3 do [CmdPlay(SndHump)] else if i == 5 do [CmdDrum(true), CmdPlay(SndLip)] else if i == 9 do [CmdRumble(0.0), CmdDrum(false)] else [] end end end end
+    if i == 0 do
+      [CmdRumble(0.6)]
+    else
+      if i == 3 do
+        [CmdPlay(SndHump)]
+      else
+        if i == 5 do
+          [CmdDrum(true), CmdPlay(SndLip)]
+        else
+          if i == 9 do [CmdRumble(0.0), CmdDrum(false)] else [] end
+        end
+      end
+    end
   end
 
   fn direct_hump_at_3() : List(Float) do
@@ -97,7 +121,8 @@ mod AudioSuite do
     let (b, s2) = Skee.Synth.render(Skee.Synth.play(s1, SndHump), 2 * 128)
     let s3 = Skee.Synth.play(Skee.Synth.set_drum(s2, true), SndLip)
     let (c, s4) = Skee.Synth.render(s3, 4 * 128)
-    let (d, _) = Skee.Synth.render(Skee.Synth.set_drum(Skee.Synth.set_rumble(s4, 0.0), false), 7 * 128)
+    let (d, _) =
+      Skee.Synth.render(Skee.Synth.set_drum(Skee.Synth.set_rumble(s4, 0.0), false), 7 * 128)
     List.concat([a, b, c, d])
   end
 
@@ -114,7 +139,8 @@ mod AudioSuite do
   -- The block size is the browser's (128 in a worklet, 2048 in the
   -- fallback): it must not change a sample.
   fn block_size_is_invisible() : Outcome do
-    let s = Skee.Synth.play(Skee.Synth.play(fresh(), SndJackpot), SndBanner("MEGA JACKPOT"))
+    let s =
+      Skee.Synth.play(Skee.Synth.play(fresh(), SndJackpot), SndBanner("MEGA JACKPOT"))
     let in_128 = feed(s, fn i -> no_commands(i), 0, 32, 128, [])
     let in_2048 = feed(s, fn i -> no_commands(i), 0, 2, 2048, [])
     let (whole, _) = Skee.Synth.render(s, 4096)
@@ -220,7 +246,8 @@ mod AudioSuite do
   -- The whole path the shell takes: boot and a first launch's effects,
   -- through SoundOut and the feed, against Skee.Synth driven by hand.
   fn boot_effects_feed_the_synth() : Outcome do
-    let (_, fx) = Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(7))
+    let (_, fx) =
+      Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Skee.U64.of_int(7))
     let cmds = Skee.SoundOut.commands(fx)
     let (got, _) = Skee.SynthFeed.block(fresh(), cmds, 512)
     let by_hand = List.fold_left(fx, fresh(), fn (s, e) -> by_hand_effect(s, e))

@@ -1,78 +1,116 @@
 mod Hud do
 
-  -- STUB, to be replaced by the HUD piece: Skee.App.hud(m) drawn as DOM over
-  -- the canvas. Until then it shows a plain bar with one button for each
-  -- argument-free Intent that Skee.App.accepts right now, so the game can be
-  -- driven (title, Sal, the host placeholder, the walkthrough, the lever)
-  -- before the real HUD lands. Which buttons are live is the core's call.
+  -- The HUD over the canvas: Skee.HudView's panes written into the DOM. Every
+  -- decision is the core's. This module only
   --
-  -- Entry points the shell uses, which the real HUD keeps:
-  --   Hud.mount(root : Js.Dom.Node) : HudHandle
-  --   Hud.render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg)
-  -- render returns the taps queued since the last frame, as MsgTap messages.
+  --   mount    makes one element per pane (in Skee.HudView.pane_ids order,
+  --            back to front) and the art's <symbol>s once, and listens for
+  --            clicks on the root (event delegation)
+  --   click    finds the nearest element with a data-act code and queues it
+  --   render   decodes the queued codes, steps the Guide's page state with
+  --            Skee.HudView.react, rewrites each pane only when its HTML
+  --            changed, and returns the taps' Intents as MsgTap
+  --
+  -- A pane's last HTML is kept in its data-src attribute, the Guide's page
+  -- state (Skee.HudView.save_local) in the root's data-local, so the handle
+  -- holds nothing that changes. A pane left untouched keeps its elements, so
+  -- a press on a button survives the frames around it.
+  needs IO.Foreign
+
   type HudHandle = { hud_root : Js.Dom.Node }
 
+  fn pane_element_id(id : String) : String do
+    "hud-" ++ id
+  end
+
   fn mount(root : Js.Dom.Node) : HudHandle do
-    Js.Dom.set_attr(root, "data-buttons", "")
+    Js.Dom.clear(root)
+    let art = Js.Dom.create("div")
+    Js.Dom.set_attr(art, "id", "hud-art")
+    Js.Dom.set_html(art, Skee.HudView.render(Skee.HudView.defs(Skee.Consts.make())))
+    Js.Dom.append(root, art)
+    List.each(Skee.HudView.pane_ids(), fn id -> add_pane(root, id))
+    Js.Dom.set_attr(root, "data-local", Skee.HudView.save_local(Skee.HudView.initial()))
+    Js.Dom.set_attr(root, "data-hud-root", "")
+    Js.Dom.listen(root, "click", fn ev -> clicked(Js.Dom.event_target(ev)))
     { hud_root: root }
   end
 
-  fn buttons() : List(Skee.App.Intent) do
-    [
-      TapStart,
-      TapHowToPlay,
-      TapArrivalNext,
-      TapCloseHost,
-      TapOpenHost,
-      TapGotIt,
-      TapSkipWalkthrough,
-      TapPull,
-      TapReroll,
-      TapLeaveCounter,
-      TapOpenShop,
-      TapCloseShop,
-      TapOpenGuide,
-      TapCloseGuide,
-      TapReplayLesson,
-      TapAskNewGame,
-      TapKeepPlaying,
-      TapNewRun
-    ]
+  fn add_pane(root : Js.Dom.Node, id : String) : () do
+    let pane = Js.Dom.create("div")
+    Js.Dom.set_attr(pane, "id", pane_element_id(id))
+    Js.Dom.add_class(pane, "hud-pane")
+    Js.Dom.set_attr(pane, "data-src", "")
+    Js.Dom.append(root, pane)
   end
 
-  fn render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg) do
-    let live =
-      List.filter(List.enumerate(buttons()), fn e -> Skee.App.accepts(m, Tuple.second(e)))
-    let key = String.join(List.map(live, fn e -> int_to_string(Tuple.first(e))), ",")
-    let shown =
-      match Js.Dom.get_attr(h.hud_root, "data-buttons") do
-      Some(s) -> s
-      None -> ""
+  -- Delegation: the nearest element at or above the target that carries a
+  -- tap code, up to the HUD's root.
+  fn clicked(target : Js.Dom.Node) : () do
+    match Js.Dom.get_attr(target, "data-act") do
+    Some(code) -> do
+      match string_to_int(code) do
+      Some(n) -> Glue.queue_tap(n)
+      None -> ()
       end
-    if shown != key do rebuild(h, live, key) else () end
-    List.filter_map(Glue.drain_taps(), fn i -> tap_of(i))
-  end
-
-  fn tap_of(i : Int) : Option(Skee.App.Msg) do
-    match List.nth_opt(buttons(), i) do
-    Some(intent) -> Some(MsgTap(intent))
-    None -> None
+    end
+    None -> do
+      if Js.Dom.has_attr(target, "data-hud-root") do
+        ()
+      else
+        match Js.Dom.parent(target) do
+        Some(up) -> clicked(up)
+        None -> ()
+        end
+      end
+    end
     end
   end
 
-  fn rebuild(h : HudHandle, live : List((Int, Skee.App.Intent)), key : String) : () do
-    Js.Dom.clear(h.hud_root)
-    Js.Dom.set_attr(h.hud_root, "data-buttons", key)
-    List.each(live, fn e -> button(h, Tuple.first(e), Tuple.second(e)))
+  fn write_pane(s : Skee.HudView.Section) : () do
+    match Js.Dom.find(pane_element_id(s.section_id)) do
+    Some(pane) -> do
+      let shown =
+        match Js.Dom.get_attr(pane, "data-src") do
+        Some(text) -> text
+        None -> ""
+        end
+      if shown != s.section_html do replace_pane(pane, s.section_html) else () end
+    end
+    None -> ()
+    end
   end
 
-  fn button(h : HudHandle, i : Int, intent : Skee.App.Intent) : () do
-    let b = Js.Dom.create("button")
-    Js.Dom.set_text(b, show(intent))
-    Js.Dom.set_attr(b, "data-intent", show(intent))
-    Js.Dom.add_class(b, "dev-tap")
-    Js.Dom.listen(b, "click", fn _ -> Glue.queue_tap(i))
-    Js.Dom.append(h.hud_root, b)
+  fn replace_pane(pane : Js.Dom.Node, html : String) : () do
+    Js.Dom.set_html(pane, html)
+    Js.Dom.set_attr(pane, "data-src", html)
+  end
+
+  fn step(acc : (Skee.HudView.HudLocal, List(Skee.App.Msg)), a : Skee.App.AppHud, code : Int) : (Skee.HudView.HudLocal, List(Skee.App.Msg)) do
+    let (l, msgs) = acc
+    match Skee.HudView.decode(code) do
+    Some(act) -> do
+      let (next, intent) = Skee.HudView.react(l, a, act)
+      match intent do
+      Some(i) -> (next, Cons(MsgTap(i), msgs))
+      None -> (next, msgs)
+      end
+    end
+    None -> (l, msgs)
+    end
+  end
+
+  fn render(h : HudHandle, m : Skee.App.Model) : List(Skee.App.Msg) do
+    let a = Skee.App.hud(m)
+    let saved = Js.Dom.get_attr(h.hud_root, "data-local")
+    let start = Skee.HudView.load_local(saved)
+    let (stepped, msgs_rev) =
+      List.fold_left(Glue.drain_taps(), (start, []), fn (acc, code) -> step(acc, a, code))
+    let l = Skee.HudView.settle(stepped, a)
+    let text = Skee.HudView.save_local(l)
+    if saved != Some(text) do Js.Dom.set_attr(h.hud_root, "data-local", text) else () end
+    List.each(Skee.HudView.view(m.k, a, l, m.viewport.width, m.viewport.height), write_pane)
+    List.reverse(msgs_rev)
   end
 
 end

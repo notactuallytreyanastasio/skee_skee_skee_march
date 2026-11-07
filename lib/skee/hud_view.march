@@ -1,0 +1,2048 @@
+mod Skee.HudView do
+
+  -- SkeeHUD (HUDView, CounterView, BallRack, MachineView, PrizeShopView,
+  -- GuideView, the title card, coach cards, banners and popups) as pure HTML.
+  -- `panes` turns Skee.App.hud into a fixed list of panes, back to front; the
+  -- shell puts each in its own element and replaces it only when its text
+  -- changed. Every tappable element carries its HudAction as an Int in
+  -- `data-act`, which `decode` reads back, so the shell never interprets a
+  -- tap: it queues the code and hands the decoded Intent to Skee.App.
+  --
+  -- The Guide's topic and page are SwiftUI @State in GuideView. Here they are
+  -- HudLocal, a pure value stepped by `react` and reset by `settle` when the
+  -- guide closes; the shell keeps it between frames as `save_local` text.
+  --
+  -- Art: the symbols are Skee.Scene.symbol_ops (Textures.drawSymbol), the
+  -- prizes PrizeArt.drawPrize, both drawn once as SVG <symbol>s in `defs`.
+  -- SwiftUI's CelText (eight ink copies under the fill) is CSS text-shadow,
+  -- Pill a bordered box with an ink box-shadow. See web/style.css, "HUD".
+  cap pure
+
+  -- ---- HTML as data ----
+  type Prop = Prop(String, String)
+
+  type Html = Tag(String, List(Prop), List(Html)) | Words(String)
+
+  -- What a tap does: an Intent for Skee.App, or a page turn in the Guide.
+  type HudAction = ActIntent(Intent) | ActTopic(Int) | ActPageBack | ActPageNext
+
+  derive Eq, Show for HudAction
+
+  -- GuideView's @State: the topic list, or a page of one topic.
+  type GuideAt = GuideContents | GuideReading(Int, Int)
+
+  derive Eq, Show for GuideAt
+
+  type HudLocal = { guide_at : GuideAt }
+
+  -- One layer of the HUD: an element id and what goes in it.
+  type Pane = { pane_id : String, pane : Html }
+
+  -- ===================================================================
+  -- Rendering
+  -- ===================================================================
+  doc """HTML-escape text or an attribute value."""
+  fn escape(s : String) : String needs () do
+    let a = String.replace_all(s, "&", "&amp;")
+    let b = String.replace_all(a, "<", "&lt;")
+    let c = String.replace_all(b, ">", "&gt;")
+    let d = String.replace_all(c, "\"", "&quot;")
+    String.replace_all(d, "'", "&#39;")
+  end
+
+  pfn prop_into(acc : List(String), p : Prop) : List(String) needs () do
+    match p do
+    Prop(name, value) -> Cons(" " ++ name ++ "=\"" ++ escape(value) ++ "\"", acc)
+    end
+  end
+
+  pfn render_into(acc : List(String), h : Html) : List(String) needs () do
+    match h do
+    Words(s) -> Cons(escape(s), acc)
+    Tag(name, props, kids) -> do
+      let opened = Cons(">", List.fold_left(props, Cons("<" ++ name, acc), prop_into))
+      let inner = List.fold_left(kids, opened, render_into)
+      Cons("</" ++ name ++ ">", inner)
+    end
+    end
+  end
+
+  doc """The tree as HTML text, every text and attribute value escaped."""
+  fn render(h : Html) : String needs () do
+    String.join(List.reverse(render_into([], h)), "")
+  end
+
+  pfn act_of_prop(p : Prop) : Option(HudAction) needs () do
+    match p do
+    Prop(name, value) -> do
+      if name == "data-act" do
+        match string_to_int(value) do
+        Some(n) -> decode(n)
+        None -> None
+        end
+      else
+        None
+      end
+    end
+    end
+  end
+
+  doc """Every action tappable in this tree, in document order."""
+  fn acts(h : Html) : List(HudAction) needs () do
+    match h do
+    Words(_) -> []
+    Tag(_, props, kids) -> List.append(List.filter_map(props, act_of_prop), List.flat_map(kids, acts))
+    end
+  end
+
+  -- ===================================================================
+  -- Tap codes
+  -- ===================================================================
+  pfn plain_intents() : List(Intent) needs () do
+    [
+      TapStart,
+      TapHowToPlay,
+      TapOpenShop,
+      TapCloseShop,
+      TapOpenGuide,
+      TapCloseGuide,
+      TapReplayLesson,
+      TapArrivalNext,
+      TapOpenHost,
+      TapCloseHost,
+      TapGotIt,
+      TapSkipWalkthrough,
+      TapPull,
+      TapReroll,
+      TapLeaveCounter,
+      TapAskNewGame,
+      TapKeepPlaying,
+      TapNewRun
+    ]
+  end
+
+  pfn index_of(xs : List(a), x : a) : Int needs () do
+    match List.find_index(xs, fn y -> y == x) do
+    Some(i) -> i
+    None -> 0
+    end
+  end
+
+  pfn intent_code(i : Intent) : Int needs () do
+    match i do
+    TapStart -> 1
+    TapHowToPlay -> 2
+    TapOpenShop -> 3
+    TapCloseShop -> 4
+    TapOpenGuide -> 5
+    TapCloseGuide -> 6
+    TapReplayLesson -> 7
+    TapArrivalNext -> 8
+    TapOpenHost -> 9
+    TapCloseHost -> 10
+    TapGotIt -> 11
+    TapSkipWalkthrough -> 12
+    TapPull -> 13
+    TapReroll -> 14
+    TapLeaveCounter -> 15
+    TapAskNewGame -> 16
+    TapKeepPlaying -> 17
+    TapNewRun -> 18
+    TapPickRoom(r) -> 100 + index_of(Skee.Rooms.all_rooms(), r)
+    TapBuyPrize(p) -> 200 + index_of(Skee.Rooms.all_prizes(), p)
+    TapSetBet(b) -> 300 + index_of(Skee.HudState.all_bets(), b)
+    TapChooseBall(b) -> 400 + index_of(Skee.Items.all_balls(), b)
+    TapArm(n) -> 1000 + n
+    TapSelectOffer(None) -> 1999
+    TapSelectOffer(Some(n)) -> 2000 + n
+    TapBuyOffer(n) -> 3000 + n
+    TapCharm(n) -> 4000 + n
+    end
+  end
+
+  doc """The `data-act` code of an action."""
+  fn encode(a : HudAction) : Int needs () do
+    match a do
+    ActIntent(i) -> intent_code(i)
+    ActTopic(n) -> 5000 + n
+    ActPageBack -> 6000
+    ActPageNext -> 6001
+    end
+  end
+
+  pfn nth_as(xs : List(a), n : Int, f : a -> HudAction) : Option(HudAction) needs () do
+    if n < 0 do
+      None
+    else
+      match List.nth_opt(xs, n) do
+      Some(x) -> Some(f(x))
+      None -> None
+      end
+    end
+  end
+
+  pfn indexed(base : Int, n : Int, f : Int -> HudAction) : Option(HudAction) needs () do
+    if n >= base && n < base + 1000 do Some(f(n - base)) else None end
+  end
+
+  pfn first_some(xs : List(Option(HudAction))) : Option(HudAction) needs () do
+    match xs do
+    Nil -> None
+    Cons(Some(a), _) -> Some(a)
+    Cons(None, rest) -> first_some(rest)
+    end
+  end
+
+  pfn ranged(n : Int, lo : Int, hi : Int, xs : List(a), f : a -> HudAction) : Option(HudAction) needs () do
+    if n >= lo && n < hi do nth_as(xs, n - lo, f) else None end
+  end
+
+  doc """The action a `data-act` code names, if any."""
+  fn decode(n : Int) : Option(HudAction) needs () do
+    first_some([ranged(n, 1, 100, plain_intents(), fn i -> ActIntent(i)), ranged(n, 100, 200, Skee.Rooms.all_rooms(), fn r -> ActIntent(TapPickRoom(r))), ranged(n, 200, 300, Skee.Rooms.all_prizes(), fn p -> ActIntent(TapBuyPrize(p))), ranged(n, 300, 400, Skee.HudState.all_bets(), fn b -> ActIntent(TapSetBet(b))), ranged(n, 400, 500, Skee.Items.all_balls(), fn b -> ActIntent(TapChooseBall(b))), indexed(1000, n, fn i -> if i == 999 do ActIntent(TapSelectOffer(None)) else ActIntent(TapArm(i)) end), indexed(2000, n, fn i -> ActIntent(TapSelectOffer(Some(i)))), indexed(3000, n, fn i -> ActIntent(TapBuyOffer(i))), indexed(4000, n, fn i -> ActIntent(TapCharm(i))), indexed(5000, n, fn i -> ActTopic(i)), if n == 6000 do Some(ActPageBack) else None end, if n == 6001 do Some(ActPageNext) else None end])
+  end
+
+  -- ===================================================================
+  -- The Guide's pages (GuideView's @State)
+  -- ===================================================================
+  doc """A GuideView as it first appears: the list of topics."""
+  fn initial() : HudLocal needs () do
+    { guide_at: GuideContents }
+  end
+
+  pfn pages_of(a : AppHud, t : Int) : Int needs () do
+    match List.nth_opt(a.guide_topics, t) do
+    Some(topic) -> List.length(topic.topic_pages)
+    None -> 0
+    end
+  end
+
+  pfn turned(a : AppHud, at_ : GuideAt, act : HudAction) : GuideAt needs () do
+    match act do
+    ActTopic(t) -> if t >= 0 && pages_of(a, t) > 0 do GuideReading(t, 0) else at_ end
+    ActPageBack -> page_back(at_)
+    ActPageNext -> page_next(a, at_)
+    ActIntent(_) -> at_
+    end
+  end
+
+  pfn page_back(at_ : GuideAt) : GuideAt needs () do
+    match at_ do
+    GuideReading(t, p) -> if p > 0 do GuideReading(t, p - 1) else GuideContents end
+    GuideContents -> GuideContents
+    end
+  end
+
+  pfn page_next(a : AppHud, at_ : GuideAt) : GuideAt needs () do
+    match at_ do
+    GuideReading(t, p) -> if p + 1 < pages_of(a, t) do GuideReading(t, p + 1) else GuideContents end
+    GuideContents -> GuideContents
+    end
+  end
+
+  doc """
+  A tap: a page turn changes the Guide's own state, only while the Guide is
+  on top; an Intent goes to Skee.App, which decides whether it counts.
+  """
+  fn react(l : HudLocal, a : AppHud, act : HudAction) : (HudLocal, Option(Intent)) needs () do
+    match act do
+    ActIntent(i) -> (l, Some(i))
+    ActTopic(_) -> (guide_turn(l, a, act), None)
+    ActPageBack -> (guide_turn(l, a, act), None)
+    ActPageNext -> (guide_turn(l, a, act), None)
+    end
+  end
+
+  pfn guide_turn(l : HudLocal, a : AppHud, act : HudAction) : HudLocal needs () do
+    if a.top == LayerGuide do { guide_at: turned(a, l.guide_at, act) } else l end
+  end
+
+  doc """A closed Guide forgets its page, as a GuideView made afresh does."""
+  fn settle(l : HudLocal, a : AppHud) : HudLocal needs () do
+    match l.guide_at do
+    GuideContents -> l
+    GuideReading(t, p) -> do
+      if a.guide_open_now && p < pages_of(a, t) do l else initial() end
+    end
+    end
+  end
+
+  doc """HudLocal as text, for the shell to keep between frames."""
+  fn save_local(l : HudLocal) : String needs () do
+    match l.guide_at do
+    GuideContents -> "contents"
+    GuideReading(t, p) -> "reading," ++ int_to_string(t) ++ "," ++ int_to_string(p)
+    end
+  end
+
+  doc """`save_local`'s text back; anything else is the topic list."""
+  fn load_local(s : Option(String)) : HudLocal needs () do
+    match s do
+    None -> initial()
+    Some(text) -> do
+      match String.split(text, ",") do
+      Cons(tag, Cons(t, Cons(p, Nil))) -> if tag == "reading" do reading_at(t, p) else initial() end
+      Cons(_, _) -> initial()
+      Nil -> initial()
+      end
+    end
+    end
+  end
+
+  pfn reading_at(t : String, p : String) : HudLocal needs () do
+    match (string_to_int(t), string_to_int(p)) do
+    (Some(ti), Some(pg)) -> if ti >= 0 && pg >= 0 do { guide_at: GuideReading(ti, pg) } else initial() end
+    (Some(_), None) -> initial()
+    (None, Some(_)) -> initial()
+    (None, None) -> initial()
+    end
+  end
+
+  -- ===================================================================
+  -- The cel look: SkeeHUD's Ink
+  -- ===================================================================
+  fn ink() : Rgba needs () do
+    Skee.Scene.hex(3810118)
+  end
+
+  fn cream() : Rgba needs () do
+    Skee.Scene.hex(16775404)
+  end
+
+  fn pink() : Rgba needs () do
+    Skee.Scene.hex(16740261)
+  end
+
+  fn lilac() : Rgba needs () do
+    Skee.Scene.hex(10191858)
+  end
+
+  fn violet() : Rgba needs () do
+    Skee.Scene.hex(7296470)
+  end
+
+  fn butter() : Rgba needs () do
+    Skee.Scene.hex(16767053)
+  end
+
+  fn sky() : Rgba needs () do
+    Skee.Scene.hex(6277375)
+  end
+
+  fn mint() : Rgba needs () do
+    Skee.Scene.hex(8313978)
+  end
+
+  fn chips_blue() : Rgba needs () do
+    Skee.Scene.hex(4033535)
+  end
+
+  fn mult_red() : Rgba needs () do
+    Skee.Scene.hex(16731501)
+  end
+
+  pfn alpha(c : Rgba, a : Float) : Rgba needs () do
+    Skee.Scene.with_alpha(c, a)
+  end
+
+  pfn css(c : Rgba) : String needs () do
+    Skee.Scene.css(c)
+  end
+
+  pfn num(x : Float) : String needs () do
+    Skee.Scene.css_number(x)
+  end
+
+  pfn px(x : Float) : String needs () do
+    num(x) ++ "px"
+  end
+
+  -- U+2191, built at run time: forge format breaks non-ASCII literals.
+  pfn up_arrow() : String needs () do
+    match String.from_codepoint(8593) do
+    Some(c) -> c
+    None -> ""
+    end
+  end
+
+  pfn dot() : String needs () do
+    Skee.Presentation.middle_dot()
+  end
+
+  pfn times() : String needs () do
+    Skee.Presentation.times_sign()
+  end
+
+  -- ===================================================================
+  -- Building blocks
+  -- ===================================================================
+  pfn el(tag : String, cls : String, style : String, kids : List(Html)) : Html needs () do
+    let classed = if cls == "" do [] else [Prop("class", cls)] end
+    let styled = if style == "" do [] else [Prop("style", style)] end
+    Tag(tag, List.append(classed, styled), kids)
+  end
+
+  pfn div(cls : String, style : String, kids : List(Html)) : Html needs () do
+    el("div", cls, style, kids)
+  end
+
+  pfn is_none(o : Option(a)) : Bool needs () do
+    match o do
+    Some(_) -> false
+    None -> true
+    end
+  end
+
+  pfn nothing() : Html needs () do
+    Words("")
+  end
+
+  doc """SwiftUI's CelText: rounded black type, an ink outline and a hard drop."""
+  fn cel(text : String, size : Float, fill : Rgba) : Html needs () do
+    let w = Skee.Maths.max_float(1.5, size *. 0.08)
+    el("span", "cel", "font-size:" ++ px(size) ++ ";--w:" ++ px(w) ++ ";color:" ++ css(fill), [Words(text)])
+  end
+
+  -- Text(...).font(.system(size:, weight:, design: .rounded)).
+  pfn plain(text : String, size : Float, weight : Int, colour : Rgba) : Html needs () do
+    el("span", "rt", "font-size:" ++ px(size) ++ ";font-weight:" ++ int_to_string(weight) ++ ";color:" ++ css(colour), [Words(text)])
+  end
+
+  doc """Pill: fill, a 3pt ink border inside, an ink drop 4pt beneath."""
+  fn pill(fill : Rgba, radius : Float, kids : List(Html)) : Html needs () do
+    div("pill", "background:" ++ css(fill) ++ ";border-radius:" ++ px(radius), kids)
+  end
+
+  doc """A button's name for people and the playtest: the Intent, or the Guide's page turn."""
+  fn act_name(a : HudAction) : String needs () do
+    match a do
+    ActIntent(i) -> show(i)
+    ActTopic(n) -> "Topic(" ++ int_to_string(n) ++ ")"
+    ActPageBack -> "PageBack"
+    ActPageNext -> "PageNext"
+    end
+  end
+
+  pfn tap_props(a : HudAction) : List(Prop) needs () do
+    [Prop("class", "hb"), Prop("data-act", int_to_string(encode(a))), Prop("data-intent", act_name(a)), Prop("role", "button")]
+  end
+
+  doc """A button: what it shows, and the action its tap queues."""
+  fn button(a : HudAction, kids : List(Html)) : Html needs () do
+    Tag("div", tap_props(a), kids)
+  end
+
+  pfn tap_intent(i : Intent, kids : List(Html)) : Html needs () do
+    button(ActIntent(i), kids)
+  end
+
+  -- A button only when it does something (SwiftUI's guarded actions).
+  pfn maybe_button(a : Option(HudAction), kids : List(Html)) : Html needs () do
+    match a do
+    Some(act) -> button(act, kids)
+    None -> div("", "", kids)
+    end
+  end
+
+  doc """`.position(x:, y:)`: centred on a point of the screen."""
+  fn at(x : Float, y : Float, kid : Html) : Html needs () do
+    div("at", "left:" ++ px(x) ++ ";top:" ++ px(y), [kid])
+  end
+
+  pfn vstack(gap : Float, kids : List(Html)) : Html needs () do
+    div("vs", "gap:" ++ px(gap), kids)
+  end
+
+  pfn hstack(gap : Float, kids : List(Html)) : Html needs () do
+    div("hs", "gap:" ++ px(gap), kids)
+  end
+
+  pfn spacer() : Html needs () do
+    div("grow", "", [])
+  end
+
+  pfn opacity(o : Float, kid : Html) : Html needs () do
+    if o >= 1.0 do kid else div("", "opacity:" ++ num(o), [kid]) end
+  end
+
+  pfn svg(view : String, w : Float, h : Float, kids : List(Html)) : Html needs () do
+    Tag("svg", [Prop("viewBox", view), Prop("width", num(w)), Prop("height", num(h)), Prop("aria-hidden", "true")], kids)
+  end
+
+  pfn use_art(id : String, w : Float, h : Float) : Html needs () do
+    svg("0 0 256 256", w, h, [Tag("use", [Prop("href", "#" ++ id)], [])])
+  end
+
+  doc """The `<symbol>` id of a slot symbol's art."""
+  fn symbol_id(s : Symbol) : String needs () do
+    "sk-sym-" ++ Skee.Presentation.symbol_raw(s)
+  end
+
+  doc """The `<symbol>` id of a prize's art, or of its silhouette."""
+  fn prize_id(p : Prize, owned : Bool) : String needs () do
+    let dim = if owned do "" else "-dim" end
+    "sk-prize-" ++ int_to_string(index_of(Skee.Rooms.all_prizes(), p)) ++ dim
+  end
+
+  -- SymbolImage, `size` points square. A blank draws nothing.
+  pfn symbol_image(s : Symbol, size : Float) : Html needs () do
+    if s == Blank do svg("0 0 256 256", size, size, []) else use_art(symbol_id(s), size, size) end
+  end
+
+  pfn ticket_shape() : Html needs () do
+    let paint = [Prop("stroke", css(ink())), Prop("stroke-width", "2"), Prop("fill", css(pink()))]
+    svg("-4 -4 30 22", 26.0, 18.0, [Tag("rect", List.append([Prop("x", "0"), Prop("y", "0"), Prop("width", "22"), Prop("height", "14"), Prop("rx", "3")], paint), []), Tag("circle", List.append([Prop("cx", "0"), Prop("cy", "7"), Prop("r", "3")], paint), []), Tag("circle", List.append([Prop("cx", "22"), Prop("cy", "7"), Prop("r", "3")], paint), [])])
+  end
+
+  -- StarShape's ten points in a box, outer 0.5 and inner 0.22 of its side.
+  pfn star_points(k : Skee.Consts.Consts, cx : Float, cy : Float, outer : Float, inner : Float) : String needs () do
+    let pts =
+      List.map(List.range(0, 10), fn i -> star_point(k, cx, cy, outer, inner, i))
+    String.join(pts, " ")
+  end
+
+  pfn star_point(k : Skee.Consts.Consts, cx : Float, cy : Float, outer : Float, inner : Float, i : Int) : String needs () do
+    let a = 0.0 -. k.pi /. 2.0 +. int_to_float(i) *. k.pi /. 5.0
+    let r = if i % 2 == 0 do outer else inner end
+    num(cx +. r *. Math.cos(a)) ++ "," ++ num(cy +. r *. Math.sin(a))
+  end
+
+  pfn star_shape(k : Skee.Consts.Consts, size : Float, fill : Rgba, line : Float) : Html needs () do
+    svg("0 0 100 100", size, size, [Tag("polygon", [Prop("points", star_points(k, 50.0, 50.0, 50.0, 22.0)), Prop("fill", css(fill)), Prop("stroke", css(ink())), Prop("stroke-width", num(line *. 100.0 /. size)), Prop("stroke-linejoin", "miter")], [])])
+  end
+
+  -- ===================================================================
+  -- Art as SVG: Skee.Scene's DrawOps, and PrizeArt
+  -- ===================================================================
+  pfn pt(v : Vec2) : String needs () do
+    num(v.x) ++ " " ++ num(v.y)
+  end
+
+  pfn poly_d(pts : List(Vec2)) : String needs () do
+    match pts do
+    Nil -> ""
+    Cons(first, rest) -> "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> "L" ++ pt(p)), "") ++ "Z"
+    end
+  end
+
+  pfn step_d(s : PathStep) : String needs () do
+    match s do
+    MoveTo(a) -> "M" ++ pt(a)
+    LineTo(a) -> "L" ++ pt(a)
+    QuadTo(c, a) -> "Q" ++ pt(c) ++ " " ++ pt(a)
+    CubicTo(c1, c2, a) -> "C" ++ pt(c1) ++ " " ++ pt(c2) ++ " " ++ pt(a)
+    ClosePath -> "Z"
+    end
+  end
+
+  pfn disc_d(c : Vec2, r0 : Float) : String needs () do
+    let r = Skee.Maths.max_float(0.0, r0)
+    let rr = num(r) ++ " " ++ num(r)
+    "M" ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x +. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "Z"
+  end
+
+  pfn shape_d(sh : Shape) : String needs () do
+    match sh do
+    Poly(pts) -> poly_d(pts)
+    Holed(outer, inner) -> poly_d(outer) ++ poly_d(inner)
+    Polys(parts) -> String.join(List.map(parts, poly_d), "")
+    Disc(c, r) -> disc_d(c, r)
+    Outline(steps) -> String.join(List.map(steps, step_d), "")
+    end
+  end
+
+  pfn rule_of(sh : Shape) : String needs () do
+    match Skee.Painter.rule(sh) do
+    RuleNonZero -> "nonzero"
+    RuleEvenOdd -> "evenodd"
+    end
+  end
+
+  pfn cap_of(e : LineEnd) : String needs () do
+    match e do
+    ButtEnd -> "butt"
+    RoundEnd -> "round"
+    end
+  end
+
+  pfn join_of(c : Corner) : String needs () do
+    match c do
+    MitreCorner -> "miter"
+    RoundCorner -> "round"
+    end
+  end
+
+  pfn blend_props(b : Blend) : List(Prop) needs () do
+    match b do
+    Over -> []
+    Lighter -> [Prop("style", "mix-blend-mode:plus-lighter")]
+    end
+  end
+
+  -- A radial paint's colour where SVG needs one: its last stop. The HUD's art
+  -- (symbols, prizes) uses flat paint only.
+  pfn paint_css(p : Paint) : String needs () do
+    match p do
+    Flat(c) -> css(c)
+    RadialPaint(r) -> do
+      match List.reverse(r.stops) do
+      Cons(s, _) -> css(s.colour)
+      Nil -> "none"
+      end
+    end
+    end
+  end
+
+  pfn matrix(f : Affine) : String needs () do
+    "matrix(" ++ String.join(List.map([f.a, f.b, f.c, f.d, f.e, f.f], num), " ") ++ ")"
+  end
+
+  pfn text_svg(l : Lettering) : Html needs () do
+    let edge =
+      match l.edge do
+      Some(p) -> [Prop("stroke", css(p.ink)), Prop("stroke-width", num(p.width)), Prop("stroke-linejoin", join_of(p.corners)), Prop("paint-order", "stroke")]
+      None -> []
+      end
+    let props =
+      List.append([Prop("x", num(l.middle.x)), Prop("y", num(l.middle.y)), Prop("text-anchor", "middle"), Prop("dominant-baseline", "central"), Prop("style", "font:" ++ l.font), Prop("fill", css(l.fill)), Prop("transform", matrix(l.frame))], edge)
+    Tag("text", props, [Words(l.words)])
+  end
+
+  pfn op_svg(op : DrawOp) : Html needs () do
+    match op do
+    ClearTo(c) -> Tag("rect", [Prop("width", "100%"), Prop("height", "100%"), Prop("fill", css(c))], [])
+    FillShape(sh, paint, blend) -> Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", paint_css(paint)), Prop("fill-rule", rule_of(sh))], blend_props(blend)), [])
+    StrokeShape(sh, pen, blend) -> do
+      Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", "none"), Prop("stroke", css(pen.ink)), Prop("stroke-width", num(pen.width)), Prop("stroke-linecap", cap_of(pen.ends)), Prop("stroke-linejoin", join_of(pen.corners))], blend_props(blend)), [])
+    end
+    DrawText(l) -> text_svg(l)
+    PushClip(_) -> nothing()
+    PopClip -> nothing()
+    end
+  end
+
+  -- A clip still open: what was made before it, and its id and shape.
+  type OpenClip = { before_rev : List(Html), clip_id : String, clip_shape : Shape }
+
+  -- What `build_ops` has made at the current depth, the clips open around
+  -- it, what is left, and the next clip id.
+  type Built = { made_rev : List(Html), open_clips : List(OpenClip), left : List(DrawOp), next_clip : Int }
+
+  -- Close the innermost clip: a <clipPath> and a <g> clipped to it holding
+  -- what was drawn since it opened.
+  pfn close_clip(b : Built) : Built needs () do
+    match b.open_clips do
+    Nil -> b
+    Cons(c, outer) -> do
+      let clip = Tag("clipPath", [Prop("id", c.clip_id)], [Tag("path", [Prop("d", shape_d(c.clip_shape)), Prop("clip-rule", rule_of(c.clip_shape))], [])])
+      let g = Tag("g", [Prop("clip-path", "url(#" ++ c.clip_id ++ ")")], List.reverse(b.made_rev))
+      { b with made_rev: Cons(g, Cons(clip, c.before_rev)), open_clips: outer }
+    end
+    end
+  end
+
+  -- DrawOps as nested SVG: a PushClip opens a <g> clipped to its shape, its
+  -- PopClip closes it, a stray PopClip does nothing (Skee.Painter's restore)
+  -- and clips still open at the end are closed.
+  pfn build_ops(prefix : String, b : Built) : Built needs () do
+    match b.left do
+    Nil -> if List.is_empty(b.open_clips) do b else build_ops(prefix, close_clip(b)) end
+    Cons(PopClip, rest) -> build_ops(prefix, close_clip({ b with left: rest }))
+    Cons(PushClip(sh), rest) -> do
+      let c = { before_rev: b.made_rev, clip_id: prefix ++ "-clip" ++ int_to_string(b.next_clip), clip_shape: sh }
+      build_ops(prefix, { made_rev: [], open_clips: Cons(c, b.open_clips), left: rest, next_clip: b.next_clip + 1 })
+    end
+    Cons(op, rest) -> build_ops(prefix, { b with made_rev: Cons(op_svg(op), b.made_rev), left: rest })
+    end
+  end
+
+  doc """Skee.Scene DrawOps as SVG elements; clip ids start with `prefix`."""
+  fn ops_svg(prefix : String, ops : List(DrawOp)) : List(Html) needs () do
+    let b = build_ops(prefix, { made_rev: [], open_clips: [], left: ops, next_clip: 0 })
+    List.reverse(b.made_rev)
+  end
+
+  pfn art_symbol(id : String, kids : List(Html)) : Html needs () do
+    Tag("symbol", [Prop("id", id), Prop("viewBox", "0 0 256 256")], kids)
+  end
+
+  -- Textures.symbol: a 256 square, the symbol drawn in its inner 216.
+  pfn symbol_def(s : Symbol) : Html needs () do
+    let ops = Skee.Scene.symbol_ops(Skee.Scene.unlit(), { x: 20.0, y: 20.0 }, 216.0, s)
+    art_symbol(symbol_id(s), ops_svg(symbol_id(s), ops))
+  end
+
+  doc """
+  The art every pane refers to, drawn once: the seven slot symbols and every
+  prize, lit and as a silhouette. The shell mounts it once.
+  """
+  fn defs(k : Skee.Consts.Consts) : Html needs () do
+    let syms = List.map([Cherry, Lemon, Bell, BarSym, Seven, Diamond, Clover], symbol_def)
+    let prizes =
+      List.flat_map(Skee.Rooms.all_prizes(), fn p -> [prize_def(k, p, true), prize_def(k, p, false)])
+    Tag("svg", [Prop("class", "hud-defs"), Prop("width", "0"), Prop("height", "0"), Prop("aria-hidden", "true")], [Tag("defs", [], List.append(syms, prizes))])
+  end
+
+  -- ---- PrizeArt.drawPrize ----
+  -- Its pen: unit coordinates inside the 256 texture's 16...240 square.
+  type PrizePen = { k : Skee.Consts.Consts, silhouette : Bool, prefix : String }
+
+  -- A path in unit coordinates. `SegArc(r, x, y)` is the jukebox's dome: a
+  -- half circle over the top to (x, y).
+  type Seg =
+    SegMove(Float, Float)
+    | SegLine(Float, Float)
+    | SegQuad(Float, Float, Float, Float)
+    | SegCubic(Float, Float, Float, Float, Float, Float)
+    | SegArc(Float, Float, Float)
+    | SegClose
+
+  pfn ux(x : Float) : Float needs () do
+    16.0 +. x *. 224.0
+  end
+
+  pfn uy(y : Float) : Float needs () do
+    16.0 +. y *. 224.0
+  end
+
+  pfn upt(x : Float, y : Float) : String needs () do
+    num(ux(x)) ++ " " ++ num(uy(y))
+  end
+
+  pfn seg_d(s : Seg) : String needs () do
+    match s do
+    SegMove(x, y) -> "M" ++ upt(x, y)
+    SegLine(x, y) -> "L" ++ upt(x, y)
+    SegQuad(cx, cy, x, y) -> "Q" ++ upt(cx, cy) ++ " " ++ upt(x, y)
+    SegCubic(ax, ay, bx, by_, x, y) -> "C" ++ upt(ax, ay) ++ " " ++ upt(bx, by_) ++ " " ++ upt(x, y)
+    SegArc(r, x, y) -> "A" ++ num(r *. 224.0) ++ " " ++ num(r *. 224.0) ++ " 0 0 1 " ++ upt(x, y)
+    SegClose -> "Z"
+    end
+  end
+
+  pfn segs_d(ss : List(Seg)) : String needs () do
+    String.join(List.map(ss, seg_d), "")
+  end
+
+  -- CGPath.boundingBox: every point, control points included; an arc adds
+  -- its top.
+  pfn seg_points(prev : (Float, Float), s : Seg) : List((Float, Float)) needs () do
+    match s do
+    SegMove(x, y) -> [(x, y)]
+    SegLine(x, y) -> [(x, y)]
+    SegQuad(cx, cy, x, y) -> [(cx, cy), (x, y)]
+    SegCubic(ax, ay, bx, by_, x, y) -> [(ax, ay), (bx, by_), (x, y)]
+    SegArc(r, x, y) -> do
+      let (px0, _) = prev
+      [((px0 +. x) /. 2.0, y -. r), (x, y)]
+    end
+    SegClose -> []
+    end
+  end
+
+  pfn all_points(ss : List(Seg)) : List((Float, Float)) needs () do
+    let (_, pts) =
+      List.fold_left(ss, ((0.0, 0.0), []), fn (acc, s) -> points_step(acc, s))
+    pts
+  end
+
+  pfn points_step(acc : ((Float, Float), List((Float, Float))), s : Seg) : ((Float, Float), List((Float, Float))) needs () do
+    let (prev, pts) = acc
+    let more = seg_points(prev, s)
+    let last =
+      match List.reverse(more) do
+      Cons(p, _) -> p
+      Nil -> prev
+      end
+    (last, List.append(pts, more))
+  end
+
+  type Box = { bx0 : Float, by0 : Float, bx1 : Float, by1 : Float }
+
+  pfn box_of(ss : List(Seg)) : Box needs () do
+    List.fold_left(all_points(ss), { bx0: 1000.0, by0: 1000.0, bx1: -1000.0, by1: -1000.0 }, fn (b, p) -> grow(b, p))
+  end
+
+  pfn grow(b : Box, p : (Float, Float)) : Box needs () do
+    let (x, y) = p
+    { bx0: Skee.Maths.min_float(b.bx0, x), by0: Skee.Maths.min_float(b.by0, y), bx1: Skee.Maths.max_float(b.bx1, x), by1: Skee.Maths.max_float(b.by1, y) }
+  end
+
+  pfn line_w() : Float needs () do
+    224.0 *. 0.035
+  end
+
+  pfn prize_shadow() : Rgba needs () do
+    Skee.Scene.hex(8022668)
+  end
+
+  pfn darker(c : Rgba, t : Float) : Rgba needs () do
+    Skee.Scene.mix(c, Skee.Scene.hex(0), t)
+  end
+
+  pfn ellipse_d(cx : Float, cy : Float, rx : Float, ry : Float) : List(Seg) needs () do
+    let kx = rx *. 0.5522847
+    let ky = ry *. 0.5522847
+    [SegMove(cx +. rx, cy), SegCubic(cx +. rx, cy +. ky, cx +. kx, cy +. ry, cx, cy +. ry), SegCubic(cx -. kx, cy +. ry, cx -. rx, cy +. ky, cx -. rx, cy), SegCubic(cx -. rx, cy -. ky, cx -. kx, cy -. ry, cx, cy -. ry), SegCubic(cx +. kx, cy -. ry, cx +. rx, cy -. ky, cx +. rx, cy), SegClose]
+  end
+
+  -- PrizeArt's oval(x, y, rx, ry): radii in units of the square.
+  pfn oval(x : Float, y : Float, rx : Float, ry : Float) : List(Seg) needs () do
+    ellipse_d(x, y, rx, ry)
+  end
+
+  -- PrizeArt's rect(x, y, w, h, round:): corner radius at most half a side.
+  pfn rect(x : Float, y : Float, w : Float, h : Float, round : Float) : List(Seg) needs () do
+    let rr = Skee.Maths.min_float(Skee.Maths.min_float(round, w /. 2.0), h /. 2.0)
+    if rr <= 0.0 do
+      [SegMove(x, y), SegLine(x +. w, y), SegLine(x +. w, y +. h), SegLine(x, y +. h), SegClose]
+    else
+      rounded(x, y, w, h, rr)
+    end
+  end
+
+  pfn rounded(x : Float, y : Float, w : Float, h : Float, r : Float) : List(Seg) needs () do
+    let q = r *. 0.5522847
+    [SegMove(x +. r, y), SegLine(x +. w -. r, y), SegCubic(x +. w -. r +. q, y, x +. w, y +. r -. q, x +. w, y +. r), SegLine(x +. w, y +. h -. r), SegCubic(x +. w, y +. h -. r +. q, x +. w -. r +. q, y +. h, x +. w -. r, y +. h), SegLine(x +. r, y +. h), SegCubic(x +. r -. q, y +. h, x, y +. h -. r +. q, x, y +. h -. r), SegLine(x, y +. r), SegCubic(x, y +. r -. q, x +. r -. q, y, x +. r, y), SegClose]
+  end
+
+  pfn star(k : Skee.Consts.Consts, cx : Float, cy : Float, outer : Float, inner : Float) : List(Seg) needs () do
+    let pts =
+      List.map(List.range(0, 10), fn i -> star_unit(k, cx, cy, outer, inner, i))
+    match pts do
+    Nil -> []
+    Cons((x0, y0), rest) -> List.concat([[SegMove(x0, y0)], List.map(rest, fn p -> line_to(p)), [SegClose]])
+    end
+  end
+
+  pfn line_to(p : (Float, Float)) : Seg needs () do
+    let (x, y) = p
+    SegLine(x, y)
+  end
+
+  pfn star_unit(k : Skee.Consts.Consts, cx : Float, cy : Float, outer : Float, inner : Float, i : Int) : (Float, Float) needs () do
+    let a = 0.0 -. k.pi /. 2.0 +. int_to_float(i) *. k.pi /. 5.0
+    let r = if i % 2 == 0 do outer else inner end
+    (cx +. r *. Math.cos(a), cy +. r *. Math.sin(a))
+  end
+
+  -- PrizeArt's fill(): the colour (the shadow for a silhouette), a hard
+  -- highlight clipped to the shape, then the ink line.
+  pfn pfill(pen : PrizePen, n : Int, ss : List(Seg), colour : Rgba, highlight : Bool) : List(Html) needs () do
+    let col = if pen.silhouette do prize_shadow() else colour end
+    let d = segs_d(ss)
+    let body = Tag("path", [Prop("d", d), Prop("fill", css(col))], [])
+    let shine = if highlight && !pen.silhouette do shine_of(pen, n, ss, d, col) else [] end
+    let edge = Tag("path", [Prop("d", d), Prop("fill", "none"), Prop("stroke", css(ink())), Prop("stroke-width", num(line_w())), Prop("stroke-linejoin", "round")], [])
+    List.concat([[body], shine, [edge]])
+  end
+
+  pfn shine_of(pen : PrizePen, n : Int, ss : List(Seg), d : String, col : Rgba) : List(Html) needs () do
+    let b = box_of(ss)
+    let w = b.bx1 -. b.bx0
+    let h = b.by1 -. b.by0
+    let id = pen.prefix ++ "-hl" ++ int_to_string(n)
+    let spot = ellipse_d(b.bx0 +. w *. 0.14 +. w *. 0.17, b.by0 +. h *. 0.1 +. h *. 0.12, w *. 0.17, h *. 0.12)
+    [Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", d)], [])]), Tag("path", [Prop("d", segs_d(spot)), Prop("fill", css(Skee.Scene.lighter(col, 0.45))), Prop("clip-path", "url(#" ++ id ++ ")")], [])]
+  end
+
+  pfn pdot(pen : PrizePen, x : Float, y : Float, r : Float) : Html needs () do
+    let c = if pen.silhouette do darker(prize_shadow(), 0.3) else ink() end
+    Tag("path", [Prop("d", segs_d(oval(x, y, r, r))), Prop("fill", css(c))], [])
+  end
+
+  pfn pstroke(pen : PrizePen, ss : List(Seg), colour : Rgba, width : Float) : List(Html) needs () do
+    let d = segs_d(ss)
+    let col = if pen.silhouette do prize_shadow() else colour end
+    let common = [Prop("d", d), Prop("fill", "none"), Prop("stroke-linecap", "round"), Prop("stroke-linejoin", "round")]
+    [Tag("path", List.append(common, [Prop("stroke", css(ink())), Prop("stroke-width", num(width +. line_w() *. 2.0))]), []), Tag("path", List.append(common, [Prop("stroke", css(col)), Prop("stroke-width", num(width))]), [])]
+  end
+
+  pfn hx(n : Int) : Rgba needs () do
+    Skee.Scene.hex(n)
+  end
+
+  pfn prize_def(k : Skee.Consts.Consts, p : Prize, owned : Bool) : Html needs () do
+    let pen = { k: k, silhouette: !owned, prefix: prize_id(p, owned) }
+    art_symbol(prize_id(p, owned), prize_art(pen, p))
+  end
+
+  pfn lw() : Float needs () do
+    line_w()
+  end
+
+  doc """PrizeArt.drawPrize: the prize in the 256 square's inner 224."""
+  fn prize_art(pen : PrizePen, p : Prize) : List(Html) needs () do
+    match p do
+    Sticker -> List.append(pfill(pen, 0, oval(0.5, 0.52, 0.44, 0.44), hx(16775404), false), pfill(pen, 1, star(pen.k, 0.5, 0.54, 0.36, 0.16), hx(16767053), true))
+    RubberDuck -> do
+      let beak =
+        [SegMove(0.82, 0.34), SegQuad(0.98, 0.32, 0.98, 0.42), SegQuad(0.92, 0.48, 0.82, 0.46), SegClose]
+      let wing = [SegMove(0.24, 0.62), SegQuad(0.36, 0.52, 0.5, 0.66)]
+      List.concat([pfill(pen, 0, oval(0.46, 0.68, 0.38, 0.22), hx(16767053), true), pfill(pen, 1, oval(0.66, 0.36, 0.2, 0.2), hx(16767053), true), pfill(pen, 2, beak, hx(16747069), false), [pdot(pen, 0.7, 0.32, 0.03)], pstroke(pen, wing, hx(15905792), lw())])
+    end
+    Kazoo -> do
+      let body =
+        [SegMove(0.08, 0.46), SegLine(0.82, 0.38), SegLine(0.92, 0.52), SegLine(0.82, 0.66), SegLine(0.08, 0.58), SegClose]
+      List.concat([pfill(pen, 0, body, hx(16731501), true), pfill(pen, 1, rect(0.42, 0.26, 0.16, 0.18, 0.04), hx(13225688), true), pfill(pen, 2, rect(0.3, 0.42, 0.04, 0.2, 0.0), hx(16767053), false), pfill(pen, 3, rect(0.68, 0.42, 0.04, 0.2, 0.0), hx(16767053), false)])
+    end
+    Yoyo -> do
+      let string_ = [SegMove(0.5, 0.04), SegQuad(0.62, 0.22, 0.5, 0.44)]
+      List.concat([pstroke(pen, string_, hx(16775404), lw() *. 0.6), pfill(pen, 0, oval(0.5, 0.62, 0.34, 0.34), hx(6277375), true), pfill(pen, 1, oval(0.5, 0.62, 0.14, 0.14), hx(16775404), false), [pdot(pen, 0.5, 0.62, 0.04)]])
+    end
+    Slinky -> List.flat_map(List.range(0, 7), fn i -> slinky_ring(pen, i))
+    PlushFrog -> do
+      let smile = [SegMove(0.36, 0.52), SegQuad(0.5, 0.62, 0.64, 0.52)]
+      List.concat([pfill(pen, 0, oval(0.5, 0.66, 0.38, 0.28), hx(8313978), true), pfill(pen, 1, oval(0.32, 0.32, 0.13, 0.13), hx(8313978), false), pfill(pen, 2, oval(0.68, 0.32, 0.13, 0.13), hx(8313978), false), pfill(pen, 3, oval(0.32, 0.32, 0.07, 0.07), hx(16775404), false), [pdot(pen, 0.32, 0.33, 0.03)], pfill(pen, 4, oval(0.68, 0.32, 0.07, 0.07), hx(16775404), false), [pdot(pen, 0.68, 0.33, 0.03)], pfill(pen, 5, oval(0.5, 0.74, 0.22, 0.14), hx(14218696), false), pstroke(pen, smile, hx(16744366), lw() *. 0.5)])
+    end
+    LavaLamp -> do
+      let glass =
+        [SegMove(0.38, 0.16), SegLine(0.62, 0.16), SegLine(0.74, 0.72), SegLine(0.26, 0.72), SegClose]
+      let base =
+        [SegMove(0.26, 0.72), SegLine(0.74, 0.72), SegLine(0.84, 0.96), SegLine(0.16, 0.96), SegClose]
+      List.concat([pfill(pen, 0, glass, hx(11893759), true), pfill(pen, 1, oval(0.5, 0.36, 0.08, 0.1), hx(16744366), false), pfill(pen, 2, oval(0.46, 0.6, 0.12, 0.08), hx(16744366), false), pfill(pen, 3, rect(0.32, 0.04, 0.36, 0.13, 0.04), hx(7296470), true), pfill(pen, 4, base, hx(7296470), true)])
+    end
+    Robot -> do
+      let key = [SegMove(0.76, 0.62), SegLine(0.92, 0.62)]
+      let antenna = [SegMove(0.5, 0.1), SegLine(0.5, 0.02)]
+      List.concat([pfill(pen, 0, rect(0.24, 0.42, 0.52, 0.44, 0.06), hx(13225688), true), pfill(pen, 1, rect(0.28, 0.1, 0.44, 0.3, 0.06), hx(13225688), true), pfill(pen, 2, oval(0.4, 0.24, 0.06, 0.06), hx(16767053), false), pfill(pen, 3, oval(0.6, 0.24, 0.06, 0.06), hx(16767053), false), pfill(pen, 4, rect(0.36, 0.52, 0.28, 0.12, 0.02), hx(6277375), false), pstroke(pen, key, hx(16767053), lw()), pfill(pen, 5, oval(0.94, 0.62, 0.05, 0.1), hx(16767053), false), pstroke(pen, antenna, hx(13225688), lw() *. 0.6), [pdot(pen, 0.5, 0.02, 0.03)]])
+    end
+    GiantBear -> do
+      let bow =
+        [SegMove(0.5, 0.62), SegLine(0.36, 0.55), SegLine(0.36, 0.69), SegClose, SegMove(0.5, 0.62), SegLine(0.64, 0.55), SegLine(0.64, 0.69), SegClose]
+      List.concat([pfill(pen, 0, oval(0.26, 0.2, 0.12, 0.12), hx(13208154), false), pfill(pen, 1, oval(0.74, 0.2, 0.12, 0.12), hx(13208154), false), pfill(pen, 2, oval(0.5, 0.74, 0.36, 0.24), hx(13208154), true), pfill(pen, 3, oval(0.5, 0.38, 0.3, 0.26), hx(13208154), true), pfill(pen, 4, oval(0.5, 0.48, 0.12, 0.09), hx(15913904), false), [pdot(pen, 0.4, 0.34, 0.03), pdot(pen, 0.6, 0.34, 0.03), pdot(pen, 0.5, 0.45, 0.035)], pfill(pen, 5, bow, hx(16731501), false)])
+    end
+    Trophy -> do
+      let cup =
+        [SegMove(0.22, 0.1), SegLine(0.78, 0.1), SegQuad(0.78, 0.56, 0.5, 0.6), SegQuad(0.22, 0.56, 0.22, 0.1), SegClose]
+      List.concat([trophy_handle(pen, -1.0), trophy_handle(pen, 1.0), pfill(pen, 0, cup, hx(16762941), true), pfill(pen, 1, rect(0.44, 0.58, 0.12, 0.16, 0.0), hx(16762941), false), pfill(pen, 2, rect(0.28, 0.74, 0.44, 0.16, 0.03), hx(7296470), true), pfill(pen, 3, star(pen.k, 0.5, 0.3, 0.12, 0.05), hx(16775404), false)])
+    end
+    GlowSticks -> do
+      List.concat([glow_stick(pen, 0, hx(8313978)), glow_stick(pen, 1, hx(16744366)), glow_stick(pen, 2, hx(6277375))])
+    end
+    RollerSkates -> do
+      List.concat([pfill(pen, 0, rect(0.18, 0.14, 0.34, 0.5, 0.08), hx(16744366), true), pfill(pen, 1, rect(0.18, 0.5, 0.64, 0.18, 0.06), hx(16744366), true), pfill(pen, 2, rect(0.12, 0.66, 0.76, 0.08, 0.03), hx(16775404), false), pfill(pen, 3, oval(0.26, 0.84, 0.09, 0.09), hx(16767053), false), pfill(pen, 4, oval(0.5, 0.84, 0.09, 0.09), hx(16767053), false), pfill(pen, 5, oval(0.74, 0.84, 0.09, 0.09), hx(16767053), false), [pdot(pen, 0.35, 0.24, 0.02), pdot(pen, 0.35, 0.34, 0.02), pdot(pen, 0.35, 0.44, 0.02)]])
+    end
+    DiscoBall -> do
+      let chain = [SegMove(0.5, 0.02), SegLine(0.5, 0.16)]
+      let sparkle =
+        if pen.silhouette do [] else pfill(pen, 1, star(pen.k, 0.32, 0.42, 0.08, 0.03), hx(16775404), false) end
+      List.concat([pstroke(pen, chain, hx(13225688), lw() *. 0.6), pfill(pen, 0, oval(0.5, 0.55, 0.38, 0.38), hx(13225688), true), disco_rows(pen), sparkle])
+    end
+    NeonSign -> do
+      let heart =
+        [SegMove(0.5, 0.7), SegCubic(0.14, 0.5, 0.3, 0.2, 0.5, 0.36), SegCubic(0.7, 0.2, 0.86, 0.5, 0.5, 0.7)]
+      List.append(pfill(pen, 0, rect(0.06, 0.2, 0.88, 0.6, 0.08), hx(2759987), false), pstroke(pen, heart, hx(16731501), lw() *. 1.1))
+    end
+    Jukebox -> do
+      let body =
+        [SegMove(0.16, 0.94), SegLine(0.16, 0.42), SegArc(0.34, 0.84, 0.42), SegLine(0.84, 0.94), SegClose]
+      List.concat([pfill(pen, 0, body, hx(16747069), true), pfill(pen, 1, rect(0.28, 0.3, 0.44, 0.24, 0.1), hx(16767053), false), List.flat_map(List.enumerate([0.3, 0.42, 0.54, 0.66]), fn e -> jukebox_key(pen, e))])
+    end
+    ArcadeCabinet -> do
+      List.concat([pfill(pen, 0, rect(0.24, 0.06, 0.52, 0.9, 0.04), hx(7296470), true), pfill(pen, 1, rect(0.3, 0.16, 0.4, 0.3, 0.03), hx(2759987), false), pfill(pen, 2, star(pen.k, 0.5, 0.31, 0.08, 0.035), hx(16767053), false), pfill(pen, 3, rect(0.24, 0.52, 0.52, 0.12, 0.0), hx(16740261), false), pfill(pen, 4, oval(0.4, 0.58, 0.04, 0.04), hx(16731501), false), pfill(pen, 5, oval(0.58, 0.58, 0.035, 0.035), hx(8313978), false)])
+    end
+    Cufflinks -> do
+      List.concat([pfill(pen, 0, oval(0.3, 0.5, 0.18, 0.18), hx(16762941), true), pfill(pen, 1, oval(0.3, 0.5, 0.08, 0.08), hx(6277375), false), pfill(pen, 2, oval(0.7, 0.5, 0.18, 0.18), hx(16762941), true), pfill(pen, 3, oval(0.7, 0.5, 0.08, 0.08), hx(6277375), false)])
+    end
+    Champagne -> do
+      let bottle =
+        [SegMove(0.42, 0.06), SegLine(0.58, 0.06), SegLine(0.58, 0.34), SegQuad(0.72, 0.38, 0.72, 0.5), SegLine(0.72, 0.94), SegLine(0.28, 0.94), SegLine(0.28, 0.5), SegQuad(0.28, 0.38, 0.42, 0.34), SegClose]
+      List.concat([pfill(pen, 0, bottle, hx(4099674), true), pfill(pen, 1, rect(0.4, 0.04, 0.2, 0.16, 0.03), hx(16762941), false), pfill(pen, 2, rect(0.3, 0.58, 0.4, 0.2, 0.02), hx(16775404), false)])
+    end
+    PearlNecklace -> List.flat_map(List.range(0, 11), fn i -> pearl(pen, i))
+    GoldWatch -> do
+      let hands = [SegMove(0.5, 0.36), SegLine(0.5, 0.5), SegLine(0.6, 0.56)]
+      List.concat([pfill(pen, 0, rect(0.38, 0.02, 0.24, 0.96, 0.06), hx(9067068), false), pfill(pen, 1, oval(0.5, 0.5, 0.3, 0.3), hx(16762941), true), pfill(pen, 2, oval(0.5, 0.5, 0.22, 0.22), hx(16775404), false), pstroke(pen, hands, hx(2759987), lw() *. 0.5)])
+    end
+    Chandelier -> do
+      let chain = [SegMove(0.5, 0.0), SegLine(0.5, 0.2)]
+      let arms = [SegMove(0.12, 0.42), SegQuad(0.5, 0.78, 0.88, 0.42)]
+      List.concat([pstroke(pen, chain, hx(16762941), lw() *. 0.6), pstroke(pen, arms, hx(16762941), lw()), List.flat_map(List.enumerate([0.12, 0.31, 0.5, 0.69, 0.88]), fn e -> candle(pen, e))])
+    end
+    SportsCar -> do
+      let body =
+        [SegMove(0.04, 0.7), SegLine(0.06, 0.52), SegLine(0.32, 0.46), SegQuad(0.48, 0.24, 0.66, 0.44), SegLine(0.94, 0.54), SegLine(0.96, 0.7), SegClose]
+      List.concat([pfill(pen, 0, body, hx(16731501), true), pfill(pen, 1, rect(0.4, 0.34, 0.18, 0.1, 0.03), hx(12578815), false), car_wheel(pen, 2, 0.24), car_wheel(pen, 4, 0.76)])
+    end
+    GoldenFlamingo -> do
+      let neck = [SegMove(0.5, 0.52), SegQuad(0.3, 0.3, 0.6, 0.16)]
+      let leg1 = [SegMove(0.5, 0.7), SegLine(0.5, 0.96)]
+      let leg2 = [SegMove(0.58, 0.7), SegLine(0.58, 0.96)]
+      List.concat([pstroke(pen, neck, hx(16762941), lw() *. 1.6), pfill(pen, 0, oval(0.62, 0.16, 0.08, 0.07), hx(16762941), false), pfill(pen, 1, oval(0.56, 0.58, 0.26, 0.15), hx(16762941), true), pstroke(pen, leg1, hx(16762941), lw() *. 0.7), pstroke(pen, leg2, hx(16762941), lw() *. 0.7), [pdot(pen, 0.64, 0.14, 0.015)]])
+    end
+    HotTub -> do
+      List.concat([pfill(pen, 0, rect(0.06, 0.46, 0.88, 0.44, 0.1), hx(9067068), true), pfill(pen, 1, oval(0.5, 0.48, 0.42, 0.1), hx(6277375), false), pfill(pen, 2, oval(0.32, 0.3, 0.05, 0.05), hx(16775404), false), pfill(pen, 3, oval(0.5, 0.2, 0.07, 0.07), hx(16775404), false), pfill(pen, 4, oval(0.68, 0.32, 0.045, 0.045), hx(16775404), false)])
+    end
+    GrandPiano -> do
+      let lid =
+        [SegMove(0.1, 0.5), SegLine(0.84, 0.5), SegQuad(0.9, 0.2, 0.6, 0.2), SegLine(0.1, 0.2), SegClose]
+      List.concat([pfill(pen, 0, lid, hx(2759987), true), pfill(pen, 1, rect(0.1, 0.5, 0.74, 0.12, 0.0), hx(2759987), false), List.flat_map(List.range(0, 7), fn i -> piano_key(pen, i)), pfill(pen, 20, rect(0.16, 0.62, 0.05, 0.3, 0.0), hx(2759987), false), pfill(pen, 21, rect(0.78, 0.62, 0.05, 0.3, 0.0), hx(2759987), false)])
+    end
+    Yacht -> do
+      let hull =
+        [SegMove(0.04, 0.6), SegLine(0.96, 0.6), SegLine(0.82, 0.82), SegLine(0.16, 0.82), SegClose]
+      let wave = [SegMove(0.02, 0.9), SegQuad(0.5, 0.98, 0.98, 0.9)]
+      List.concat([pfill(pen, 0, hull, hx(16775404), true), pfill(pen, 1, rect(0.26, 0.42, 0.46, 0.18, 0.04), hx(16775404), true), pfill(pen, 2, rect(0.36, 0.28, 0.24, 0.14, 0.04), hx(16775404), true), pfill(pen, 3, rect(0.32, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pfill(pen, 4, rect(0.46, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pfill(pen, 5, rect(0.6, 0.47, 0.08, 0.06, 0.02), hx(6277375), false), pstroke(pen, wave, hx(6277375), lw())])
+    end
+    PrivateJet -> do
+      let body =
+        [SegMove(0.04, 0.52), SegQuad(0.06, 0.42, 0.2, 0.42), SegLine(0.86, 0.42), SegLine(0.96, 0.24), SegLine(0.96, 0.56), SegLine(0.2, 0.6), SegClose]
+      let wing =
+        [SegMove(0.4, 0.56), SegLine(0.62, 0.56), SegLine(0.46, 0.84), SegLine(0.36, 0.84), SegClose]
+      List.concat([pfill(pen, 0, body, hx(16775404), true), pfill(pen, 1, wing, hx(13225688), true), List.flat_map(List.range(0, 5), fn i -> jet_window(pen, i))])
+    end
+    DiamondCrown -> do
+      let crown =
+        [SegMove(0.1, 0.8), SegLine(0.1, 0.3), SegLine(0.3, 0.52), SegLine(0.5, 0.18), SegLine(0.7, 0.52), SegLine(0.9, 0.3), SegLine(0.9, 0.8), SegClose]
+      List.concat([pfill(pen, 0, crown, hx(16762941), true), pfill(pen, 1, rect(0.1, 0.72, 0.8, 0.12, 0.02), hx(16767053), false), pfill(pen, 2, oval(0.3, 0.78, 0.05, 0.04), hx(16731501), false), pfill(pen, 3, oval(0.5, 0.78, 0.05, 0.04), hx(6277375), false), pfill(pen, 4, oval(0.7, 0.78, 0.05, 0.04), hx(8313978), false), pfill(pen, 5, star(pen.k, 0.5, 0.44, 0.09, 0.04), hx(12578815), false)])
+    end
+    end
+  end
+
+  pfn slinky_ring(pen : PrizePen, i : Int) : List(Html) needs () do
+    let y = 0.22 +. int_to_float(i) *. 0.09
+    let x = 0.5 +. 0.08 *. Math.sin(int_to_float(i) *. 0.7)
+    let c = if i % 2 == 0 do hx(13225688) else hx(11581124) end
+    pfill(pen, i, oval(x, y, 0.32, 0.08), c, i == 0)
+  end
+
+  pfn trophy_handle(pen : PrizePen, side : Float) : List(Html) needs () do
+    let h =
+      [SegMove(0.5 +. side *. 0.26, 0.18), SegQuad(0.5 +. side *. 0.46, 0.2, 0.5 +. side *. 0.22, 0.4)]
+    pstroke(pen, h, hx(16762941), lw() *. 1.2)
+  end
+
+  pfn glow_stick(pen : PrizePen, i : Int, col : Rgba) : List(Html) needs () do
+    let x = 0.3 +. int_to_float(i) *. 0.2
+    pstroke(pen, [SegMove(x -. 0.06, 0.88), SegLine(x +. 0.06, 0.12)], col, 224.0 *. 0.09)
+  end
+
+  pfn disco_rows(pen : PrizePen) : List(Html) needs () do
+    let id = pen.prefix ++ "-ball"
+    let rows =
+      List.map(List.range(1, 5), fn i -> disco_row(i))
+    let clip = Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", segs_d(oval(0.5, 0.55, 0.38, 0.38)))], [])])
+    [clip, Tag("g", [Prop("clip-path", "url(#" ++ id ++ ")"), Prop("fill", "none"), Prop("stroke", css(alpha(ink(), 0.5))), Prop("stroke-width", num(lw() *. 0.5))], rows)]
+  end
+
+  pfn disco_row(i : Int) : Html needs () do
+    let y = 0.17 +. int_to_float(i) *. 0.152
+    Tag("path", [Prop("d", segs_d([SegMove(0.14, y), SegLine(0.86, y)]))], [])
+  end
+
+  pfn jukebox_key(pen : PrizePen, e : (Int, Float)) : List(Html) needs () do
+    let (i, x) = e
+    pfill(pen, 10 + i, rect(x, 0.62, 0.06, 0.24, 0.02), hx(6277375), false)
+  end
+
+  pfn pearl(pen : PrizePen, i : Int) : List(Html) needs () do
+    let a = pen.k.pi *. (0.1 +. 0.8 *. int_to_float(i) /. 10.0)
+    pfill(pen, i, oval(0.5 -. 0.36 *. Math.cos(a), 0.3 +. 0.48 *. Math.sin(a), 0.065, 0.065), hx(16775404), true)
+  end
+
+  pfn candle(pen : PrizePen, e : (Int, Float)) : List(Html) needs () do
+    let (i, x) = e
+    List.concat([pfill(pen, 3 * i, rect(x -. 0.035, 0.28, 0.07, 0.14, 0.0), hx(16775404), false), pfill(pen, 3 * i + 1, oval(x, 0.24, 0.025, 0.04), hx(16767053), false), pfill(pen, 3 * i + 2, oval(x, 0.72, 0.04, 0.07), hx(12578815), false)])
+  end
+
+  pfn car_wheel(pen : PrizePen, n : Int, x : Float) : List(Html) needs () do
+    List.append(pfill(pen, n, oval(x, 0.72, 0.1, 0.1), hx(2759987), false), pfill(pen, n + 1, oval(x, 0.72, 0.04, 0.04), hx(13225688), false))
+  end
+
+  pfn piano_key(pen : PrizePen, i : Int) : List(Html) needs () do
+    pfill(pen, 2 + i, rect(0.12 +. int_to_float(i) *. 0.1, 0.5, 0.09, 0.08, 0.0), hx(16775404), false)
+  end
+
+  pfn jet_window(pen : PrizePen, i : Int) : List(Html) needs () do
+    pfill(pen, 2 + i, oval(0.28 +. int_to_float(i) *. 0.1, 0.49, 0.025, 0.03), hx(6277375), false)
+  end
+
+  pfn prize_image(p : Prize, owned : Bool, size : Float) : Html needs () do
+    use_art(prize_id(p, owned), size, size)
+  end
+
+  -- ===================================================================
+  -- Small pieces
+  -- ===================================================================
+  pfn tickets_text(t : Tickets) : String needs () do
+    int_to_string(Skee.Units.tickets_int(t))
+  end
+
+  pfn winnings_text(w : Winnings) : String needs () do
+    int_to_string(Skee.Units.winnings_int(w))
+  end
+
+  pfn tickets_pill(t : Tickets, size : Float) : Html needs () do
+    pill(butter(), 16.0, [hstack(6.0, [ticket_shape(), cel(tickets_text(t), size, cream())])])
+  end
+
+  pfn capitalized(s : String) : String needs () do
+    String.to_uppercase(String.slice(s, 0, 1)) ++ String.slice(s, 1, String.byte_size(s))
+  end
+
+  pfn initial_of(w : String) : String needs () do
+    String.slice(w, 0, 1)
+  end
+
+  -- CharmToken: a coloured tile with the charm's initials; selected, its
+  -- SELL price beside it.
+  pfn charm_token(c : Charm, selected : Bool) : Html needs () do
+    let n = List.length(Skee.Items.all_charms())
+    let hue = int_to_float(index_of(Skee.Items.all_charms(), c)) /. int_to_float(n)
+    let words =
+      List.filter(String.split(Skee.Items.charm_name(c), " "), fn w -> w != "")
+    let letters = String.join(List.map(List.take(words, 2), initial_of), "")
+    let border =
+      if selected do "border:4px solid " ++ css(mult_red()) else "border:3px solid " ++ css(ink()) end
+    let tile =
+      div("token tile", "background:hsl(" ++ num(hue *. 360.0) ++ ",100%,77.5%);" ++ border, [cel(letters, 18.0, cream())])
+    let sell =
+      if selected do
+        [div("sell", "", [pill(mult_red(), 10.0, [cel("SELL +" ++ int_to_string(Skee.Units.tickets_int(Skee.Items.charm_cost(c)) / 2), 12.0, cream())])])]
+      else
+        []
+      end
+    div("charm", "", Cons(tile, sell))
+  end
+
+  pfn power_colour(p : PowerUp) : Rgba needs () do
+    match p do
+    GoldenBall -> butter()
+    Feather -> cream()
+    Magnet -> mult_red()
+    WildBall -> mint()
+    Hold -> sky()
+    end
+  end
+
+  -- PowerToken: a coloured disc with the power-up's initial.
+  pfn power_token(p : PowerUp, armed : Bool) : Html needs () do
+    let border =
+      if armed do "border:4px solid " ++ css(butter()) else "border:3px solid " ++ css(ink()) end
+    let disc =
+      div("token disc", "background:" ++ css(power_colour(p)) ++ ";" ++ border, [cel(initial_of(Skee.Items.power_up_name(p)), 18.0, cream())])
+    let label =
+      if armed do [div("armed", "", [cel("ARMED", 10.0, butter())])] else [] end
+    div("power", "", Cons(disc, label))
+  end
+
+  pfn ball_colour(b : BallKind) : Rgba needs () do
+    match b do
+    Marshmallow -> cream()
+    ClassicBall -> Skee.Scene.hex(16740207)
+    JumpingBean -> mint()
+    Wobbler -> lilac()
+    Comet -> Skee.Scene.hex(16751150)
+    end
+  end
+
+  pfn tier_colour(t : JackpotTier) : Rgba needs () do
+    match t do
+    Mini -> sky()
+    Minor -> mint()
+    Major -> pink()
+    Grand -> butter()
+    end
+  end
+
+  pfn line_colour(i : Int) : Rgba needs () do
+    match List.nth_opt([mult_red(), sky(), mint(), butter(), pink()], i % 5) do
+    Some(c) -> c
+    None -> mult_red()
+    end
+  end
+
+  -- ===================================================================
+  -- The title (TitleCard, RoomPicker, PrizeShelfStrip)
+  -- ===================================================================
+  pfn room_short(r : Room) : String needs () do
+    match r do
+    Boardwalk -> "BOARDWALK"
+    NeonLounge -> "NEON"
+    HighRoller -> "HIGH ROLLER"
+    Penthouse -> "PENTHOUSE"
+    end
+  end
+
+  pfn room_button(w : Wallet, r : Room) : Html needs () do
+    let owned = Skee.Rooms.room_at(w.rooms, r)
+    let here = r == w.wallet_room
+    let status =
+      if owned do
+        match Skee.Rooms.room_at(w.comps, r) do
+        Some(c) -> int_to_string(c.nights) ++ " COMP"
+        None -> "OPEN"
+        end
+      else
+        winnings_text(Skee.Rooms.comp_threshold(r))
+      end
+    let bg =
+      if here do pink() else alpha(ink(), if owned do 0.55 else 0.3 end) end
+    let edge = if here do css(butter()) else "transparent" end
+    let shade = if owned do "1" else "0.6" end
+    let look =
+      div("room", "background:" ++ css(bg) ++ ";border-color:" ++ edge ++ ";opacity:" ++ shade, [cel(room_short(r), 12.0, if here do butter() else cream() end), cel(status, 9.0, if owned do mint() else alpha(cream(), 0.6) end)])
+    maybe_button(if owned do Some(ActIntent(TapPickRoom(r))) else None end, [look])
+  end
+
+  pfn host_due_button(w : Wallet) : Html needs () do
+    match Skee.Rooms.host_due(w) do
+    None -> nothing()
+    Some(due) -> do
+      tap_intent(TapOpenHost, [pill(butter(), 16.0, [div("vs tight", "", [cel("THE HOST WANTS A WORD", 17.0, cream()), cel("a comped stay in " ++ Skee.Rooms.name(due), 11.0, violet())])])])
+    end
+    end
+  end
+
+  pfn shelf_strip(w : Wallet) : Html needs () do
+    if List.is_empty(w.owned) do
+      nothing()
+    else
+      div("shelf", "", List.map(w.owned, fn p -> prize_image(p, true, 30.0)))
+    end
+  end
+
+  pfn skee_word(fill : Rgba) : Html needs () do
+    cel("SKEE", 72.0, fill)
+  end
+
+  pfn title_card(w : Wallet) : Html needs () do
+    let room = w.wallet_room
+    let words =
+      div("vs title-skee", "", [skee_word(butter()), skee_word(pink()), skee_word(sky())])
+    let room_words =
+      vstack(2.0, [cel(String.to_uppercase(Skee.Rooms.name(room)), 17.0, butter()), div("blurb", "", [cel(Skee.Rooms.blurb(room), 12.0, cream())])])
+    let buttons =
+      hstack(10.0, [tap_intent(TapOpenShop, [pill(butter(), 18.0, [cel("PRIZE SHOP " ++ dot() ++ " " ++ winnings_text(w.balance), 18.0, cream())])]), tap_intent(TapHowToPlay, [pill(sky(), 18.0, [cel("HOW TO PLAY", 18.0, cream())])])])
+    let picker =
+      vstack(6.0, [hstack(6.0, List.map(Skee.Rooms.all_rooms(), fn r -> room_button(w, r))), host_due_button(w)])
+    div("screen-fill", "", [Tag("div", Cons(Prop("style", "position:absolute;inset:0"), tap_props(ActIntent(TapStart))), []), div("title-card", "", [div("", "height:60px", []), words, spacer(), pill(mint(), 22.0, [cel("TAP TO PLAY", 28.0, cream())]), room_words, buttons, picker, shelf_strip(w), div("", "height:60px", [])])])
+  end
+
+  -- ===================================================================
+  -- The game (HUDView's game branch)
+  -- ===================================================================
+  pfn progress_track(fraction : Float) : Html needs () do
+    let w = Skee.Maths.max_float(6.0, 150.0 *. Skee.Maths.min_float(1.0, fraction))
+    let fill = if fraction >= 1.0 do mint() else sky() end
+    div("track", "", [div("track-fill", "width:" ++ px(w) ++ ";background:" ++ css(fill), [])])
+  end
+
+  pfn top_bar(s : HudState) : Html needs () do
+    let left =
+      pill(if s.is_boss do mult_red() else lilac() end, 16.0, [div("vs left", "", [cel("ANTE " ++ int_to_string(s.hud_ante) ++ "/" ++ int_to_string(s.antes), 11.0, cream()), cel(if s.is_boss do s.boss_name else s.round_title end, 14.0, butter())])])
+    let score = Skee.Units.points_int(s.score)
+    let target = Skee.Units.points_int(s.hud_target)
+    let fraction = int_to_float(score) /. int_to_float(Math.max_int(target, 1))
+    let middle =
+      vstack(4.0, [div("hs base", "gap:4px", [cel(int_to_string(score), 34.0, cream()), cel("/ " ++ int_to_string(target), 16.0, butter())]), progress_track(fraction)])
+    div("top-bar", "", [left, middle, tickets_pill(s.hud_tickets, 18.0)])
+  end
+
+  pfn target_box(sym : Symbol) : Html needs () do
+    div("target", "", [symbol_image(sym, 21.0)])
+  end
+
+  pfn three_list(t : Three(a)) : List(a) needs () do
+    match t do
+    Three(a, b, c) -> [a, b, c]
+    end
+  end
+
+  pfn top_slot(s : HudState) : Html needs () do
+    let caption =
+      if s.hud_combo > 0 do
+        cel("COMBO x" ++ int_to_string(s.hud_combo) ++ " " ++ dot() ++ " hit one to keep it", 11.0, butter())
+      else
+        cel("TARGETS " ++ dot() ++ " hit one = combo", 10.0, cream())
+      end
+    let bg = if s.hud_combo > 0 do butter() else pink() end
+    vstack(1.0, [caption, div("targets", "background:" ++ css(bg), List.map(three_list(s.targets), target_box))])
+  end
+
+  pfn top_pane(s : HudState) : Html needs () do
+    let blurb =
+      if s.is_boss do div("boss-blurb", "", [cel(s.boss_blurb, 12.0, butter())]) else nothing() end
+    div("top", "", [top_bar(s), top_slot(s), blurb])
+  end
+
+  pfn reel_box(o : Option(Symbol)) : Html needs () do
+    match o do
+    Some(sym) -> div("reel", "background:" ++ css(cream()), [symbol_image(sym, 34.0)])
+    None -> div("reel", "background:" ++ css(alpha(cream(), 0.75)), [])
+    end
+  end
+
+  pfn heat_dot(s : HudState, i : Int) : Html needs () do
+    let fill =
+      if s.hud_fever do butter() else if i < s.hud_heat do mult_red() else alpha(cream(), 0.5) end end
+    div("heat", "background:" ++ css(fill), [])
+  end
+
+  pfn slot(s : HudState) : Html needs () do
+    let fever = if s.hud_fever do cel("FEVER", 11.0, butter()) else nothing() end
+    let frame_words =
+      "  FRAME " ++ int_to_string(s.frame_number) ++ "/" ++ int_to_string(s.frames_total) ++ " " ++ dot() ++ " " ++ int_to_string(s.balls_left) ++ " BALLS"
+    vstack(4.0, [hstack(6.0, List.map(three_list(s.frame), reel_box)), hstack(3.0, List.concat([List.map(List.range(0, s.heat_max), fn i -> heat_dot(s, i)), [fever, div("pre", "", [cel(frame_words, 11.0, cream())])]]))])
+  end
+
+  pfn hint_view(s : HudState) : Html needs () do
+    match s.hint do
+    None -> nothing()
+    Some(h) -> do
+      if h.hint_text == "" do
+        nothing()
+      else
+        do
+          let size = if h.hint_hot do 18.0 else 14.0 end
+          let fill = if h.hint_hot do butter() else cream() end
+          let sym =
+            match h.hint_symbol do
+            Some(x) -> symbol_image(x, if h.hint_hot do 34.0 else 28.0 end)
+            None -> nothing()
+            end
+          let after = if h.after == "" do nothing() else cel(h.after, size, fill) end
+          div("hint", "", [cel(h.hint_text, size, fill), sym, after])
+        end
+      end
+    end
+    end
+  end
+
+  pfn first_throw_words(a : AppHud, w : Float, h : Float) : Html needs () do
+    let s = a.app_hud
+    let shown =
+      s.first_throw && !s.busy && is_none(s.counter) && is_none(a.coach) && is_none(s.machine)
+    if shown do
+      at(w /. 2.0, h *. 0.62, vstack(2.0, [cel("thumb down on your line", 20.0, cream()), cel("then flick straight up", 15.0, butter())]))
+    else
+      nothing()
+    end
+  end
+
+  pfn slot_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    let s = a.app_hud
+    div("", "", [at(w /. 2.0, h *. 0.445, vstack(4.0, [slot(s), hint_view(s)])), first_throw_words(a, w, h)])
+  end
+
+  -- The power meter: where recent flicks landed, coloured by the result.
+  pfn meter_colour(hole : Hole) : Rgba needs () do
+    match hole do
+    Gutter -> mult_red()
+    Ring50 -> butter()
+    PocketLeft -> butter()
+    PocketRight -> butter()
+    Ring40 -> mint()
+    Ring30 -> mint()
+    Ring10 -> sky()
+    Ring20 -> sky()
+    end
+  end
+
+  pfn meter_tick(count : Int, track : Float, bottom : Float, x : Float, e : (Int, ThrowMark)) : Html needs () do
+    let (i, m) = e
+    let newest = i == count - 1
+    let tw = if newest do 22.0 else 14.0 end
+    let th = if newest do 6.0 else 4.0 end
+    let y = bottom -. m.mark_power *. track -. th /. 2.0
+    let op = if newest do 1.0 else 0.7 end
+    at(x, y, div("tick", "width:" ++ px(tw) ++ ";height:" ++ px(th) ++ ";background:" ++ css(meter_colour(m.mark_hole)) ++ ";opacity:" ++ num(op), []))
+  end
+
+  pfn meter_pane(s : HudState, w : Float, h : Float) : Html needs () do
+    let track = h *. 0.3
+    let x = w -. 14.0
+    let bottom = h *. 0.62 +. track /. 2.0
+    let count = List.length(s.throws_meter)
+    div("", "", Cons(at(x, h *. 0.62, div("meter", "height:" ++ px(track), [])), List.map(List.enumerate(s.throws_meter), fn e -> meter_tick(count, track, bottom, x, e))))
+  end
+
+  pfn points_attr(ps : List(ScreenPoint)) : String needs () do
+    String.join(List.map(ps, fn p -> num(p.sx) ++ "," ++ num(p.sy)), " ")
+  end
+
+  pfn line(ps : List(ScreenPoint), colour : Rgba, width : Float, dash : Bool) : Html needs () do
+    let dashed = if dash do [Prop("stroke-dasharray", "2 12")] else [] end
+    Tag("polyline", List.append([Prop("points", points_attr(ps)), Prop("fill", "none"), Prop("stroke", css(colour)), Prop("stroke-width", num(width)), Prop("stroke-linecap", "round"), Prop("stroke-linejoin", "round")], dashed), [])
+  end
+
+  -- The aiming guide: dashes up the ball's line, brighter while aiming.
+  pfn guide_lines(a : AppHud) : List(Html) needs () do
+    if List.length(a.guide_line) < 2 do
+      []
+    else
+      do
+        let o = if a.aiming_now do 0.9 else 0.4 end
+        [line(a.guide_line, alpha(ink(), o *. 0.6), 8.0, true), line(a.guide_line, alpha(cream(), o), 4.0, true)]
+      end
+    end
+  end
+
+  pfn trail_pairs(ds : List(TrailDot)) : List((TrailDot, TrailDot)) needs () do
+    List.zip(ds, List.drop(ds, 1))
+  end
+
+  pfn trail_segment(pair : (TrailDot, TrailDot)) : List(Html) needs () do
+    let (x, y) = pair
+    let fade = 1.0 -. y.dot_age
+    [line([x.dot, y.dot], alpha(ink(), 0.5 *. fade), 16.0 *. fade +. 2.0, false), line([x.dot, y.dot], alpha(butter(), 0.9 *. fade), 10.0 *. fade +. 1.0, false)]
+  end
+
+  pfn hot_spot(a : AppHud) : Html needs () do
+    let s = a.app_hud
+    match s.hot_at do
+    Some(p) -> do
+      if Skee.Walkthrough.has_tip(a.known, TipHotSpot) do
+        do
+          let beat = 0.5 +. 0.5 *. Math.sin(s.hud_clock *. 6.0)
+          let size = 46.0 +. 12.0 *. beat
+          at(p.sx, p.sy, div("hot", "", [div("hot-ring", "width:" ++ px(size) ++ ";height:" ++ px(size) ++ ";opacity:" ++ num(0.9 -. 0.4 *. beat), []), cel("x2", 20.0, butter())]))
+        end
+      else
+        nothing()
+      end
+    end
+    None -> nothing()
+    end
+  end
+
+  pfn lines_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    let marks = List.append(guide_lines(a), List.flat_map(trail_pairs(a.trail_dots), trail_segment))
+    let drawn =
+      if List.is_empty(marks) do nothing() else Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h))], marks) end
+    div("", "", [drawn, hot_spot(a)])
+  end
+
+  -- Charms down the left edge, power-ups down the right.
+  pfn trays_pane(s : HudState, w : Float, h : Float) : Html needs () do
+    let charms =
+      List.map(List.enumerate(s.hud_charms), fn e -> charm_button(s, e))
+    let powers =
+      List.map(List.enumerate(s.hud_power_ups), fn e -> power_button(e))
+    let armed =
+      match s.hud_armed do
+      Some(p) -> [power_token(p, true)]
+      None -> []
+      end
+    div("", "", [at(30.0, h *. 0.68, vstack(8.0, charms)), at(w -. 30.0, h *. 0.68, vstack(8.0, List.append(powers, armed)))])
+  end
+
+  pfn charm_button(s : HudState, e : (Int, Charm)) : Html needs () do
+    let (i, c) = e
+    tap_intent(TapCharm(i), [charm_token(c, s.hud_selected_charm == Some(i))])
+  end
+
+  pfn power_button(e : (Int, PowerUp)) : Html needs () do
+    let (i, p) = e
+    tap_intent(TapArm(i), [power_token(p, false)])
+  end
+
+  pfn corner_pane(a : AppHud, w : Float) : Html needs () do
+    let s = a.app_hud
+    if is_none(s.over) && is_none(a.coach) do
+      div("", "", [at(w -. 58.0, 72.0, tap_intent(TapAskNewGame, [pill(sky(), 12.0, [cel("NEW GAME", 13.0, cream())])])), at(w -. 58.0, 108.0, tap_intent(TapOpenGuide, [pill(mint(), 12.0, [cel("GUIDE", 13.0, cream())])]))])
+    else
+      nothing()
+    end
+  end
+
+  -- BallRack: pick a ball before any throw.
+  pfn rack_ball(selected : BallKind, b : BallKind) : Html needs () do
+    let here = b == selected
+    let edge = if here do "3.5px solid " ++ css(butter()) else "2.5px solid " ++ css(ink()) end
+    let style = "background:" ++ css(if here do pink() else violet() end) ++ ";border:" ++ edge
+    div("rack-cell", "", [tap_intent(TapChooseBall(b), [div("rack-ball", style, [div("ball-dot", "background:" ++ css(ball_colour(b)), []), cel(Skee.Items.ball_short(b), 11.0, cream()), cel(Skee.Items.pay_label(b), 16.0, butter())])])])
+  end
+
+  pfn rack_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    let s = a.app_hud
+    if s.rack && is_none(a.coach) && Skee.Walkthrough.has_tip(a.known, TipBalls) do
+      at(w /. 2.0, h -. 62.0, div("rack", "width:" ++ px(w), [cel(Skee.Items.ball_blurb(s.hud_ball), 15.0, butter()), div("rack-row", "", List.map(Skee.Items.all_balls(), fn b -> rack_ball(s.hud_ball, b)))]))
+    else
+      nothing()
+    end
+  end
+
+  -- ---- MachineView ----
+  pfn meter_box(m : Machine, t : JackpotTier) : Html needs () do
+    let o = if Skee.Scoring.bet_is_max(m.machine_bet) do 1.0 else 0.45 end
+    div("jackpot", "opacity:" ++ num(o), [cel(Skee.Scoring.tier_title(t), 10.0, tier_colour(t)), cel(winnings_text(Skee.Scoring.amount(m.machine_progressive, t)), 14.0, cream())])
+  end
+
+  pfn meters(m : Machine) : Html needs () do
+    let note =
+      if !Skee.Scoring.bet_is_max(m.machine_bet) && !m.machine_free do
+        div("max-bet", "", [cel("MAX BET FOR JACKPOTS", 9.0, butter())])
+      else
+        nothing()
+      end
+    div("jackpots", "", List.append(List.map([Grand, Major, Minor, Mini], fn t -> meter_box(m, t)), [note]))
+  end
+
+  pfn row_index(r : WindowRow) : Int needs () do
+    match r do
+    TopRow -> 0
+    CentreRow -> 1
+    BottomRow -> 2
+    end
+  end
+
+  pfn coin(text : String, fill : Rgba) : Html needs () do
+    div("reel-coin", "background:" ++ css(fill), [div("vs coin-words", "", [cel(text, 20.0, cream()), cel("WILD", 8.0, cream())])])
+  end
+
+  pfn reel_symbol(k : Skee.Consts.Consts, s : ReelSymbol) : Html needs () do
+    match s do
+    ReelX2 -> coin("2X", sky())
+    ReelX3 -> coin("3X", mult_red())
+    ReelBonus -> div("reel-art", "", [star_shape(k, 58.0, butter(), 3.0), div("overlay", "", [cel("BONUS", 11.0, cream())])])
+    ReelWild -> div("reel-art", "", [symbol_image(Clover, 58.0), div("overlay wild", "", [cel("WILD", 11.0, mint())])])
+    ReelCherry -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    ReelLemon -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    ReelBell -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    ReelBar -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    ReelSeven -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    ReelDiamond -> symbol_image(Skee.Scoring.reel_target(s), 58.0)
+    end
+  end
+
+  pfn three_at(t : Three(a), i : Int) : a needs () do
+    match t do
+    Three(a, b, c) -> if i == 0 do a else if i == 1 do b else c end end
+    end
+  end
+
+  -- PullReel: the strip scrolling past three rows.
+  pfn pull_reel(k : Skee.Consts.Consts, m : Machine, reel : Int) : Html needs () do
+    let position = three_at(m.positions, reel)
+    let base = int_to_float(float_floor(position))
+    let frac = position -. base
+    let strip_len = List.length(three_at(Skee.Rooms.strips(m.machine_room), reel))
+    let cells =
+      List.map(List.range(-1, 4), fn kk -> reel_cell(k, m, reel, base, frac, strip_len, kk))
+    let tease =
+      if m.machine_teasing && reel == 2 do [div("tease", "", [])] else [] end
+    div("pull-reel", "left:" ++ px(70.0 *. int_to_float(reel)), List.append(tease, cells))
+  end
+
+  pfn reel_cell(k : Skee.Consts.Consts, m : Machine, reel : Int, base : Float, frac : Float, strip_len : Int, kk : Int) : Html needs () do
+    let sym = Skee.Presentation.pull_symbol(reel, base, kk + strip_len, m.machine_room)
+    div("reel-cell", "top:" ++ px((int_to_float(kk) -. frac) *. 70.0), [reel_symbol(k, sym)])
+  end
+
+  pfn line_tick(i : Int) : Html needs () do
+    if i >= 0 && i < 5 do
+      do
+        let rows = Skee.Scoring.line_rows(i)
+        let y = 70.0 *. (int_to_float(row_index(three_at(rows, 0))) +. 0.5)
+        at(-7.0, y, div("line-tick", "background:" ++ css(line_colour(i)), []))
+      end
+    else
+      nothing()
+    end
+  end
+
+  pfn win_points(w : LineWin) : List(ScreenPoint) needs () do
+    let rows = Skee.Scoring.line_rows(w.line)
+    let ys =
+      List.map([0, 1, 2], fn r -> 70.0 *. (int_to_float(row_index(three_at(rows, r))) +. 0.5))
+    let first = head_or(ys, 105.0)
+    let last = head_or(List.reverse(ys), 105.0)
+    List.concat([[{ sx: 0.0, sy: first }], List.map(List.enumerate(ys), fn e -> win_point(e)), [{ sx: 210.0, sy: last }]])
+  end
+
+  pfn head_or(xs : List(Float), fallback : Float) : Float needs () do
+    match xs do
+    Cons(y, _) -> y
+    Nil -> fallback
+    end
+  end
+
+  pfn win_point(e : (Int, Float)) : ScreenPoint needs () do
+    let (i, y) = e
+    { sx: 70.0 *. (int_to_float(i) +. 0.5), sy: y }
+  end
+
+  pfn win_line(w : LineWin) : List(Html) needs () do
+    let pts = win_points(w)
+    let shadow = List.map(pts, fn p -> { sx: p.sx, sy: p.sy +. 2.0 })
+    [line(shadow, ink(), 6.0, false), line(pts, line_colour(w.line), 6.0, false)]
+  end
+
+  pfn window(k : Skee.Consts.Consts, m : Machine) : Html needs () do
+    let reels = div("reels", "", List.map([0, 1, 2], fn r -> pull_reel(k, m, r)))
+    let dividers =
+      [div("divider", "left:69px", []), div("divider", "left:139px", [])]
+    let ticks =
+      List.map(List.range(0, Skee.Scoring.bet_lines(m.machine_bet)), line_tick)
+    let wins =
+      Tag("svg", [Prop("class", "wins"), Prop("width", "210"), Prop("height", "210"), Prop("viewBox", "0 0 210 210")], List.flat_map(m.wins, win_line))
+    let tease =
+      if m.machine_teasing do [div("tease-ring", "", [])] else [] end
+    div("window", "", List.concat([[reels], dividers, ticks, [wins, div("window-edge", "", [])], tease]))
+  end
+
+  pfn lever(m : Machine) : Html needs () do
+    let knob =
+      div("knob", "background:" ++ css(if m.can_pull do mult_red() else alpha(cream(), 0.5) end), [div("knob-shine", "", [])])
+    div("lever", "", [div("lever-track", "", []), maybe_button(if m.can_pull do Some(ActIntent(TapPull)) else None end, [knob])])
+  end
+
+  pfn bet_button(m : Machine, b : Bet) : Html needs () do
+    let can = List.any(m.affordable, fn x -> x == b)
+    let lines = Skee.Scoring.bet_lines(b)
+    let cost = Skee.Units.tickets_int(Skee.Scoring.bet_cost(b))
+    let plural = if lines > 1 do "S" else "" end
+    let label = int_to_string(lines) ++ " LINE" ++ plural
+    let price = if cost == 0 do "FREE" else int_to_string(cost) ++ " TIX" end
+    let here = m.machine_bet == b
+    let edge = if here do css(butter()) else "transparent" end
+    let shade = if can do "1" else "0.5" end
+    let style =
+      "background:" ++ css(if here do pink() else alpha(ink(), 0.5) end) ++ ";border-color:" ++ edge ++ ";opacity:" ++ shade
+    maybe_button(if can do Some(ActIntent(TapSetBet(b))) else None end, [div("bet", style, [cel(label, 13.0, cream()), cel(price, 11.0, if can do butter() else alpha(cream(), 0.5) end)])])
+  end
+
+  pfn machine_view(k : Skee.Consts.Consts, m : Machine) : Html needs () do
+    let top = if m.show_bets do meters(m) else nothing() end
+    let bottom =
+      if m.machine_free do
+        [cel("FREE GAME " ++ dot() ++ " x2 " ++ dot() ++ " " ++ int_to_string(m.free_left) ++ " MORE", 18.0, butter())]
+      else
+        do
+          let bets =
+            if m.show_bets do hstack(6.0, List.map(Skee.HudState.all_bets(), fn b -> bet_button(m, b))) else nothing() end
+          let spin =
+            pill(if m.can_pull do mint() else alpha(cream(), 0.5) end, 18.0, [cel(if m.can_pull do "SPIN" else "..." end, 24.0, cream())])
+          [bets, maybe_button(if m.can_pull do Some(ActIntent(TapPull)) else None end, [spin])]
+        end
+      end
+    div("machine", "", List.concat([[top, hstack(10.0, [window(k, m), lever(m)])], bottom]))
+  end
+
+  pfn machine_pane(k : Skee.Consts.Consts, s : HudState, w : Float, h : Float) : Html needs () do
+    match s.machine do
+    Some(m) -> do
+      if is_none(s.counter) && is_none(s.over) do at(w /. 2.0, h *. 0.74, machine_view(k, m)) else nothing() end
+    end
+    None -> nothing()
+    end
+  end
+
+  -- ---- Tally, popups, coins and the banner ----
+  pfn tally_view(t : HudTally) : Html needs () do
+    vstack(6.0, [hstack(10.0, [tally_box(int_to_string(Skee.Units.chips_int(t.tally_chips)), chips_blue()), cel(times(), 30.0, cream()), tally_box(Skee.HudState.num(t.tally_mult), mult_red())]), cel(t.label, 15.0, butter())])
+  end
+
+  pfn tally_box(text : String, colour : Rgba) : Html needs () do
+    pill(colour, 14.0, [div("tally-num", "", [cel(text, 30.0, cream())])])
+  end
+
+  pfn popup_colour(k : PopupKind) : Rgba needs () do
+    match k do
+    PopupChips -> sky()
+    PopupMult -> mult_red()
+    PopupTickets -> butter()
+    PopupJackpot -> butter()
+    PopupBad -> mult_red()
+    end
+  end
+
+  pfn popup_view(p : ScreenPopup) : Html needs () do
+    let size = if p.screen_kind == PopupJackpot do 44.0 else 30.0 end
+    let scale = 1.0 +. 0.3 *. (1.0 -. Skee.Maths.min_float(1.0, p.screen_age *. 4.0))
+    let o = Skee.Maths.max_float(0.0, 1.0 -. p.screen_age *. p.screen_age)
+    at(p.at.sx, p.at.sy -. 30.0 -. 50.0 *. p.screen_age, div("", "transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(o), [cel(p.screen_text, size, popup_colour(p.screen_kind))]))
+  end
+
+  pfn coin_mark(t : Float, w : Float, h : Float, i : Int) : List(Html) needs () do
+    let a = int_to_float(i * 73 % 101) /. 101.0
+    let b = int_to_float(i * 37 % 97) /. 97.0
+    let c = int_to_float(i * 19 % 89) /. 89.0
+    let y = (t *. (1.1 +. b) -. c *. 0.55) *. h *. 1.15
+    if y > -30.0 && y < h +. 30.0 do
+      do
+        let x = a *. w +. Math.sin(t *. 9.0 +. c *. 6.0) *. 18.0
+        let r = 8.0 +. 9.0 *. b
+        let turn = Math.abs(Math.cos(t *. (10.0 +. 12.0 *. a) +. c *. 6.0))
+        let rx0 = x -. r *. turn
+        let rw = 2.0 *. r *. Skee.Maths.max_float(turn, 0.12)
+        let cx = rx0 +. rw /. 2.0
+        [ellipse(cx, y, rw /. 2.0 +. 1.5, r +. 1.5, ink()), ellipse(cx, y, rw /. 2.0, r, butter()), ellipse(cx, y, rw /. 2.0 -. rw *. 0.28, r -. r *. 0.5, cream())]
+      end
+    else
+      []
+    end
+  end
+
+  pfn ellipse(cx : Float, cy : Float, rx : Float, ry : Float, fill : Rgba) : Html needs () do
+    Tag("ellipse", [Prop("cx", num(cx)), Prop("cy", num(cy)), Prop("rx", num(Skee.Maths.max_float(0.0, rx))), Prop("ry", num(Skee.Maths.max_float(0.0, ry))), Prop("fill", css(fill))], [])
+  end
+
+  -- CoinRain: seventy coins, a pure function of the shower's progress.
+  pfn coin_rain(progress : Float, w : Float, h : Float) : Html needs () do
+    let t = 1.0 -. progress
+    let coins =
+      List.flat_map(List.range(0, 70), fn i -> coin_mark(t, w, h, i))
+    Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h)), Prop("style", "opacity:" ++ num(Skee.Maths.min_float(1.0, progress *. 3.0)))], coins)
+  end
+
+  pfn banner_view(b : HudBanner) : Html needs () do
+    let in_a = Skee.Maths.min_float(1.0, b.progress *. 6.0)
+    let out_a = Skee.Maths.min_float(1.0, (1.0 -. b.progress) *. 5.0)
+    let scale = 0.6 +. 0.4 *. in_a +. 0.05 *. Math.sin(b.progress *. 20.0)
+    let sub =
+      if b.sub == "" do nothing() else cel(String.to_uppercase(b.sub), 16.0, cream()) end
+    div("vs", "gap:4px;transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(Skee.Maths.max_float(0.0, Skee.Maths.min_float(in_a, out_a))), [cel(b.title, 52.0, butter()), sub])
+  end
+
+  pfn fx_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    let s = a.app_hud
+    let tally =
+      match s.tally do
+      Some(t) -> at(w /. 2.0, h *. 0.27, tally_view(t))
+      None -> nothing()
+      end
+    let rain = if s.shower > 0.0 do coin_rain(s.shower, w, h) else nothing() end
+    let banner =
+      match s.hud_banner do
+      Some(b) -> at(w /. 2.0, h *. 0.3, banner_view(b))
+      None -> nothing()
+      end
+    div("", "", List.concat([[tally], List.map(s.hud_popups, popup_view), [rain, banner]]))
+  end
+
+  -- ---- CounterView ----
+  pfn offer_title(o : Offer) : String needs () do
+    match o do
+    OfferCharm(c) -> Skee.Items.charm_name(c)
+    OfferStamp(sym) -> capitalized(Skee.Presentation.symbol_raw(sym)) ++ " stamp"
+    OfferGild -> "Gild"
+    OfferPurge -> "Purge"
+    OfferPowerUp(p) -> Skee.Items.power_up_name(p)
+    end
+  end
+
+  pfn offer_blurb(o : Offer) : String needs () do
+    match o do
+    OfferCharm(c) -> Skee.Items.charm_blurb(c)
+    OfferStamp(sym) -> "Add a " ++ Skee.Presentation.symbol_raw(sym) ++ " to a hole's reel"
+    OfferGild -> "+" ++ int_to_string(Skee.Units.chips_int(Skee.Items.gild_amount())) ++ " chips on a hole, for good"
+    OfferPurge -> "Take the showing symbol off a hole's reel"
+    OfferPowerUp(p) -> Skee.Items.power_up_blurb(p)
+    end
+  end
+
+  pfn offer_icon(o : Offer) : Html needs () do
+    match o do
+    OfferCharm(c) -> charm_token(c, false)
+    OfferStamp(sym) -> symbol_image(sym, 46.0)
+    OfferGild -> div("token disc flat", "background:" ++ css(butter()) ++ ";border:3px solid " ++ css(ink()), [cel("+10", 14.0, cream())])
+    OfferPurge -> div("token disc flat", "background:" ++ css(pink()) ++ ";border:3px solid " ++ css(ink()), [cel(times(), 26.0, cream())])
+    OfferPowerUp(p) -> power_token(p, false)
+    end
+  end
+
+  pfn offer_action(s : HudState, i : Int, o : Option(Offer)) : Option(HudAction) needs () do
+    match o do
+    Some(item) -> do
+      let picked : Option(Int) = if s.hud_selected_offer == Some(i) do None else Some(i) end
+      if Skee.Items.offer_needs_target(item) do
+        Some(ActIntent(TapSelectOffer(picked)))
+      else
+        Some(ActIntent(TapBuyOffer(i)))
+      end
+    end
+    None -> None
+    end
+  end
+
+  pfn offer_card(s : HudState, e : (Int, Option(Offer))) : Html needs () do
+    let (i, o) = e
+    let selected = s.hud_selected_offer == Some(i)
+    let border =
+      if selected do "border:5px solid " ++ css(mult_red()) else "border:3px solid " ++ css(ink()) end
+    let body =
+      match o do
+      None -> div("offer", "background:" ++ css(alpha(cream(), 0.4)) ++ ";" ++ border, [div("sold", "", [cel("SOLD", 22.0, cream())])])
+      Some(item) -> do
+        let affordable =
+          Skee.Units.tickets_at_least(s.hud_tickets, Skee.Items.offer_cost(item))
+        let card =
+          div("offer", "background:" ++ css(cream()) ++ ";" ++ border, [div("offer-icon", "", [offer_icon(item)]), div("offer-words", "", [plain(offer_title(item), 15.0, 900, ink()), div("offer-blurb", "", [plain(offer_blurb(item), 11.0, 600, alpha(ink(), 0.8))]), div("grow", "", []), cel(tickets_text(Skee.Items.offer_cost(item)) ++ " TIX", 14.0, if affordable do butter() else mult_red() end)])])
+        opacity(if affordable do 1.0 else 0.6 end, card)
+      end
+      end
+    maybe_button(offer_action(s, i, o), [body])
+  end
+
+  pfn counter_view(s : HudState, c : PrizeCounter, h : Float) : Html needs () do
+    let prompt =
+      if s.hud_selected_offer == None do
+        nothing()
+      else
+        cel("tap a hole on the board  " ++ up_arrow(), 16.0, butter())
+      end
+    let header =
+      div("counter-head", "", [cel("PRIZE COUNTER", 24.0, butter()), tickets_pill(s.hud_tickets, 20.0)])
+    let grid =
+      div("offers", "", List.map(List.enumerate(c.offers), fn e -> offer_card(s, e)))
+    let buttons =
+      div("counter-buttons", "", [tap_intent(TapReroll, [pill(sky(), 18.0, [cel("REROLL " ++ tickets_text(c.reroll_cost), 20.0, cream())])]), tap_intent(TapLeaveCounter, [pill(mint(), 18.0, [cel("NEXT ROUND", 20.0, cream())])])])
+    div("counter", "top:" ++ px(h *. 0.5) ++ ";height:" ++ px(h *. 0.5), [div("counter-panel", "", [header, prompt, grid, spacer(), buttons])])
+  end
+
+  pfn counter_pane(s : HudState, h : Float) : Html needs () do
+    match s.counter do
+    Some(c) -> counter_view(s, c, h)
+    None -> nothing()
+    end
+  end
+
+  -- ---- GameOverView ----
+  pfn over_view(a : AppHud, o : RunOver) : Html needs () do
+    let s = a.app_hud
+    let w = a.app_wallet
+    let st = o.over_stats
+    let host =
+      match Skee.Rooms.host_due(w) do
+      Some(due) -> tap_intent(TapOpenHost, [pill(butter(), 16.0, [cel("THE HOST WANTS A WORD " ++ dot() ++ " " ++ String.to_uppercase(Skee.Rooms.name(due)), 13.0, cream())])])
+      None -> nothing()
+      end
+    pill(if o.won do mint() else pink() end, 26.0, [div("vs over", "", [cel(if o.won do "YOU BEAT THE ARCADE" else "GAME OVER" end, 32.0, butter()), cel("ANTE " ++ int_to_string(s.hud_ante), 18.0, cream()), cel("BEST FRAME " ++ int_to_string(Skee.Units.points_int(st.best_frame)), 16.0, cream()), cel("JACKPOTS " ++ int_to_string(st.jackpots) ++ "  " ++ dot() ++ "  RATTLES " ++ int_to_string(st.stat_rattles), 14.0, cream()), cel("+" ++ winnings_text(Skee.Rooms.winnings(st, o.won)) ++ " WINNINGS", 20.0, butter()), div("hs over-buttons", "gap:10px", [tap_intent(TapNewRun, [pill(butter(), 18.0, [cel("NEW RUN", 22.0, cream())])]), tap_intent(TapOpenShop, [pill(sky(), 18.0, [cel("PRIZES " ++ winnings_text(w.balance), 18.0, cream())])])]), host])])
+  end
+
+  pfn over_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    match a.app_hud.over do
+    Some(o) -> at(w /. 2.0, h /. 2.0, div("over-card", "", [over_view(a, o)]))
+    None -> nothing()
+    end
+  end
+
+  -- ---- CoachView, and the block under a card waiting for GOT IT ----
+  pfn coach_view(c : CoachCard) : Html needs () do
+    let got_it =
+      if c.coach_needs_tap do
+        div("coach-got", "", [tap_intent(TapGotIt, [pill(mint(), 16.0, [cel("GOT IT", 18.0, cream())])])])
+      else
+        nothing()
+      end
+    div("coach", "", [div("coach-head", "", [cel(c.coach_title, 22.0, butter()), tap_intent(TapSkipWalkthrough, [div("skip", "", [cel("SKIP", 13.0, cream())])])]), div("coach-body", "", [plain(c.coach_body, 18.0, 700, cream())]), got_it])
+  end
+
+  pfn coach_pane(a : AppHud, w : Float, h : Float) : Html needs () do
+    let s = a.app_hud
+    let on_game = s.hud_screen == GameScreen && !s.busy
+    match a.coach do
+    Some(c) -> do
+      if on_game do
+        do
+          let block = if c.coach_needs_tap do div("hud-block dim", "", []) else nothing() end
+          let width = Skee.Maths.min_float(w -. 24.0, 420.0)
+          let place =
+            if c.coach_high do "top:" ++ px(h *. 0.12) else "bottom:14px" end
+          div("", "", [block, div("coach-place", place ++ ";width:" ++ px(width) ++ ";left:" ++ px((w -. width) /. 2.0), [coach_view(c)])])
+        end
+      else
+        nothing()
+      end
+    end
+    None -> nothing()
+    end
+  end
+
+  -- ---- NewGamePrompt ----
+  pfn prompt_pane(a : AppHud) : Html needs () do
+    if a.confirm_new_now do
+      div("hud-block shade", "", [div("prompt", "", [cel("START A NEW GAME?", 30.0, butter()), cel("This run ends. Your prizes stay.", 18.0, cream()), hstack(12.0, [tap_intent(TapKeepPlaying, [pill(mint(), 18.0, [cel("KEEP PLAYING", 20.0, cream())])]), tap_intent(TapNewRun, [pill(pink(), 18.0, [cel("NEW GAME", 20.0, cream())])])])])])
+    else
+      nothing()
+    end
+  end
+
+  -- ---- PrizeShopView ----
+  pfn prize_card(w : Wallet, p : Prize) : Html needs () do
+    let owned = List.any(w.owned, fn q -> q == p)
+    let affordable = Skee.Units.winnings_at_least(w.balance, Skee.Rooms.prize_price(p))
+    let price =
+      if owned do
+        cel("ON SHELF", 12.0, mint())
+      else
+        cel(winnings_text(Skee.Rooms.prize_price(p)), 16.0, if affordable do butter() else alpha(cream(), 0.6) end)
+      end
+    let art = opacity(if owned || affordable do 1.0 else 0.7 end, prize_image(p, owned || affordable, 52.0))
+    let style =
+      "background:" ++ css(if owned do violet() else lilac() end) ++ ";border-color:" ++ css(if owned do butter() else ink() end)
+    maybe_button(if owned do None else Some(ActIntent(TapBuyPrize(p))) end, [div("prize", style, [art, div("prize-name", "", [cel(Skee.Rooms.prize_name(p), 11.0, cream())]), price])])
+  end
+
+  pfn shop_pane(a : AppHud) : Html needs () do
+    if a.shop_open_now do
+      do
+        let w = a.app_wallet
+        let room = w.wallet_room
+        div("hud-block screen stripes", "", [div("shop", "", [cel("PRIZE SHOP", 32.0, butter()), cel(String.to_uppercase(Skee.Rooms.name(room)), 13.0, cream()), pill(butter(), 16.0, [hstack(6.0, [star_shape_k(20.0), cel(winnings_text(w.balance) ++ " WINNINGS", 18.0, cream())])]), cel("just for show " ++ dot() ++ " prizes never change a run", 11.0, cream()), div("prizes", "", List.map(Skee.Rooms.prizes(room), fn p -> prize_card(w, p))), spacer(), div("bottom-button", "", [tap_intent(TapCloseShop, [pill(mint(), 18.0, [cel("BACK", 22.0, cream())])])])])])
+      end
+    else
+      nothing()
+    end
+  end
+
+  -- The star on the shop's winnings: StarShape filled cream, 2pt ink.
+  pfn star_shape_k(size : Float) : Html needs () do
+    svg("0 0 100 100", size, size, [Tag("polygon", [Prop("points", "50,0 62.93,32.2 97.55,34.55 70.92,56.8 79.39,90.45 50,72 20.61,90.45 29.08,56.8 2.45,34.55 37.07,32.2"), Prop("fill", css(cream())), Prop("stroke", css(ink())), Prop("stroke-width", "10")], [])])
+  end
+
+  -- ---- GuideView ----
+  pfn topic_button(e : (Int, GuideTopic)) : Html needs () do
+    let (i, t) = e
+    button(ActTopic(i), [div("topic", "", [plain(t.topic_title, 16.0, 800, cream())])])
+  end
+
+  pfn guide_contents(a : AppHud) : Html needs () do
+    let all_count = List.length(Skee.Guide.all())
+    let sub =
+      if List.length(a.guide_topics) < all_count do "more appears here as you play" else "everything you've met so far" end
+    div("guide", "", [cel("THE GUIDE", 34.0, butter()), cel(sub, 15.0, cream()), div("topics", "", List.map(List.enumerate(a.guide_topics), topic_button)), spacer(), tap_intent(TapReplayLesson, [pill(sky(), 16.0, [cel("PLAY THE FIRST LOADOUT AGAIN", 16.0, cream())])]), tap_intent(TapCloseGuide, [pill(mint(), 18.0, [cel("DONE", 24.0, cream())])])])
+  end
+
+  pfn guide_reader(t : GuideTopic, page : Int) : Html needs () do
+    let count = List.length(t.topic_pages)
+    let text =
+      match List.nth_opt(t.topic_pages, page) do
+      Some(p) -> p
+      None -> ""
+      end
+    let paging =
+      if count > 1 do cel("PAGE " ++ int_to_string(page + 1) ++ " OF " ++ int_to_string(count), 14.0, cream()) else nothing() end
+    div("guide", "", [div("reader-title", "", [cel(String.to_uppercase(t.topic_title), 28.0, butter())]), div("page", "", [plain(text, 22.0, 700, cream())]), paging, hstack(10.0, [button(ActPageBack, [pill(sky(), 18.0, [cel("BACK", 22.0, cream())])]), button(ActPageNext, [pill(mint(), 18.0, [cel(if page + 1 < count do "NEXT" else "DONE" end, 22.0, cream())])])])])
+  end
+
+  pfn guide_pane(a : AppHud, l : HudLocal) : Html needs () do
+    if a.guide_open_now do
+      do
+        let inner =
+          match l.guide_at do
+          GuideContents -> guide_contents(a)
+          GuideReading(t, p) -> do
+            match List.nth_opt(a.guide_topics, t) do
+            Some(topic) -> guide_reader(topic, p)
+            None -> guide_contents(a)
+            end
+          end
+          end
+        div("hud-block screen stripes", "", [inner])
+      end
+    else
+      nothing()
+    end
+  end
+
+  -- ---- ArrivalView: Sal at the door ----
+  pfn last_beat(line_ : String) : Bool needs () do
+    match List.reverse(Skee.App.arrival_beats()) do
+    Cons(b, _) -> b == line_
+    Nil -> true
+    end
+  end
+
+  pfn arrival_pane(a : AppHud) : Html needs () do
+    match a.arrival_line do
+    None -> nothing()
+    Some(text) -> do
+      let next = if last_beat(text) do "LET'S TALK" else "GO ON" end
+      div("hud-block screen stripes", "", [div("arrival", "", [div("vs welcome", "", [cel("WELCOME TO", 26.0, cream()), cel("SKEE SKEE SKEE", 42.0, butter())]), spacer(), div("sal", "", [cel("SAL", 26.0, butter()), plain(text, 26.0, 700, cream())]), spacer(), div("bottom-button", "", [tap_intent(TapArrivalNext, [pill(mint(), 22.0, [cel(next, 28.0, cream())])])])])])
+    end
+    end
+  end
+
+  -- ---- The host: a labelled placeholder (the LLM host is not ported) ----
+  pfn host_pane(a : AppHud) : Html needs () do
+    match a.app_hud.host do
+    HostClosed -> nothing()
+    HostPlaceholder -> do
+      div("hud-block screen stripes", "", [div("host", "", [cel("THE HOST", 26.0, butter()), cel("PLACEHOLDER", 14.0, sky()), div("host-note", "", [plain("The host's table, where you haggle for free nights and rooms, talks through an AI chat that this browser build does not have yet. Nothing here is decided by it.", 20.0, 700, cream())]), spacer(), div("bottom-button", "", [tap_intent(TapCloseHost, [pill(mint(), 22.0, [cel("CLOSE", 26.0, cream())])])])])])
+    end
+    end
+  end
+
+  -- ===================================================================
+  -- The panes, back to front
+  -- ===================================================================
+  doc """The panes' ids in the order the shell stacks them, back to front."""
+  fn pane_ids() : List(String) needs () do
+    ["title", "top", "lines", "meter", "trays", "corner", "rack", "machine", "slot", "fx", "counter", "over", "coach", "prompt", "shop", "guide", "arrival", "host"]
+  end
+
+  -- Whether a pane's buttons take taps: only the layer on top does, as in
+  -- SwiftUI's ZStack, where an overlay takes every touch over what is under it.
+  pfn live(id : String, top : Layer) : Bool needs () do
+    match top do
+    LayerBase -> id != "prompt" && id != "shop" && id != "guide" && id != "arrival" && id != "host"
+    LayerCoachBlock -> id == "coach"
+    LayerConfirmNew -> id == "prompt"
+    LayerShop -> id == "shop"
+    LayerGuide -> id == "guide"
+    LayerArrival -> id == "arrival"
+    LayerHost -> id == "host"
+    end
+  end
+
+  pfn inert_prop(p : Prop) : Option(Prop) needs () do
+    match p do
+    Prop(name, value) -> do
+      if name == "data-act" || name == "data-intent" || name == "role" do
+        None
+      else
+        if name == "class" && value == "hb" do Some(Prop("class", "inert")) else Some(p) end
+      end
+    end
+    end
+  end
+
+  doc """The same tree with nothing tappable: what lies under an overlay."""
+  fn inert(h : Html) : Html needs () do
+    match h do
+    Words(_) -> h
+    Tag(name, props, kids) -> Tag(name, List.filter_map(props, inert_prop), List.map(kids, inert))
+    end
+  end
+
+  pfn pane_of(top : Layer, id : String, h : Html) : Pane needs () do
+    { pane_id: id, pane: if live(id, top) do h else inert(h) end }
+  end
+
+  pfn game_panes(k : Skee.Consts.Consts, a : AppHud, w : Float, h : Float) : List(Html) needs () do
+    let s = a.app_hud
+    [top_pane(s), lines_pane(a, w, h), meter_pane(s, w, h), trays_pane(s, w, h), corner_pane(a, w), rack_pane(a, w, h), machine_pane(k, s, w, h), slot_pane(a, w, h), fx_pane(a, w, h), counter_pane(s, h), over_pane(a, w, h)]
+  end
+
+  pfn blank_game() : List(Html) needs () do
+    List.map(List.range(0, 11), fn _ -> nothing())
+  end
+
+  doc """
+  HUDView: Skee.App.hud drawn as panes, back to front, always the same ids in
+  the same order (`pane_ids`). `width` and `height` are the view in CSS
+  pixels, as GeometryReader's size.
+  """
+  fn panes(k : Skee.Consts.Consts, a : AppHud, l : HudLocal, width : Float, height : Float) : List(Pane) needs () do
+    let s = a.app_hud
+    let on_title = s.hud_screen == TitleScreen
+    let title = if on_title do title_card(a.app_wallet) else nothing() end
+    let game = if on_title do blank_game() else game_panes(k, a, width, height) end
+    let overlays =
+      [coach_pane(a, width, height), prompt_pane(a), shop_pane(a), guide_pane(a, settle(l, a)), arrival_pane(a), host_pane(a)]
+    List.map(List.zip(pane_ids(), List.concat([[title], game, overlays])), fn e -> pane_of(a.top, Tuple.first(e), Tuple.second(e)))
+  end
+
+  -- A pane as the shell writes it.
+  type Section = { section_id : String, section_html : String }
+
+  doc """`panes`, each rendered to HTML text."""
+  fn view(k : Skee.Consts.Consts, a : AppHud, l : HudLocal, width : Float, height : Float) : List(Section) needs () do
+    List.map(panes(k, a, l, width, height), fn p -> { section_id: p.pane_id, section_html: render(p.pane) })
+  end
+
+end

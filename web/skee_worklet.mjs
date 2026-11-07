@@ -3,14 +3,16 @@
 // AudioWorkletGlobalScope: sampleRate, currentFrame, registerProcessor.
 // Commands come in on the port as March lists of Skee.SynthFeed.AudioCmd
 // (structured clones of March's plain-object values), or as
-// processorOptions.cmds before the first block; each quantum takes what has
+// processorOptions.cmds before the first block. A new processor starts from
+// a silent synth (reset: SynthEngine.reset); each quantum takes what has
 // arrived, renders one block and copies it into the mono output.
 import { makePump, joinBatches } from "./skee_synth_cell.mjs";
 
-export function worklet_register(serve) {
+export function worklet_register(reset, serve) {
   class SkeeSynthProcessor extends AudioWorkletProcessor {
     constructor(options) {
       super();
+      reset._0(reset, 0);
       this.pending = [];
       this.applied = 0;
       const first = options && options.processorOptions && options.processorOptions.cmds;

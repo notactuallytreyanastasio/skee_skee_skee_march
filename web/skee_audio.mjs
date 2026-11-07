@@ -122,8 +122,14 @@ function startScript(gain) {
   const pending = [];
   const pump = makePump(serveFn, ctx.sampleRate, () => joinBatches(pending.splice(0, pending.length)));
   const node = ctx.createScriptProcessor(2048, 0, 1);
+  let blocks = 0, peak = 0;
   node.onaudioprocess = (e) => {
-    try { pump(e.outputBuffer.getChannelData(0)); } catch (err) { }
+    try {
+      const out = e.outputBuffer.getChannelData(0);
+      pump(out);
+      for (let i = 0; i < out.length; i++) { const v = Math.abs(out[i]); if (v > peak) peak = v; }
+      if ((++blocks & 31) === 0) { debug.stats.peak = peak; debug.stats.frame = blocks * out.length; peak = 0; }
+    } catch (err) { }
   };
   node.connect(gain);
   up("script", (list) => pending.push(list));

@@ -5,7 +5,8 @@
 //      OfflineAudioContext at 44100 Hz renders every golden scenario that is
 //      one cue then silence, and its samples are compared with the real
 //      Swift Synth's (test/golden/synth.march) at 2^-22 per sample;
-//   2. the game, with Chrome's default autoplay policy on a 390x844 touch
+//   2. the game (then again with AudioWorkletNode removed, for the
+//      ScriptProcessor fallback), with Chrome's default autoplay policy on a 390x844 touch
 //      page: no AudioContext before a gesture, one that reaches "running" on
 //      the AudioWorklet path after the first tap, the cue timeline of one
 //      throw (sent on the page clock, taken by the synth on the audio clock),
@@ -98,9 +99,11 @@ async function tap(page, intent) {
   await sleep(120);
 }
 
-async function game(browser) {
-  console.log("--- the game: gesture, worklet, one throw");
+async function game(browser, wantPath) {
+  console.log(`--- the game on the ${wantPath} path: gesture, one throw`);
   const page = await browser.newPage();
+  // The fallback: a browser without AudioWorklet (an insecure context, an old one).
+  if (wantPath === "script") await page.evaluateOnNewDocument(() => { delete globalThis.AudioWorkletNode; });
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errors.push(`${m.type()}: ${m.text()}`); });
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
@@ -115,7 +118,7 @@ async function game(browser) {
   m0.audio === "none" && m0.path === "off" ? ok("no AudioContext before a gesture: " + JSON.stringify({ audio: m0.audio, path: m0.path })) : fail("audio before a gesture: " + JSON.stringify(m0));
 
   await tap(page, "TapStart");
-  const m1 = await waitFor(page, (m) => m.audio === "running" && m.path === "worklet", "the AudioContext running on the worklet", 5000);
+  const m1 = await waitFor(page, (m) => m.audio === "running" && m.path === wantPath, "the AudioContext running on the " + wantPath + " path", 5000);
   const rate = await page.evaluate(() => globalThis.__skeeAudio.stats.rate);
   m1.audio === "running" ? ok(`after the first tap: ${m1.audio} on the ${m1.path} path at ${rate} Hz`) : null;
   rate === 44100 ? ok("context at the synth's 44100 Hz") : fail("context rate " + rate);
@@ -142,16 +145,19 @@ async function game(browser) {
   const { log, stats } = await page.evaluate(() => ({ log: globalThis.__skeeAudio.log, stats: globalThis.__skeeAudio.stats }));
   const thrown = log.slice(mark0);
   console.log("     cue timeline of one throw (t: page clock from the touch, s; synth: audio clock when the synth took it, s; lag: ms from send):");
-  let plays = 0, untaken = 0, worstLag = 0;
+  let plays = 0, untaken = 0, worstLag = 0, rumbles = 0;
   for (const e of thrown) {
     const taken = e.frame === null ? null : e.frame / 44100;
     const lag = taken === null ? null : (taken - e.audio) * 1000;
     if (taken === null) untaken++; else worstLag = Math.max(worstLag, lag);
     plays += e.cmds.filter((c) => !c.startsWith("CmdRumble") && !c.startsWith("CmdDrum")).length;
+    const shown = e.cmds.filter((c) => !c.startsWith("CmdRumble"));
+    if (shown.length === 0) { rumbles++; continue; }
     console.log(`       t=${(e.t - t0).toFixed(3)}  synth=${taken === null ? "-" : taken.toFixed(3)}  lag=${lag === null ? "-" : lag.toFixed(1)}  ${e.cmds.join(", ")}`);
   }
+  console.log(`       (and ${rumbles} batches that only move the rumble, one a frame while the ball rolls)`);
   plays > 0 ? ok(`the throw sent ${thrown.length} batches, ${plays} cues`) : fail("the throw sent no cues");
-  untaken === 0 ? ok(`every batch reached the synth, worst ${worstLag.toFixed(1)} ms after it was sent`) : fail(`${untaken} batches never reached the synth`);
+  if (wantPath === "worklet") untaken === 0 ? ok(`every batch reached the synth, worst ${worstLag.toFixed(1)} ms after it was sent`) : fail(`${untaken} batches never reached the synth`);
   stats.peak > 0 ? ok(`the speakers are not silent: last peak ${stats.peak.toFixed(4)} at frame ${stats.frame}`) : fail("peak 0: nothing played");
   if (stats.underruns) ok("playbackStats: " + JSON.stringify(stats.underruns));
   await page.close();
@@ -163,8 +169,10 @@ await new Promise((res) => server.stdout.once("data", res));
 const browser = await puppeteer.launch({ executablePath: chrome, headless: true });
 try {
   await parity(browser);
-  const errors = await game(browser);
-  errors.length === 0 ? ok("console clean") : fail("console:\n  " + errors.join("\n  "));
+  for (const p of ["worklet", "script"]) {
+    const errors = await game(browser, p);
+    errors.length === 0 ? ok(`${p}: console clean`) : fail(`${p}: console:\n  ` + errors.join("\n  "));
+  }
 } finally {
   await browser.close();
   server.kill();
