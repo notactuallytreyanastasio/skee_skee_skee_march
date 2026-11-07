@@ -1128,11 +1128,21 @@ mod Skee.Scene do
     { turned with last: last, pop: max_float(0.0, m.pop -. dt *. 4.0) }
   end
 
+  doc """
+  Whether a step `d` of the ball runs along its surface normal, as when it
+  sinks straight into a hole: Swift's roll axis is then the normalised cross
+  product of rounding noise, so the ball would spin at random. The port does
+  not roll it.
+  """
+  fn rolls_straight_down(b : BallPlace, d : Vec3) : Bool needs () do
+    let dist = length3(d)
+    !b.airborne && dist > 0.00001 && dist < 0.5 && length3(cross(b.normal, d)) <= dist *. 0.000001
+  end
+
   pfn rolled(w : World, m : Motion, b : BallPlace, d : Vec3, dt : Float) : Motion needs () do
     let dist = length3(d)
     let across = cross(b.normal, d)
-    let straight_down = length3(across) <= dist *. 0.000001
-    if !b.airborne && dist > 0.00001 && dist < 0.5 && straight_down do
+    if rolls_straight_down(b, d) do
       m
     else
       if !b.airborne && dist > 0.00001 && dist < 0.5 do
@@ -2004,7 +2014,7 @@ mod Skee.Scene do
 
   pfn paint_lip(b : Brush, p : Part, ring : Float, tube : Float, height : Float, gap_at : Float, gap_half : Float) : List(DrawOp) needs () do
     let a0 = gap_at +. gap_half
-    let a1 = gap_at +. 6.283185307 -. gap_half
+    let a1 = gap_at +. b.k.tau -. gap_half
     let n = 40
     let pts =
       List.map(List.range(0, n + 1), fn i -> px(b, apply(p.frame, lip_point(ring, height -. tube, a0 +. (a1 -. a0) *. int_to_float(i) /. int_to_float(n)))))
@@ -2405,8 +2415,8 @@ mod Skee.Scene do
   pfn patch_op(b : Brush, p : Part, world_r : Float, i : Int, colour : Rgba, band : (Float, Float, Bool)) : List(DrawOp) needs () do
     match band do
     (lat0, lat1, white) -> do
-      let lon0 = int_to_float(i) *. 1.0471976
-      let lon1 = lon0 +. 1.0471976
+      let lon0 = int_to_float(i) *. b.k.pi /. 3.0
+      let lon1 = lon0 +. b.k.pi /. 3.0
       let mid_dir =
         unit(turn(p.frame, sphere_point((lon0 +. lon1) /. 2.0, (lat0 +. lat1) /. 2.0)))
       let centre = plus(p.frame.at, times(mid_dir, world_r))
@@ -2444,7 +2454,7 @@ mod Skee.Scene do
     let (scale, opacity) = wave_look(wv)
     let f =
       quat_frame(quat_between(v3(0.0, 0.0, 1.0), wv.facing), plus(wv.spot, times(wv.facing, 0.01)), scale)
-    let pts = List.map(List.range(0, 40), fn i -> px(b, apply(f, wave_point(i))))
+    let pts = List.map(List.range(0, 40), fn i -> px(b, apply(f, wave_point(b.k, i))))
     let ppm = scale *. scale_at(b, f.at)
     [
       StrokeShape(Poly(pts), pen(with_alpha(hex(16777215), opacity), 22.0 /. 256.0 *. ppm), Over),
@@ -2452,8 +2462,8 @@ mod Skee.Scene do
     ]
   end
 
-  pfn wave_point(i : Int) : Vec3 needs () do
-    let a = 6.283185307 *. int_to_float(i) /. 40.0
+  pfn wave_point(k : Skee.Consts.Consts, i : Int) : Vec3 needs () do
+    let a = k.tau *. int_to_float(i) /. 40.0
     v3(0.4297 *. Math.cos(a), 0.4297 *. Math.sin(a), 0.0)
   end
 

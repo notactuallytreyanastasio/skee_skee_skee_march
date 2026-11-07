@@ -828,8 +828,10 @@ mod SceneSuite do
 
   -- The roll is checked one frame at a time: each frame starts from Swift's
   -- orientation of the frame before. Where the ball sinks straight into a
-  -- hole Swift's roll axis is rounding noise (see Skee.Scene.rolled), so those
-  -- frames are not compared for orientation and are counted instead.
+  -- hole Swift's roll axis is rounding noise (Skee.Scene.rolls_straight_down,
+  -- the port's own test), so those frames are not compared for orientation
+  -- and are counted instead. A gutter sink moves along the board's normal,
+  -- not the lane's, so it rolls in both and is compared.
   type SceneReplay = {
     rig : Skee.Camera.Rig,
     kept : Skee.Scene.Keep,
@@ -850,7 +852,13 @@ mod SceneSuite do
     let (scene, kept) =
       Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
     let q = scene.ball.motion.orientation
-    let sinking = scene.ball.place.sink > 0.0 && scene.ball.place.visible
+    let sinking =
+      match acc.kept.motion.last do
+      Some(last) -> do
+        scene.ball.place.visible && Skee.Scene.rolls_straight_down(scene.ball.place, minus(scene.ball.place.centre, last))
+      end
+      None -> false
+      end
     let want = swift_orientation(row)
     let off_q =
       match want do

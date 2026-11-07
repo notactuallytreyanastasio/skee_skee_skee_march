@@ -335,12 +335,24 @@ Parity, all against the real SkeeScene (32-bit Float there, 64-bit here):
 - The cabinet's node tree for every room (108 nodes: kind, size, colour,
   outline, visibility, opacity, world transform) matches part for part.
   `Cabinet.setReel` coins and halos, and `lightBulbs`, match.
-- `ScenePresenter.update` replayed over 984 frames of three real throws: ball,
-  shadow, trough count and camera match to 1e-6; the roll quaternion, checked
-  one frame at a time, to 3e-6. On the 82 frames where the ball sinks straight
-  into a hole Swift's roll axis is a normalised cross product of rounding noise,
-  so the ball spins at random; the port does not roll it there, and those
-  frames' orientation is not compared.
+- `ScenePresenter.update` replayed over 984 frames of three real throws (replay
+  "a"): ball, shadow, trough count and camera position match to 1e-6; the roll
+  quaternion, checked one frame at a time, to 3e-6. On the 42 frames where the
+  ball sinks straight into a hole (`Skee.Scene.rolls_straight_down`) Swift's
+  roll axis is a normalised cross product of rounding noise, so the ball spins
+  at random; the port does not roll it there, and those frames' orientation is
+  not compared. Gutter sinks roll in both and are compared.
+- Replay "b", 3168 frames of a whole nine-ball frame (seed 7, with pulls),
+  feeds what replay "a" leaves fixed: `excited`, the symbols shown so far, the
+  top slot and the reels' positions. Per frame it compares each reel's shown
+  symbol, halo opacity and colour, first coin's swell, hiding and emission,
+  every bulb, every ring of light's scale and opacity, and the camera's
+  position (1e-6) and look direction (2e-6). The runner prints how many frames
+  reached each path (glow 1: 82, glow 2: 257, hole flash: 50, slot halo: 330,
+  excited: 570, leaning: 2743, rings: 416), and the case fails if any is 0.
+  Mutating the glow, flash age, chase rate, ring life or look lean turns it red.
+- `Textures.lane`'s nine board tones, read off the real texture (each board's
+  commonest 8-bit pixel), match `Skee.Scene.lane_plank_tones` within one step.
 - `Cabinet.fit`'s grids are Swift Float strides, whose lengths differ from a
   Double's (`-1.8 through -0.2 by 0.05` stops at -0.25): the counts are Swift's.
 
@@ -359,9 +371,12 @@ Deviations, where Canvas 2D has no equivalent:
 - Not drawn yet: particles (trail, sprays, drop bursts, Hot Spot glitter).
   Fonts fall back from Avenir Next Heavy to Nunito or sans-serif.
 
-Speed (`tools/scene_preview/bench.sh`, node 26): `Cabinet.fit` 20 ms once;
-`present` plus `draw` 0.46 ms a frame over the 984 golden frames, at most 556
-ops (budget 16 ms, 2000 ops). `tools/scene_preview/preview.sh <stage> <w> <h>
+Speed (`tools/scene_preview/bench.sh`, node 26, an idle machine): `Cabinet.fit`
+20 ms once; `present` plus `draw` 0.46 ms a frame over the 984 golden frames,
+at most 556 ops (budget 16 ms, 2000 ops). Under load from parallel builds a
+verifier measured 44 ms and 0.85 ms: still far inside the budget.
+`test/golden/scene.march` is not in `make golden`: regenerate it with
+`make golden-scene`. `tools/scene_preview/preview.sh <stage> <w> <h>
 <dir>` paints a frame in headless Chrome; `tools/golden_scene`'s
 `scene-snapshot <png> <w> <h>` renders the real SceneKit cabinet beside it.
 
