@@ -1,0 +1,11 @@
+[package]
+name = "skee"
+version = "0.1.0"
+type = "app"
+entrypoint = "lib/skee/types.march"
+js_entrypoint = "shell/game.march"
+description = "Skee Skee Skee: skee-ball roguelike, ported from Swift to March for the browser"
+author = ""
+license = ""
+
+[deps]

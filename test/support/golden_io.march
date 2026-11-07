@@ -1,0 +1,169 @@
+-- Readers for the tokens tools/golden writes. Every Swift writer in
+-- GoldenSupport.swift has its reader here.
+mod GoldenIo do
+  -- All rows of a golden module, each row a list of tokens.
+  fn rows(chunks : List(String)) : List(List(String)) do
+    List.flat_map(chunks, fn chunk ->
+      List.filter_map(String.split(chunk, "\n"), fn line ->
+        if line == "" do None else Some(String.split(line, " ")) end))
+  end
+
+  -- The rows whose first token is `kind`, without that token.
+  fn of_kind(all_rows : List(List(String)), kind : String) : List(List(String)) do
+    List.filter_map(all_rows, fn row ->
+      match row do
+        Cons(k, rest) -> if k == kind do Some(rest) else None end
+        Nil -> None
+      end)
+  end
+
+  fn int(token : String) : Int do
+    match string_to_int(token) do
+      Some(n) -> n
+      None -> panic("bad golden int: " ++ token)
+    end
+  end
+
+  fn u64(token : String) : Skee.U64.U64 do
+    match Skee.U64.of_hex(token) do
+      Some(v) -> v
+      None -> panic("bad golden hex: " ++ token)
+    end
+  end
+
+  fn float_of_decimal(token : String) : Float do
+    match string_to_float(token) do
+      Some(x) -> x
+      None -> panic("bad golden float: " ++ token)
+    end
+  end
+
+  fn pow2(e : Int, acc : Float) : Float do
+    match do
+      e > 0 -> pow2(e - 1, acc *. 2.0)
+      e < 0 -> pow2(e + 1, acc *. 0.5)
+      true -> acc
+    end
+  end
+
+  -- A Float from its bit pattern. Scaling by powers of two is exact as long as
+  -- no step leaves the normal range, which a golden input never does.
+  fn float_of_bits(token : String) : Float do
+    let v = u64(token)
+    let sign = v.hi >= 2147483648
+    let rest = if sign do v.hi - 2147483648 else v.hi end
+    let biased = rest / 1048576
+    let fraction = (rest % 1048576) * 4294967296 + v.lo
+    let magnitude = match do
+      biased == 2047 && fraction == 0 -> GoldenIo.pow2(1023, 1.0) *. 2.0
+      biased == 2047 -> Math.sqrt(0.0 -. 1.0)
+      biased == 0 -> pow2(0 - 1074, int_to_float(fraction))
+      true -> pow2(biased - 1075, int_to_float(fraction + two52()))
+    end
+    if sign do magnitude *. -1.0 else magnitude end
+  end
+
+  -- Is x NaN? `float_is_nan` has no JS implementation.
+  fn is_nan(x : Float) : Bool do
+    x != x
+  end
+
+  fn is_infinite(x : Float) : Bool do
+    x != 0.0 && x == x +. x
+  end
+
+  -- atan2 is the one portable way to see the sign of a zero: dividing by it
+  -- panics natively.
+  fn is_negative(x : Float) : Bool do
+    if x == 0.0 do Math.atan2(x, 0.0 - 1.0) < 0.0 else x < 0.0 end
+  end
+
+  fn two52() : Int do 4503599627370496 end
+
+  -- Scale a positive finite x into [2^52, 2^53). Doubling is exact, and so is
+  -- halving a value with no bits below its new ulp. Returns (scaled, e) with
+  -- x == scaled * 2^e.
+  fn normalise(x : Float, e : Int) : (Float, Int) do
+    let low = int_to_float(two52())
+    let high = low *. 2.0
+    if x < low do
+      normalise(x *. 2.0, e - 1)
+    else
+      if x >= high do normalise(x *. 0.5, e + 1) else (x, e) end
+    end
+  end
+
+  -- The exponent field and fraction of a positive finite x.
+  fn fields(x : Float) : (Int, Int) do
+    let (scaled, e) = normalise(x, 0)
+    let m = float_to_int(scaled)
+    let biased = e + 1075
+    if biased >= 1 do
+      (biased, m - two52())
+    else
+      (0, int_shr(m, 1 - biased))
+    end
+  end
+
+  -- The IEEE-754 bit pattern of x. There is no float-bits builtin, and
+  -- float_to_string is %.12g, so parity is judged on this. Every NaN reads as
+  -- the canonical quiet NaN: JS has no payloads to compare.
+  fn float_bits(x : Float) : Skee.U64.U64 do
+    let sign = if is_negative(x) do 2147483648 else 0 end
+    let two32 = 4294967296
+    match do
+      is_nan(x) -> Skee.U64.make(2146959360, 0)
+      is_infinite(x) -> Skee.U64.make(sign + 2146435072, 0)
+      x == 0.0 -> Skee.U64.make(sign, 0)
+      true ->
+        let (biased, fraction) = fields(if x < 0.0 do 0.0 - x else x end)
+        Skee.U64.make(sign + biased * 1048576 + fraction / two32, fraction % two32)
+    end
+  end
+
+  fn expect_float(actual : Float, token : String, what : String) : Harness.Outcome do
+    let want = u64(token)
+    let got = float_bits(actual)
+    if got == want do
+      Harness.Passed(1)
+    else
+      Harness.Mismatch(what ++ ": got bits " ++ show(got) ++ ", want " ++ token)
+    end
+  end
+
+  -- Distance in representable doubles, for same-sign finite values. Capped:
+  -- past 2^20 the pair is simply wrong and the exact count does not matter.
+  fn ulps_between(a : Skee.U64.U64, b : Skee.U64.U64) : Int do
+    let cap = 1048576
+    let high = a.hi - b.hi
+    if high > 1 || high < -1 do cap else Math.min_int(cap, int_abs(high * 4294967296 + a.lo - b.lo)) end
+  end
+
+  -- The most V8's libm may differ from Darwin's on one value. Tightened to the
+  -- measured worst case; see "Measured divergence" in docs/PORT.md.
+  fn libm_ulps() : Int do
+    4
+  end
+
+  -- For a value computed through sin, cos, atan2 or log. Exact on native, where
+  -- the libm is the one Swift uses. On JS, within libm_ulps() and reported as
+  -- drift. Everything that does not touch libm uses expect_float instead.
+  fn expect_libm_float(actual : Float, token : String, what : String) : Harness.Outcome do
+    let want = u64(token)
+    let got = float_bits(actual)
+    let ulps = ulps_between(got, want)
+    match do
+      got == want -> Harness.Passed(1)
+      Harness.on_js() && ulps <= libm_ulps() -> Harness.Drifted(1, 1, ulps)
+      true -> Harness.Mismatch(what ++ ": " ++ int_to_string(ulps) ++ " ulp off, got " ++ show(got) ++ ", want " ++ token)
+    end
+  end
+
+  fn expect_u64(actual : Skee.U64.U64, token : String, what : String) : Harness.Outcome do
+    if actual == u64(token) do
+      Harness.Passed(1)
+    else
+      Harness.Mismatch(what ++ ": got " ++ show(actual) ++ ", want " ++ token)
+    end
+  end
+end

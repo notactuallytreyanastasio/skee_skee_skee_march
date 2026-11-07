@@ -1,0 +1,5 @@
+mod Cst do
+  let i = 7
+  let f = 1.5
+  fn in_mod() : Int do i + 1 end
+end

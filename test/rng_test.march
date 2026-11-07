@@ -1,0 +1,7 @@
+mod RngTest do
+  needs IO.Console
+
+  test "rng suite" do
+    assert (Harness.failures(RngSuite.cases()) == [])
+  end
+end

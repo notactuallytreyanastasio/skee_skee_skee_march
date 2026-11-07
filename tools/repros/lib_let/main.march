@@ -1,0 +1,16 @@
+-- COMPILER BUG, JS only, silent: a module-level `let` in any module but the
+-- entry module is emitted as a zero-argument function, and references to it
+-- are emitted as that function's closure object.
+--   MARCH_LIB_PATH=tools/repros/lib_let march tools/repros/lib_let/main.march
+--     prints 7, 8 and 1.5
+--   the same with --target js -o /tmp/x/m.mjs, run in node, prints
+--     [object Object], then "[object Object]1" or a throw
+mod Main do
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    println(int_to_string(Cst.i))
+    println(int_to_string(Cst.in_mod()))
+    println(float_to_string(Cst.f))
+  end
+end

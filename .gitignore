@@ -1,0 +1,7 @@
+/.march/
+/march-phases/
+*.ll
+.build/
+.swiftpm/
+/dist/
+/.forge/
