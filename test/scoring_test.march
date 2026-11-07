@@ -3,7 +3,7 @@ mod ScoringTest do
   needs IO.Console
 
   test "scoring suite" do
-    assert (Harness.failures(ScoringSuite.cases()) == [])
+    assert Harness.failures(ScoringSuite.cases()) == []
   end
 
 end

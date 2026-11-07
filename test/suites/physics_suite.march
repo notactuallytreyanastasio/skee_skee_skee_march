@@ -429,6 +429,133 @@ mod PhysicsSuite do
     token(row, 13) == "none"
   end
 
+  -- What a run of golden shots came to, for the record: docs/PORT.md asks for the
+  -- hole mismatch rate and the worst divergence to be measured, not assumed.
+  type Divergence = {
+    shots : Int,
+    bit_exact : Int,
+    holes_differ : Int,
+    events_differ : Int,
+    counts_differ : Int,
+    worst_path : Float,
+    worst_time : Float,
+    worst_shot : String
+  }
+
+  fn tally_shot(d : Divergence, v : ShotVerdict) : Divergence do
+    let flag = fn ok -> if ok do 0 else 1 end
+    {
+      shots: d.shots + 1,
+      bit_exact: d.bit_exact + 1 - flag(exact(v)),
+      holes_differ: d.holes_differ + flag(v.hole_ok),
+      events_differ: d.events_differ + flag(v.events_ok),
+      counts_differ: d.counts_differ + flag(v.count_ok),
+      worst_path: Skee.Maths.max_float(d.worst_path, v.path_gap),
+      worst_time: Skee.Maths.max_float(d.worst_time, v.time_gap),
+      worst_shot: if v.path_gap > d.worst_path do v.index else d.worst_shot end
+    }
+  end
+
+  fn measure(rows : List(List(String))) : Divergence do
+    let k = consts()
+    let tables = tables_of(rows)
+    let start = {
+      shots: 0,
+      bit_exact: 0,
+      holes_differ: 0,
+      events_differ: 0,
+      counts_differ: 0,
+      worst_path: 0.0,
+      worst_time: 0.0,
+      worst_shot: "none"
+    }
+    List.fold_left(GoldenIo.of_kind(rows, "shot"), start, fn (d, row) -> tally_shot(d, replay(k, tables, row)))
+  end
+
+  fn divergence_text() : String do
+    let d = measure(golden())
+    "shots=" ++ int_to_string(d.shots) ++ " bit_exact=" ++ int_to_string(d.bit_exact) ++ " holes_differ=" ++ int_to_string(d.holes_differ) ++ " events_differ=" ++ int_to_string(d.events_differ) ++ " path_counts_differ=" ++ int_to_string(d.counts_differ) ++ " worst_path_gap_m=" ++ float_to_string(d.worst_path) ++ " (shot " ++ d.worst_shot ++ ") worst_time_gap=" ++ float_to_string(d.worst_time)
+  end
+
+  -- ---- Flicks ----
+  fn geometry_of(r : List(String)) : FlickGeometry do
+    { crease_y: at(r, 0), lane_center_x: at(r, 1), lane_half_width: at(r, 2), foul_give: at(r, 3) }
+  end
+
+  fn tuning_of(r : List(String)) : FlickTuning do
+    {
+      slowest: at(r, 0),
+      fastest: at(r, 1),
+      release_weight: at(r, 2),
+      snap_gain: at(r, 3),
+      full_aim_angle: at(r, 4),
+      smooth_jerk: at(r, 5),
+      skid_per_jerk: at(r, 6),
+      line_reach: at(r, 7)
+    }
+  end
+
+  fn sample_of(text : String) : FlickSample do
+    match String.split(text, ":") do
+    [t, x, y] -> { sample_t: f(t), sample_x: f(x), sample_y: f(y) }
+    _ -> panic("bad golden flick sample")
+    end
+  end
+
+  fn samples_of(text : String) : List(FlickSample) do
+    if text == "empty" do [] else List.map(String.split(text, ","), sample_of) end
+  end
+
+  -- aim goes through atan2, so it may drift on JS. Nothing else in a Launch does.
+  fn expect_flick_launch(l : Launch, want : List(String)) : Outcome do
+    all([GoldenIo.expect_float(l.power, token(want, 0), "power"), GoldenIo.expect_float(l.speed, token(want, 1), "speed"), GoldenIo.expect_float(l.from, token(want, 2), "from"), GoldenIo.expect_libm_float(l.aim, token(want, 3), "aim"), GoldenIo.expect_float(l.start, token(want, 4), "start"), GoldenIo.expect_float(l.fold, token(want, 5), "fold"), GoldenIo.expect_float(l.spin, token(want, 6), "spin"), GoldenIo.expect_float(l.skid, token(want, 7), "skid")])
+  end
+
+  fn expect_metrics(m : Skee.Stroke.FlickMetrics, want : List(String)) : Outcome do
+    let fields = [m.peak_speed, m.release_speed, m.flick_duration, m.jerk, m.snap, m.side, m.flick_speed]
+    all(List.map(List.zip(fields, want), fn pair ->
+      match pair do
+      (got, bits) -> GoldenIo.expect_float(got, bits, "metric")
+      end
+    ))
+  end
+
+  fn flick_outcome(got : (StrokeOutcome, Option(Skee.Stroke.FlickMetrics)), want : List(String)) : Outcome do
+    match (got, want) do
+    ((NoThrow, None), ["none"]) -> Passed(1)
+    ((StrokeFoul, None), ["foul"]) -> Passed(1)
+    ((Release(l), Some(m)), Cons("release", rest)) -> do
+      all([expect_flick_launch(l, List.take(rest, 8)), expect_metrics(m, List.drop(rest, 8))])
+    end
+    _ -> Mismatch("flick outcome differs: want " ++ token(want, 0))
+    end
+  end
+
+  fn flick_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
+    let geo = geometry_of(row)
+    let tuning = tuning_of(List.drop(row, 4))
+    let samples = samples_of(token(row, 13))
+    let foul = token(row, 14) == "1"
+    let got = Skee.Stroke.measure_flick(k, samples, geo, at(row, 12), tuning)
+    all([expect(Skee.Stroke.crossed_foul_line(samples, geo) == foul, "foul line"), flick_outcome(got, List.drop(row, 15))])
+  end
+
+  fn lane_start_row(k : Skee.Consts.Consts, geo : FlickGeometry, row : List(String)) : Outcome do
+    GoldenIo.expect_float(Skee.Stroke.lane_start(k, at(row, 0), geo, Skee.Types.standard_tuning()), token(row, 1), "lane_start")
+  end
+
+  fn flick_case(rows : List(List(String))) : Outcome do
+    let k = consts()
+    all(List.map(GoldenIo.of_kind(rows, "flick"), fn row -> flick_row(k, row)))
+  end
+
+  fn lane_start_case(rows : List(List(String))) : Outcome do
+    let k = consts()
+    let duo = Skee.Stroke.flick_geometry(445.0, 313.0, 260.0)
+    let flat = Skee.Stroke.flick_geometry(445.0, 313.0, 0.0)
+    all(List.append(List.map(GoldenIo.of_kind(rows, "lanestart"), fn row -> lane_start_row(k, duo, row)), List.map(GoldenIo.of_kind(rows, "lanestartflat"), fn row -> lane_start_row(k, flat, row))))
+  end
+
   fn cases() : List(Case) do
     let rows = golden()
     [
@@ -438,7 +565,10 @@ mod PhysicsSuite do
       case("launch construction and mirroring", fn -> launch_case(rows)),
       case("hole facts", fn -> all(List.map(GoldenIo.of_kind(rows, "holefacts"), hole_facts_row))),
       case("board geometry", fn -> board_case(rows)),
-      case("golden shots that never leave the lane", fn -> shots_where(rows, is_dud))
+      case("golden shots that never leave the lane", fn -> shots_where(rows, is_dud)),
+      case("golden shots over the hinge", fn -> shots_where(rows, fn row -> !is_dud(row))),
+      case("lane start", fn -> lane_start_case(rows)),
+      case("golden flicks", fn -> flick_case(rows))
     ]
   end
 

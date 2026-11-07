@@ -108,7 +108,7 @@ mod Skee.Scoring do
   pfn outranks(a : (Symbol, Int), b : (Symbol, Int)) : Bool needs () do
     let (a_symbol, a_count) = a
     let (b_symbol, b_count) = b
-    a_count > b_count || (a_count == b_count && triple_mult(a_symbol) > triple_mult(b_symbol))
+    a_count > b_count || a_count == b_count && triple_mult(a_symbol) > triple_mult(b_symbol)
   end
 
   doc """
@@ -157,9 +157,7 @@ mod Skee.Scoring do
   end
 
   pfn best_showing(shown : List(Symbol)) : Int needs () do
-    List.fold_left(List.filter(shown, is_real), 0, fn (best, x) ->
-      Math.max_int(best, count_where(shown, fn y -> y == x))
-    )
+    List.fold_left(List.filter(shown, is_real), 0, fn (best, x) -> Math.max_int(best, count_where(shown, fn y -> y == x)))
   end
 
   doc """
@@ -339,7 +337,11 @@ mod Skee.Scoring do
       match real do
       Nil -> Some(win_of(ReelWild, mult, line))
       Cons(first, rest) -> do
-        if List.all(rest, fn x -> x == first) do Some(win_of(first, mult, line)) else None end
+        if List.all(rest, fn x -> x == first) do
+          Some(win_of(first, mult, line))
+        else
+          None
+        end
       end
       end
     end
@@ -383,8 +385,8 @@ mod Skee.Scoring do
   doc """Every pull feeds the meters, a free bet still a little."""
   fn feed(p : Progressive, b : Bet) : Progressive needs () do
     let units = Math.max_int(1, Skee.Units.tickets_int(bet_cost(b)))
-    let grown = fn (m, t) ->
-      tier_put(m, t, Skee.Units.add_winnings(tier_at(m, t), Winnings(Skee.Units.winnings_int(tier_growth(t)) * units)))
+    let grown =
+      fn (m, t) -> tier_put(m, t, Skee.Units.add_winnings(tier_at(m, t), Winnings(Skee.Units.winnings_int(tier_growth(t)) * units)))
     { meters: List.fold_left([Mini, Minor, Major, Grand], p.meters, grown) }
   end
 
@@ -423,6 +425,21 @@ mod Skee.Scoring do
   -- A row of the window, top to bottom. Swift's Pull.lines holds these as ints.
   type WindowRow = TopRow | CentreRow | BottomRow
 
+  -- A reel of the window, left to right.
+  type WindowReel = Reel0 | Reel1 | Reel2
+
+  pfn on_reel(row : Three(a), r : WindowReel) : a needs () do
+    match row do
+    Three(left, middle, right) -> do
+      match r do
+      Reel0 -> left
+      Reel1 -> middle
+      Reel2 -> right
+      end
+    end
+    end
+  end
+
   doc """A row's index in `grid`, 0 at the top."""
   fn row_index(r : WindowRow) : Int needs () do
     match r do
@@ -458,7 +475,11 @@ mod Skee.Scoring do
         if i == 2 do
           Three(BottomRow, BottomRow, BottomRow)
         else
-          if i == 3 do Three(TopRow, CentreRow, BottomRow) else Three(BottomRow, CentreRow, TopRow) end
+          if i == 3 do
+            Three(TopRow, CentreRow, BottomRow)
+          else
+            Three(BottomRow, CentreRow, TopRow)
+          end
         end
       end
     end
@@ -520,18 +541,9 @@ mod Skee.Scoring do
   end
 
   pfn line_symbols(g : Three(Three(ReelSymbol)), i : { Int | _ >= 0 && _ < 5 }) : Three(ReelSymbol) needs () do
-    match (line_rows(i), g) do
-    (Three(r0, r1, r2), _) -> do
-      let first = match at_row(g, r0) do
-      Three(a, _, _) -> a
-      end
-      let second = match at_row(g, r1) do
-      Three(_, b, _) -> b
-      end
-      let third = match at_row(g, r2) do
-      Three(_, _, c) -> c
-      end
-      Three(first, second, third)
+    match line_rows(i) do
+    Three(r0, r1, r2) -> do
+      Three(on_reel(at_row(g, r0), Reel0), on_reel(at_row(g, r1), Reel1), on_reel(at_row(g, r2), Reel2))
     end
     end
   end
@@ -581,7 +593,13 @@ mod Skee.Scoring do
     match (held, found) do
     (_, None) -> held
     (None, Some(_)) -> found
-    (Some(a), Some(b)) -> if Skee.Units.tier_rank(b) > Skee.Units.tier_rank(a) do found else held end
+    (Some(a), Some(b)) -> do
+      if Skee.Units.tier_rank(b) > Skee.Units.tier_rank(a) do
+        found
+      else
+        held
+      end
+    end
     end
   end
 
@@ -594,6 +612,176 @@ mod Skee.Scoring do
       end
     else
       None
+    end
+  end
+
+  -- ---- The frame ----
+  doc """A ball with Swift's default fields: just what it hit."""
+  fn ball_record(h : Hole, s : Symbol, c : Chips) : BallRecord needs () do
+    {
+      record_hole: h,
+      record_symbol: s,
+      record_chips: c,
+      rattles: 0,
+      record_fold: 0.0,
+      foul: false,
+      slot_hits: 0,
+      record_combo: 0,
+      record_ball: ClassicBall,
+      hot: false
+    }
+  end
+
+  doc """A ball scored if it found any hole but the gutter."""
+  fn scored(b : BallRecord) : Bool needs () do
+    b.record_hole != Gutter
+  end
+
+  doc """No charms, no streak, no fever, pairs paying, no pull."""
+  fn default_context() : ScoringContext needs () do
+    {
+      context_charms: [],
+      streak_before: 0,
+      context_fever: false,
+      pairs_pay: true,
+      context_pull: None
+    }
+  end
+
+  pfn step(source : ScoreSource, effect : ScoreEffect) : ScoreStep needs () do
+    { source: source, effect: effect }
+  end
+
+  pfn pull_steps(pull : Option(Pull)) : List(ScoreStep) needs () do
+    match pull do
+    None -> []
+    Some(p) -> do
+      let chips = line_chips(p)
+      if Skee.Units.chips_int(chips) > 0 do
+        [step(FromPull, AddChips(chips))]
+      else
+        []
+      end
+    end
+    end
+  end
+
+  pfn slot_steps(i : Int, b : BallRecord) : List(ScoreStep) needs () do
+    if b.slot_hits > 0 do
+      do
+        let added = step(FromSlot(i), AddMult(combo_mult(b.slot_hits, b.record_combo)))
+        if b.slot_hits >= 3 do
+          [added, step(FromSlot(i), AddTickets(jackpot_tickets()))]
+        else
+          [added]
+        end
+      end
+    else
+      []
+    end
+  end
+
+  pfn ball_steps(i : Int, b : BallRecord) : List(ScoreStep) needs () do
+    let flat = flat_chips(b.record_symbol)
+    let flat_step =
+      if Skee.Units.chips_int(flat) > 0 do
+        [step(FromBall(i), AddChips(flat))]
+      else
+        []
+      end
+    List.concat([[step(FromBall(i), AddChips(b.record_chips))], flat_step, slot_steps(i, b)])
+  end
+
+  pfn payline_steps(line : Payline, pairs_pay : Bool) : List(ScoreStep) needs () do
+    match line do
+    NoLine -> []
+    Pair(_) -> do
+      if pairs_pay do
+        [step(FromPayline, AddMult(added_mult(line)))]
+      else
+        [step(FromPayline, Note("the house keeps pairs"))]
+      end
+    end
+    Triple(_) -> [step(FromPayline, AddMult(added_mult(line)))]
+    end
+  end
+
+  pfn free_game_steps(pull : Option(Pull)) : List(ScoreStep) needs () do
+    match pull do
+    Some(p) -> if p.free do [step(FromFreeGame, TimesMult(2.0))] else [] end
+    None -> []
+    end
+  end
+
+  pfn streak_after(before : Int, balls : List(BallRecord)) : Int needs () do
+    List.fold_left(balls, before, fn (streak, b) -> if scored(b) do streak + 1 else 0 end)
+  end
+
+  -- What the steps fold to.
+  type FrameTally = { chips : Chips, mult : Float, tickets : Tickets }
+
+  pfn apply_step(t : FrameTally, s : ScoreStep) : FrameTally needs () do
+    match s.effect do
+    SetBase(c, m) -> { t with chips: c, mult: m }
+    AddChips(c) -> { t with chips: Skee.Units.add_chips(t.chips, c) }
+    AddMult(m) -> { t with mult: t.mult +. m }
+    TimesMult(x) -> { t with mult: t.mult *. x }
+    AddTickets(n) -> { t with tickets: Skee.Units.add_tickets(t.tickets, n) }
+    Note(_) -> t
+    end
+  end
+
+  doc """
+  Score one three-ball frame. Order: base, the pull's line wins, each ball's
+  chips, flat symbol chips and target combo, the payline, charms left to right,
+  fever, free game. Order matters because TimesMult multiplies whatever mult
+  exists at that point.
+  """
+  fn score_frame(balls : List(BallRecord), c : ScoringContext) : FrameScore needs () do
+    let line = evaluate(List.map(balls, fn b -> b.record_symbol))
+    let streak = streak_after(c.streak_before, balls)
+    let view = { view_balls: balls, view_payline: line, view_streak_after: streak }
+    let charm_steps =
+      fn charm -> List.map(Skee.Items.charm_effects(charm, view), fn e -> step(FromCharm(charm), e))
+    let steps =
+      List.concat([[step(FromBase, SetBase(Chips(0), 1.0))], pull_steps(c.context_pull), List.flat_map(List.enumerate(balls), fn pair -> ball_steps(Tuple.first(pair), Tuple.second(pair))), payline_steps(line, c.pairs_pay), List.flat_map(c.context_charms, charm_steps), if c.context_fever do [step(FromFever, TimesMult(2.0))] else [] end, free_game_steps(c.context_pull)])
+    let folded =
+      List.fold_left(steps, { chips: Chips(0), mult: 1.0, tickets: Tickets(0) }, apply_step)
+    {
+      balls: balls,
+      payline: line,
+      steps: steps,
+      frame_chips: folded.chips,
+      mult: folded.mult,
+      frame_tickets: folded.tickets,
+      streak_after: streak
+    }
+  end
+
+  doc """chips times mult, rounded down."""
+  fn frame_total(f : FrameScore) : Points needs () do
+    Points(float_floor(int_to_float(Skee.Units.chips_int(f.frame_chips)) *. f.mult))
+  end
+
+  pfn is_jackpot_symbol(s : Symbol) : Bool needs () do
+    match s do
+    Seven -> true
+    Diamond -> true
+    Blank -> false
+    Cherry -> false
+    Lemon -> false
+    Bell -> false
+    BarSym -> false
+    Clover -> false
+    end
+  end
+
+  doc """Three sevens or three diamonds on the board."""
+  fn is_jackpot(f : FrameScore) : Bool needs () do
+    match f.payline do
+    Triple(s) -> is_jackpot_symbol(s)
+    Pair(_) -> false
+    NoLine -> false
     end
   end
 

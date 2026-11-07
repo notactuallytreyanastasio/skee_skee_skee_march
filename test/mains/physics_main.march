@@ -3,6 +3,7 @@ mod PhysicsMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
+    println("DIVERGENCE " ++ PhysicsSuite.divergence_text())
     Harness.report("physics", PhysicsSuite.cases())
   end
 
