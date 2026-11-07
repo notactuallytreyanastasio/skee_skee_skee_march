@@ -716,7 +716,7 @@ normalised text; HostGuard.allows over 2232 replies; the lists themselves;
 Host.of; 660 Haggle.inits (every room and visit, 55 seeds); 185 scripted
 haggles (every Haggle and HostGuard test in Swift, plus 160 fuzzed) step by step, each state's
 offer, patience, status, wantsModel, askedForPerks, final, last line and a
-digest of every message, with 60 distinct system prompts and 285
+digest of every message, with 110 system prompts (60 distinct) and 235
 transcript messages compared whole; standIn, accepts, json, deflection; DeepSeek.parse
 over 507 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
 escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting); and

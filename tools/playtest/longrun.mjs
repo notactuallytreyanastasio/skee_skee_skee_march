@@ -40,7 +40,7 @@ for (let i = 0; i < 3000 && thrown < maxThrows; i++) {
     for (let k = 0; k < 3; k++) { const mm = await g.marks(); if (mm.live.includes("TapGotIt")) { console.log("  card " + (mm.text.match(/([A-Z][A-Z !',.?]{4,}) SKIP/)?.[1])); await g.press("TapGotIt"); } }
     await g.press("TapLeaveCounter"); continue;
   }
-  if (m.live.includes("TapNewRun") && /GAME OVER|YOU WIN|WON/.test(m.text)) { console.log("END " + m.text.slice(0, 400)); await g.shot(dir + "long-end.png"); break; }
+  if (m.live.includes("TapNewRun") && /GAME OVER|YOU WIN|WON|RUN COMPLETE|CLEARED/.test(m.text)) { console.log("END " + m.text.slice(0, 400)); await g.shot(dir + "long-end.png"); break; }
   if (m.busy === "1") { await sleep(80); continue; }
   if (m.can === "1") {
     await g.page.evaluate(() => { window.__work = []; });
