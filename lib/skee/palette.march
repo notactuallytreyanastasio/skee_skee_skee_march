@@ -20,7 +20,11 @@ mod Skee.Palette do
     let r = hex / 65536
     let g = hex / 256 % 256
     let b = hex % 256
-    { red: int_to_float(r) /. 255.0, green: int_to_float(g) /. 255.0, blue: int_to_float(b) /. 255.0 }
+    {
+      red: int_to_float(r) /. 255.0,
+      green: int_to_float(g) /. 255.0,
+      blue: int_to_float(b) /. 255.0
+    }
   end
 
   doc """Skee.Rooms' packed colour as channels."""

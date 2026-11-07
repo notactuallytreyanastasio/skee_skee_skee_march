@@ -663,8 +663,15 @@ mod SceneSuite do
     { kept: kept, outcomes: Cons(frame_check(scene, row), acc.outcomes), worst_spin: if off_q > acc.worst_spin do off_q else acc.worst_spin end }
   end
 
+  -- Before the first recorded frame the pull finished and one idle frame put
+  -- the waiting ball at the release spot: that is the last centre the roll
+  -- starts from.
   fn replayed() : Replay do
-    List.fold_left(rows("frame"), { kept: Skee.Scene.keep_fresh(), outcomes: [], worst_spin: 0.0 }, replay_step)
+    let w = boardwalk()
+    let fresh = Skee.Scene.keep_fresh()
+    let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
+    let start = { fresh with motion: { fresh.motion with last: Some(spot) } }
+    List.fold_left(rows("frame"), { kept: start, outcomes: [], worst_spin: 0.0 }, replay_step)
   end
 
   doc """Worst quaternion component error over the replay."""

@@ -106,7 +106,11 @@ mod Skee.Presentation do
   }
 
   -- Swift's restyleProgress tuple.
-  type Restyling = { restyle_from : ArtStyle, restyle_to : ArtStyle, restyle_progress : Float }
+  type Restyling = {
+    restyle_from : ArtStyle,
+    restyle_to : ArtStyle,
+    restyle_progress : Float
+  }
 
   derive Show for Restyling
 
@@ -114,7 +118,11 @@ mod Skee.Presentation do
   type TallyShown = { tally_frame : FrameScore, revealed : Int }
 
   -- Swift's banner tuple.
-  type BannerShown = { banner_title : String, banner_sub : String, banner_progress : Float }
+  type BannerShown = {
+    banner_title : String,
+    banner_sub : String,
+    banner_progress : Float
+  }
 
   derive Show for BannerShown
 
@@ -185,7 +193,13 @@ mod Skee.Presentation do
 
   pfn three_put(t : Three(a), i : Int, v : a) : Three(a) needs () do
     match t do
-    Three(a, b, c) -> if i == 0 do Three(v, b, c) else if i == 1 do Three(a, v, c) else Three(a, b, v) end end
+    Three(a, b, c) -> do
+      if i == 0 do
+        Three(v, b, c)
+      else
+        if i == 1 do Three(a, v, c) else Three(a, b, v) end
+      end
+    end
     end
   end
 
@@ -221,12 +235,41 @@ mod Skee.Presentation do
     end
   end
 
+  doc """
+  U+00B7, built at run time. forge format prints a non-ASCII string literal as
+  decimal byte escapes the lexer rejects (tools/repros/format_escapes_utf8.march.txt),
+  so the game's text keeps its two non-ASCII characters out of literals.
+  """
+  fn middle_dot() : String needs () do
+    code_point(183)
+  end
+
+  doc """U+00D7, the multiplication sign. See `middle_dot`."""
+  fn times_sign() : String needs () do
+    code_point(215)
+  end
+
+  -- Only ever called on the two valid code points above.
+  pfn code_point(n : Int) : String needs () do
+    match String.from_codepoint(n) do
+    Some(c) -> c
+    None -> ""
+    end
+  end
+
   pfn add_cue(p : Presentation, c : Cue) : Presentation needs () do
     { p with cues: List.append(p.cues, [c]) }
   end
 
   pfn add_popup(p : Presentation, text : String, anchor : PopupAnchor, kind : PopupKind, life : Float) : Presentation needs () do
-    let pop = { popup_text: text, anchor: anchor, popup_kind: kind, life: life, age: 0.0 }
+    let pop =
+      {
+        popup_text: text,
+        anchor: anchor,
+        popup_kind: kind,
+        life: life,
+        age: 0.0
+      }
     { p with popups: List.append(p.popups, [pop]) }
   end
 
@@ -336,23 +379,33 @@ mod Skee.Presentation do
     if i == 2 && teases(q) do base +. 0.9 else base end
   end
 
+  pfn bonus_count(s : ReelSymbol) : Int needs () do
+    if s == ReelBonus do 1 else 0 end
+  end
+
   pfn bonus_in_first_two(row : Three(ReelSymbol)) : Int needs () do
     match row do
-    Three(a, b, _) -> (if a == ReelBonus do 1 else 0 end) + (if b == ReelBonus do 1 else 0 end)
+    Three(a, b, _) -> bonus_count(a) + bonus_count(b)
     end
   end
 
   doc """At least two BONUS in the window's first two reels."""
   fn teases(q : Pull) : Bool needs () do
     match Skee.Scoring.grid(q) do
-    Three(top, mid, bottom) -> bonus_in_first_two(top) + bonus_in_first_two(mid) + bonus_in_first_two(bottom) >= 2
+    Three(top, mid, bottom) -> do
+      bonus_in_first_two(top) + bonus_in_first_two(mid) + bonus_in_first_two(bottom) >= 2
+    end
     end
   end
 
   doc """Spin, then a beat to read the wins."""
   fn pull_duration(q : Pull) : Float needs () do
     let read =
-      if Skee.Units.chips_int(Skee.Scoring.line_chips(q)) > 0 || Skee.Scoring.triggers_free_games(q) do 1.0 else 0.45 end
+      if Skee.Units.chips_int(Skee.Scoring.line_chips(q)) > 0 || Skee.Scoring.triggers_free_games(q) do
+        1.0
+      else
+        0.45
+      end
     pull_stop(2, q) +. read
   end
 
@@ -379,20 +432,18 @@ mod Skee.Presentation do
   fn trim(r : ShotResult, along : Float) : ShotResult needs () do
     if along > 0.0 do
       match List.find_index(r.path, fn s -> s.along >= along) do
-      Some(i) -> do
-        if i > 0 do
-          let kept = List.drop(r.path, i)
-          let t0 = first_t(kept)
-          { r with path: List.map(kept, fn s -> { s with t: s.t -. t0 }) }
-        else
-          r
-        end
-      end
+      Some(i) -> if i > 0 do trim_at(r, i) else r end
       None -> r
       end
     else
       r
     end
+  end
+
+  pfn trim_at(r : ShotResult, i : Int) : ShotResult needs () do
+    let kept = List.drop(r.path, i)
+    let t0 = first_t(kept)
+    { r with path: List.map(kept, fn s -> { s with t: s.t -. t0 }) }
   end
 
   pfn points_text(p : Points) : String needs () do
@@ -410,26 +461,43 @@ mod Skee.Presentation do
     Fouled -> ([banner_beat("FOUL", "thumb past the crease", 1.0)], spun)
     Shot(r, b) -> ([BeatRoll(trim(r, along), b)], spun)
     FrameScored(f) -> ([BeatTally(f)], spun)
-    FeverLit -> ([BeatSpin(s.reel_stops), banner_beat("FEVER", "next frame x2", 1.2)], true)
+    FeverLit -> do
+      ([BeatSpin(s.reel_stops), banner_beat("FEVER", "next frame x2", 1.2)], true)
+    end
     RoundCleared(score, target, payout) -> do
       let sub =
         points_text(score) ++ " / " ++ points_text(target) ++ "   +" ++ int_to_string(Skee.Units.tickets_int(Skee.Reducer.payout_total(payout))) ++ " TICKETS"
       let shown = [banner_beat("CLEARED", sub, 1.8)]
-      if spun do (shown, true) else (Cons(BeatSpin(s.reel_stops), shown), true) end
+      if spun do
+        (shown, true)
+      else
+        (Cons(BeatSpin(s.reel_stops), shown), true)
+      end
     end
-    RoundFailed(score, target) -> ([banner_beat("GAME OVER", points_text(score) ++ " / " ++ points_text(target), 2.4)], spun)
+    RoundFailed(score, target) -> do
+      ([banner_beat("GAME OVER", points_text(score) ++ " / " ++ points_text(target), 2.4)], spun)
+    end
     RunWon -> ([banner_beat("YOU BEAT THE ARCADE", "", 3.0)], spun)
     AnteStarted(a, boss) -> do
       let to = Skee.Palette.style_for_ante(a)
-      let ante = banner_beat("ANTE " ++ int_to_string(a), "BOSS: " ++ String.to_uppercase(Skee.Items.boss_name(boss)), 1.6)
-      if p.style == to do ([ante], spun) else ([BeatRestyle(p.style, to), ante], spun) end
+      let ante =
+        banner_beat("ANTE " ++ int_to_string(a), "BOSS: " ++ String.to_uppercase(Skee.Items.boss_name(boss)), 1.6)
+      if p.style == to do
+        ([ante], spun)
+      else
+        ([BeatRestyle(p.style, to), ante], spun)
+      end
     end
     RoundStarted(kind, target) -> do
       ([BeatCommit(s), banner_beat(String.to_uppercase(Skee.Items.round_title(kind)), "REACH " ++ points_text(target), 1.2)], spun)
     end
     Pulled(q) -> ([BeatPull(q)], spun)
-    FreeGamesWon(n) -> ([banner_beat("FREE GAMES", int_to_string(n) ++ " FREE FRAMES · EVERY ONE x2", 1.8)], spun)
-    JackpotHit(tier) -> ([banner_beat(Skee.Scoring.tier_title(tier) ++ " JACKPOT", "PAID TO YOUR WINNINGS", 2.4)], spun)
+    FreeGamesWon(n) -> do
+      ([banner_beat("FREE GAMES", int_to_string(n) ++ " FREE FRAMES " ++ middle_dot() ++ " EVERY ONE x2", 1.8)], spun)
+    end
+    JackpotHit(tier) -> do
+      ([banner_beat(Skee.Scoring.tier_title(tier) ++ " JACKPOT", "PAID TO YOUR WINNINGS", 2.4)], spun)
+    end
     CounterOpened -> ([], spun)
     Bought(_) -> ([], spun)
     Sold(_) -> ([], spun)
@@ -457,7 +525,11 @@ mod Skee.Presentation do
   fn enqueue(p : Presentation, step : Step, release_along : Float) : Presentation needs () do
     let (added, spun) = enqueue_events(p, step, release_along, step.step_events, [], false)
     let spin =
-      if !spun && !same_stops(step.run.reel_stops, p.shown.reel_stops) do [BeatSpin(step.run.reel_stops)] else [] end
+      if !spun && !same_stops(step.run.reel_stops, p.shown.reel_stops) do
+        [BeatSpin(step.run.reel_stops)]
+      else
+        []
+      end
     { p with beats: List.concat([p.beats, added, spin, [BeatCommit(step.run)]]) }
   end
 
@@ -473,22 +545,20 @@ mod Skee.Presentation do
   pfn sample_from(prev : PathSample, rest : List(PathSample), t : Float) : Option(PathSample) needs () do
     match rest do
     Nil -> Some(prev)
-    Cons(s, more) -> do
-      if s.t >= t do
-        let span = s.t -. prev.t
-        let u = if span > 0.0 do (t -. prev.t) /. span else 1.0 end
-        Some({
-          t: t,
-          phase: if u < 0.5 do prev.phase else s.phase end,
-          px: prev.px +. (s.px -. prev.px) *. u,
-          along: prev.along +. (s.along -. prev.along) *. u,
-          height: prev.height +. (s.height -. prev.height) *. u
-        })
-      else
-        sample_from(s, more, t)
-      end
+    Cons(s, more) -> if s.t >= t do Some(between(prev, s, t)) else sample_from(s, more, t) end
     end
-    end
+  end
+
+  pfn between(prev : PathSample, s : PathSample, t : Float) : PathSample needs () do
+    let span = s.t -. prev.t
+    let u = if span > 0.0 do (t -. prev.t) /. span else 1.0 end
+    {
+      t: t,
+      phase: if u < 0.5 do prev.phase else s.phase end,
+      px: prev.px +. (s.px -. prev.px) *. u,
+      along: prev.along +. (s.along -. prev.along) *. u,
+      height: prev.height +. (s.height -. prev.height) *. u
+    }
   end
 
   doc """Where the ball is right now, if one is rolling or resting."""
@@ -540,12 +610,18 @@ mod Skee.Presentation do
         Some(b) -> do
           let lane = Skee.Types.standard_lane(k)
           if b.along > lane.length do
-            let drop_t =
-              match List.find(r.events, fn e -> ends_shot(e.event)) do
-              Some(e) -> e.at
-              None -> k.infinity
+            do
+              let drop_t =
+                match List.find(r.events, fn e -> ends_shot(e.event)) do
+                Some(e) -> e.at
+                None -> k.infinity
+                end
+              if p.beat_time /. roll_speed() +. first_t(r.path) < drop_t -. 0.02 do
+                1.0
+              else
+                0.0
               end
-            if p.beat_time /. roll_speed() +. first_t(r.path) < drop_t -. 0.02 do 1.0 else 0.0 end
+            end
           else
             0.0
           end
@@ -602,14 +678,18 @@ mod Skee.Presentation do
   doc """The pull machine's last reel is teasing right now."""
   fn teasing(p : Presentation) : Bool needs () do
     match pulling(p) do
-    Some(q) -> teases(q) && p.beat_time > pull_stop(1, q) && p.beat_time < pull_stop(2, q)
+    Some(q) -> do
+      teases(q) && p.beat_time > pull_stop(1, q) && p.beat_time < pull_stop(2, q)
+    end
     None -> false
     end
   end
 
   fn banner(p : Presentation) : Option(BannerShown) needs () do
     match current(p) do
-    Some(BeatBanner(a, b, s)) -> Some({ banner_title: a, banner_sub: b, banner_progress: p.beat_time /. s })
+    Some(BeatBanner(a, b, s)) -> do
+      Some({ banner_title: a, banner_sub: b, banner_progress: p.beat_time /. s })
+    end
     Some(BeatRoll(_, _)) -> None
     Some(BeatSpin(_)) -> None
     Some(BeatPull(_)) -> None
@@ -622,10 +702,10 @@ mod Skee.Presentation do
 
   -- ---- Advancing ----
   pfn age_popups(popups : List(Popup), dt : Float) : List(Popup) needs () do
-    List.filter_map(popups, fn pop -> do
+    List.filter_map(popups, fn pop ->
       let aged = { pop with age: pop.age +. dt /. pop.life }
       if aged.age < 1.0 do Some(aged) else None end
-    end)
+    )
   end
 
   doc """Move presentation time on by `dt` seconds of wall time."""
@@ -636,17 +716,8 @@ mod Skee.Presentation do
       Some(r) -> if clock > r.until do None else Some(r) end
       None -> None
       end
-    let p : Presentation = {
-      p0 with
-      finished: [],
-      cues: [],
-      clock: clock,
-      flash: max_float(0.0, p0.flash -. dt *. 2.5),
-      shake: max_float(0.0, p0.shake -. dt *. 3.0),
-      celebration: max_float(0.0, p0.celebration -. dt /. 2.4),
-      popups: age_popups(p0.popups, dt),
-      resting_ball: resting
-    }
+    let p : Presentation =
+      { p0 with finished: [], cues: [], clock: clock, flash: max_float(0.0, p0.flash -. dt *. 2.5), shake: max_float(0.0, p0.shake -. dt *. 3.0), celebration: max_float(0.0, p0.celebration -. dt /. 2.4), popups: age_popups(p0.popups, dt), resting_ball: resting }
     run_beats(k, p, dt)
   end
 
@@ -661,10 +732,12 @@ mod Skee.Presentation do
       if remaining *. scale < left do
         during(k, { p with beat_time: before +. remaining *. scale }, beat, before)
       else
-        let still = remaining -. max_float(left, 0.0) /. scale
-        let played = during(k, { p with beat_time: duration(beat) }, beat, before)
-        let done = finish(played, beat)
-        run_beats(k, { done with finished: List.append(done.finished, [beat]), beats: rest, beat_time: 0.0 }, still)
+        do
+          let still = remaining -. max_float(left, 0.0) /. scale
+          let played = during(k, { p with beat_time: duration(beat) }, beat, before)
+          let done = finish(played, beat)
+          run_beats(k, { done with finished: List.append(done.finished, [beat]), beats: rest, beat_time: 0.0 }, still)
+        end
       end
     end
     end
@@ -684,9 +757,15 @@ mod Skee.Presentation do
     match beat do
     BeatRoll(_, b) -> do
       let launched = add_cue({ p with trail: [] }, CueLaunch)
-      if b.record_ball == Comet do add_cue(launched, CueWhoosh) else launched end
+      if b.record_ball == Comet do
+        add_cue(launched, CueWhoosh)
+      else
+        launched
+      end
     end
-    BeatSpin(_) -> add_cue({ p with spin_from: p.reel_positions, last_tick: 0.0 }, CueReelTick)
+    BeatSpin(_) -> do
+      add_cue({ p with spin_from: p.reel_positions, last_tick: 0.0 }, CueReelTick)
+    end
     BeatPull(_) -> do
       add_cue({ p with pull_from: p.pull_positions, pull_stopped: 0, last_pull: None, last_tick: 0.0 }, CueLever)
     end
@@ -738,18 +817,32 @@ mod Skee.Presentation do
 
   -- Raise `target` by whole turns until it is at least `floor`.
   pfn wind_forward(target : Float, floor : Float, turn : Float) : Float needs () do
-    if target < floor do wind_forward(target +. turn, floor, turn) else target end
+    if target < floor do
+      wind_forward(target +. turn, floor, turn)
+    else
+      target
+    end
   end
 
   pfn pull_reel(k : Skee.Consts.Consts, p : Presentation, q : Pull, i : Int) : Presentation needs () do
     let n = int_to_float(strip_length(i))
     let end_at = pull_stop(i, q)
     let start = three_at(p.pull_from, i)
-    let target = wind_forward(int_to_float(three_at(q.stops, i)), start +. n *. int_to_float(3 + i), n)
+    let target =
+      wind_forward(int_to_float(three_at(q.stops, i)), start +. n *. int_to_float(3 + i), n)
     let u = min_float(1.0, p.beat_time /. end_at)
     let eased =
-      if u < 1.0 do 1.0 -. Math.pow(1.0 -. u, 3.0) +. 0.04 *. Math.sin(u *. k.pi) else 1.0 end
-    let at = if u >= 1.0 do target else start +. (target -. start) *. min_float(eased, 1.01) end
+      if u < 1.0 do
+        1.0 -. Math.pow(1.0 -. u, 3.0) +. 0.04 *. Math.sin(u *. k.pi)
+      else
+        1.0
+      end
+    let at =
+      if u >= 1.0 do
+        target
+      else
+        start +. (target -. start) *. min_float(eased, 1.01)
+      end
     { p with pull_positions: three_put(p.pull_positions, i, at) }
   end
 
@@ -772,20 +865,19 @@ mod Skee.Presentation do
     let spun = List.fold_left([0, 1, 2], ticked, fn (acc, i) -> pull_reel(k, acc, q, i))
     let stopped = stop_reels(spun, q)
     match stopped.last_pull do
-    None -> do
-      if spinning do
-        stopped
-      else
-        let shown = { stopped with last_pull: Some(q) }
-        let chips = Skee.Units.chips_int(Skee.Scoring.line_chips(q))
-        if chips > 0 do
-          add_cue(add_popup(shown, "WIN " ++ int_to_string(chips), AnchorHud, PopupChips, 1.4), CuePullWin(chips))
-        else
-          shown
-        end
-      end
-    end
+    None -> if spinning do stopped else show_pull(stopped, q) end
     Some(_) -> stopped
+    end
+  end
+
+  -- The reels have stopped: put the pull on show and call out its wins.
+  pfn show_pull(p : Presentation, q : Pull) : Presentation needs () do
+    let shown = { p with last_pull: Some(q) }
+    let chips = Skee.Units.chips_int(Skee.Scoring.line_chips(q))
+    if chips > 0 do
+      add_cue(add_popup(shown, "WIN " ++ int_to_string(chips), AnchorHud, PopupChips, 1.4), CuePullWin(chips))
+    else
+      shown
     end
   end
 
@@ -793,12 +885,12 @@ mod Skee.Presentation do
     let n = int_to_float(List.length(Skee.Scoring.reel(p.shown.setup, hole)))
     let start = reel_float(p.spin_from, hole)
     let wanted = int_to_float(reel_int(to, hole))
-    -- An empty reel cannot exist (the reducer refuses ReelTooShort); Swift would
-    -- spin forever on one, so it is left where it is.
     let target = if n > 0.0 do wind_forward(wanted, start +. 2.0 *. n, n) else wanted end
     { p with reel_positions: put_reel_float(p.reel_positions, hole, start +. (target -. start) *. eased) }
   end
 
+  -- An empty reel cannot exist (the reducer refuses ReelTooShort); Swift would
+  -- spin forever on one, so it is left where it is.
   pfn during_spin(p0 : Presentation, to : PerReel(Int)) : Presentation needs () do
     let length = duration(BeatSpin(to))
     let ticked =
@@ -825,12 +917,20 @@ mod Skee.Presentation do
 
   pfn reveal_steps(p : Presentation, f : FrameScore, upto : Int) : Presentation needs () do
     if p.shown_steps < upto do
-      let cue =
-        match List.nth_opt(f.steps, p.shown_steps) do
-        Some(st) -> if is_mult(st.effect) do CueTallyMult(p.shown_steps) else CueTallyChips(p.shown_steps) end
-        None -> CueTallyChips(p.shown_steps)
-        end
-      reveal_steps(add_cue({ p with shown_steps: p.shown_steps + 1 }, cue), f, upto)
+      do
+        let cue =
+          match List.nth_opt(f.steps, p.shown_steps) do
+          Some(st) -> do
+            if is_mult(st.effect) do
+              CueTallyMult(p.shown_steps)
+            else
+              CueTallyChips(p.shown_steps)
+            end
+          end
+          None -> CueTallyChips(p.shown_steps)
+          end
+        reveal_steps(add_cue({ p with shown_steps: p.shown_steps + 1 }, cue), f, upto)
+      end
     else
       p
     end
@@ -864,16 +964,23 @@ mod Skee.Presentation do
   pfn finish_roll(p0 : Presentation, r : ShotResult, b : BallRecord) : Presentation needs () do
     let rested =
       match last_of(r.path) do
-      Some(s) -> { p0 with resting_ball: Some({ rest_sample: s, until: p0.clock +. 0.6 }) }
+      Some(s) -> do
+        { p0 with resting_ball: Some({ rest_sample: s, until: p0.clock +. 0.6 }) }
+      end
       None -> p0
       end
-    let throws = List.append(rested.recent_throws, [{ mark_power: r.launch.power, mark_hole: b.record_hole }])
+    let throws =
+      List.append(rested.recent_throws, [{ mark_power: r.launch.power, mark_hole: b.record_hole }])
     let kept = if List.length(throws) > 6 do List.drop(throws, 1) else throws end
     let gutter = b.record_hole == Gutter
     let landed =
       add_popup({ rested with recent_throws: kept, trail: [] }, roll_popup_text(r, b), AnchorHole(b.record_hole), if gutter do PopupBad else PopupChips end, 1.1)
     let shaken =
-      if Skee.Physics.rattles(r) > 0 do { landed with shake: max_float(landed.shake, 0.35) } else landed end
+      if Skee.Physics.rattles(r) > 0 do
+        { landed with shake: max_float(landed.shake, 0.35) }
+      else
+        landed
+      end
     let hot =
       if b.hot do
         do
@@ -895,9 +1002,17 @@ mod Skee.Presentation do
         hot
       end
     if b.slot_hits > 0 do
-      let text = if b.record_combo > 1 do "COMBO x" ++ int_to_string(b.record_combo) else "TOP SLOT!" end
-      let called = add_cue(add_popup(paid, text, AnchorHud, PopupMult, 1.4), CueCombo(b.record_combo))
-      { called with flash: max_float(called.flash, 0.25 +. 0.1 *. int_to_float(Math.min_int(b.record_combo, 5))) }
+      do
+        let text =
+          if b.record_combo > 1 do
+            "COMBO x" ++ int_to_string(b.record_combo)
+          else
+            "TOP SLOT!"
+          end
+        let called =
+          add_cue(add_popup(paid, text, AnchorHud, PopupMult, 1.4), CueCombo(b.record_combo))
+        { called with flash: max_float(called.flash, 0.25 +. 0.1 *. int_to_float(Math.min_int(b.record_combo, 5))) }
+      end
     else
       paid
     end
@@ -926,7 +1041,12 @@ mod Skee.Presentation do
       Pair(_) -> true
       Triple(_) -> true
       end
-    let cue = if jackpot do CueJackpot else if lined do CueLineWon else CueFrameDone end end
+    let cue =
+      if jackpot do
+        CueJackpot
+      else
+        if lined do CueLineWon else CueFrameDone end
+      end
     let shown =
       add_cue(add_popup(p, tally_line(f), AnchorCenter, if jackpot do PopupJackpot else PopupMult end, 1.6), cue)
     let cheered =
@@ -945,9 +1065,12 @@ mod Skee.Presentation do
     BeatPull(q) -> { p with pull_positions: three_floats(q.stops), last_pull: Some(q) }
     BeatTally(f) -> finish_tally(p, f)
     BeatCommit(s) -> do
-      let committed = { p with shown: s, tallied_bonus: Points(0), reel_positions: reel_floats(s.reel_stops) }
+      let committed =
+        { p with shown: s, tallied_bonus: Points(0), reel_positions: reel_floats(s.reel_stops) }
       match s.round.round_pull do
-      Some(q) -> { committed with pull_positions: three_floats(q.stops), last_pull: Some(q) }
+      Some(q) -> do
+        { committed with pull_positions: three_floats(q.stops), last_pull: Some(q) }
+      end
       None -> committed
       end
     end

@@ -4,7 +4,7 @@ FORGE := $(HOME)/.march/bin/forge
 
 SWIFT_FLAGS := -c release -Xswiftc -enable-testing
 GOLDEN_DIR := tools/golden
-GOLDEN_TARGETS := rng physics scoring items rooms run bots
+GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
 .PHONY: test test-js test-native check check-purity format golden build selftest clean
 

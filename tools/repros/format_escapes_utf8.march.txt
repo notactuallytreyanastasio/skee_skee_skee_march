@@ -1,0 +1,13 @@
+-- `forge format --stdin` prints a non-ASCII byte in a string literal as an
+-- OCaml-style decimal escape, so the literal below becomes "x \194\183 y", which
+-- the lexer then rejects ("Invalid escape sequence: \1"). A \xc2\xb7 escape is
+-- rewritten the same way. Formatted code no longer parses. Found by the
+-- presentation piece; it builds U+00B7 and U+00D7 with String.from_codepoint
+-- (Skee.Presentation.middle_dot and times_sign) and keeps literals ASCII.
+mod FormatEscapesUtf8 do
+
+  fn dot() : String do
+    "x · y"
+  end
+
+end

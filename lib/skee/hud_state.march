@@ -159,7 +159,11 @@ mod Skee.HudState do
 
   doc """`x == x.rounded() ? "\\(Int(x))" : String(format: "%.1f", x)`."""
   fn num(x : Float) : String needs () do
-    if x == int_to_float(float_floor(x)) do int_to_string(float_floor(x)) else fixed1(x) end
+    if x == int_to_float(float_floor(x)) do
+      int_to_string(float_floor(x))
+    else
+      fixed1(x)
+    end
   end
 
   doc """
@@ -174,7 +178,12 @@ mod Skee.HudState do
     let scaled = a *. 10.0
     let down = float_floor(scaled)
     let frac = scaled -. int_to_float(down)
-    let tenths = if frac > 0.5 do down + 1 else if frac < 0.5 do down else down + down % 2 end end
+    let tenths =
+      if frac > 0.5 do
+        down + 1
+      else
+        if frac < 0.5 do down else down + down % 2 end
+      end
     let sign = if negative && tenths > 0 do "-" else "" end
     sign ++ int_to_string(tenths / 10) ++ "." ++ int_to_string(tenths % 10)
   end
@@ -183,22 +192,35 @@ mod Skee.HudState do
   fn hint(have : List(Symbol)) : Hint needs () do
     let plain = { hint_text: "", hint_symbol: None, after: "", hint_hot: false }
     match have do
-    Nil -> { plain with hint_text: "3 balls = 1 line · match symbols for MULT" }
+    Nil -> do
+      { plain with hint_text: "3 balls = 1 line " ++ Skee.Presentation.middle_dot() ++ " match symbols for MULT" }
+    end
     Cons(s, Nil) -> do
       if s == Blank do
-        { plain with hint_text: "gutter · the next two can still pair" }
+        { plain with hint_text: "gutter " ++ Skee.Presentation.middle_dot() ++ " the next two can still pair" }
       else
-        let shown = if Skee.Scoring.is_wild(s) do None else Some(s) end
-        { plain with hint_text: "match the", hint_symbol: shown, after: "· glowing rings pair it" }
+        do
+          let shown = if Skee.Scoring.is_wild(s) do None else Some(s) end
+          { plain with hint_text: "match the", hint_symbol: shown, after: Skee.Presentation.middle_dot() ++ " glowing rings pair it" }
+        end
       end
     end
     Cons(_, Cons(_, Nil)) -> do
       match Skee.Scoring.evaluate(have) do
       Pair(s) -> do
-        { hint_text: "PAIR! one more", hint_symbol: Some(s), after: "= ×" ++ num(1.0 +. Skee.Scoring.triple_mult(s)), hint_hot: true }
+        {
+          hint_text: "PAIR! one more",
+          hint_symbol: Some(s),
+          after: "= " ++ Skee.Presentation.times_sign() ++ num(1.0 +. Skee.Scoring.triple_mult(s)),
+          hint_hot: true
+        }
       end
-      NoLine -> { plain with hint_text: "no match yet · glowing rings pair" }
-      Triple(_) -> { plain with hint_text: "no match yet · glowing rings pair" }
+      NoLine -> do
+        { plain with hint_text: "no match yet " ++ Skee.Presentation.middle_dot() ++ " glowing rings pair" }
+      end
+      Triple(_) -> do
+        { plain with hint_text: "no match yet " ++ Skee.Presentation.middle_dot() ++ " glowing rings pair" }
+      end
       end
     end
     Cons(_, Cons(_, Cons(_, _))) -> plain
@@ -268,13 +290,18 @@ mod Skee.HudState do
     match a do
     AnchorHole(h) -> Skee.HoleMap.at(inputs.hole_on_screen, h)
     AnchorCenter -> inputs.center
-    -- Below the centre, so two at once can both be read.
     AnchorHud -> { sx: inputs.center.sx, sy: inputs.center.sy +. 52.0 }
     end
   end
 
+  -- Below the centre, so two at once can both be read.
   pfn screen_popup(inputs : HudInputs, pop : Popup) : ScreenPopup needs () do
-    { screen_text: pop.popup_text, screen_kind: pop.popup_kind, at: popup_at(inputs, pop.anchor), screen_age: pop.age }
+    {
+      screen_text: pop.popup_text,
+      screen_kind: pop.popup_kind,
+      at: popup_at(inputs, pop.anchor),
+      screen_age: pop.age
+    }
   end
 
   pfn machine_of(p : Presentation, s : RunState, inputs : HudInputs, pulling : Option(Pull), wants_pull : Bool) : Option(Machine) needs () do
@@ -301,37 +328,44 @@ mod Skee.HudState do
       None -> false
       end
     if spinning || wants_pull do
-      Some({
-        positions: p.pull_positions,
-        machine_bet: bet,
-        affordable: List.filter(all_bets(), fn b -> Skee.Units.tickets_at_least(s.tickets, Skee.Scoring.bet_cost(b))),
-        can_pull: wants_pull,
-        machine_free: free,
-        free_left: s.round.free_left,
-        wins: wins,
-        machine_teasing: Skee.Presentation.teasing(p),
-        machine_room: s.room,
-        machine_progressive: Skee.Scoring.new_progressive(),
-        show_bets: true
-      })
+      Some({ positions: p.pull_positions, machine_bet: bet, affordable: List.filter(all_bets(), fn b -> Skee.Units.tickets_at_least(s.tickets, Skee.Scoring.bet_cost(b))), can_pull: wants_pull, machine_free: free, free_left: s.round.free_left, wins: wins, machine_teasing: Skee.Presentation.teasing(p), machine_room: s.room, machine_progressive: Skee.Scoring.new_progressive(), show_bets: true })
     else
       None
+    end
+  end
+
+  pfn label_at(f : FrameScore, i : Int) : String needs () do
+    match List.nth_opt(f.steps, i) do
+    Some(st) -> step_label(f, st)
+    None -> ""
+    end
+  end
+
+  pfn hot_point(inputs : HudInputs, hot : Option(Hole)) : Option(ScreenPoint) needs () do
+    match hot do
+    Some(h) -> Some(Skee.HoleMap.at(inputs.hole_on_screen, h))
+    None -> None
+    end
+  end
+
+  pfn over_of(s : RunState) : Option(RunOver) needs () do
+    match s.phase do
+    Lost -> Some({ won: false, over_stats: s.stats })
+    Won -> Some({ won: true, over_stats: s.stats })
+    Throwing -> None
+    AtCounter(_) -> None
     end
   end
 
   pfn tally_of(t : TallyShown) : HudTally needs () do
     let f = t.tally_frame
     let folded = fold(List.take(f.steps, t.revealed))
-    let label =
-      if t.revealed > 0 do
-        match List.nth_opt(f.steps, t.revealed - 1) do
-        Some(st) -> step_label(f, st)
-        None -> ""
-        end
-      else
-        ""
-      end
-    { tally_chips: folded.folded_chips, tally_mult: folded.folded_mult, label: label }
+    let label = if t.revealed > 0 do label_at(f, t.revealed - 1) else "" end
+    {
+      tally_chips: folded.folded_chips,
+      tally_mult: folded.folded_mult,
+      label: label
+    }
   end
 
   pfn tallied_points(t : TallyShown) : Points needs () do
@@ -339,8 +373,10 @@ mod Skee.HudState do
     if t.revealed >= List.length(f.steps) do
       Skee.Scoring.frame_total(f)
     else
-      let folded = fold(List.take(f.steps, t.revealed))
-      Points(float_to_int(int_to_float(Skee.Units.chips_int(folded.folded_chips)) *. folded.folded_mult))
+      do
+        let folded = fold(List.take(f.steps, t.revealed))
+        Points(float_to_int(int_to_float(Skee.Units.chips_int(folded.folded_chips)) *. folded.folded_mult))
+      end
     end
   end
 
@@ -368,10 +404,7 @@ mod Skee.HudState do
       end
     let hot : Option(ScreenPoint) =
       if throwing && has_pull && !is_pulling do
-        match s.round.round_hot do
-        Some(h) -> Some(Skee.HoleMap.at(inputs.hole_on_screen, h))
-        None -> None
-        end
+        hot_point(inputs, s.round.round_hot)
       else
         None
       end
@@ -382,17 +415,7 @@ mod Skee.HudState do
       Lost -> None
       Won -> None
       end
-    let over =
-      if busy do
-        None
-      else
-        match s.phase do
-        Lost -> Some({ won: false, over_stats: s.stats })
-        Won -> Some({ won: true, over_stats: s.stats })
-        Throwing -> None
-        AtCounter(_) -> None
-        end
-      end
+    let over = if busy do None else over_of(s) end
     let shown_tally = Skee.Presentation.tally_progress(p)
     let balls =
       match shown_tally do
@@ -412,7 +435,9 @@ mod Skee.HudState do
       end
     let banner =
       match Skee.Presentation.banner(p) do
-      Some(b) -> Some({ title: b.banner_title, sub: b.banner_sub, progress: b.banner_progress })
+      Some(b) -> do
+        Some({ title: b.banner_title, sub: b.banner_sub, progress: b.banner_progress })
+      end
       None -> None
       end
     let hint =
@@ -420,7 +445,7 @@ mod Skee.HudState do
         if has_pull do
           Some(hint(List.map(s.round.current_balls, fn b -> b.record_symbol)))
         else
-          Some({ hint_text: "PULL · the middle row = this frame's targets", hint_symbol: None, after: "", hint_hot: false })
+          Some({ hint_text: "PULL " ++ Skee.Presentation.middle_dot() ++ " the middle row = this frame's targets", hint_symbol: None, after: "", hint_hot: false })
         end
       else
         None

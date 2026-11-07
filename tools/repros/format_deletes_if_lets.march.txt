@@ -1,0 +1,24 @@
+-- `forge format --stdin` turns the match arm below into
+--     Some(i) -> if i > 0 do ... else 0 end
+-- deleting both lets: an `if` branch holding more than one statement, inside a
+-- match arm's `do` block. Another shape of format_deletes_if_match.march.txt;
+-- `make format` refuses it. Move the branch into a named function.
+-- (Found by the presentation piece in lib/skee/presentation.march's `trim`.)
+mod FormatDeletesIfLets do
+
+  fn f(x : Option(Int)) : Int do
+    match x do
+    Some(i) -> do
+      if i > 0 do
+        let a = i + 1
+        let b = a * 2
+        b
+      else
+        0
+      end
+    end
+    None -> 0
+    end
+  end
+
+end

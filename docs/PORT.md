@@ -45,6 +45,7 @@ foundation: ask before changing it.
 | bots | `lib/skee/bots.march` | `Bots/*` | `golden-bots` | `make test-bots` |
 | meta | `lib/skee/guide.march`, `walkthrough.march`, `save.march` | `Meta/Guide.swift`, `Meta/Walkthrough.swift`, Wallet's decoder, GameModel's `TipStore`/`WalletStore`/`RunStore` and tip bookkeeping | `golden-meta` | `make test-meta` |
 | synth | `lib/skee/synth.march` | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
+| presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
 `test/<piece>_test.march` and `tools/golden/Sources/golden-<target>/`.
@@ -120,7 +121,7 @@ takes `k : Skee.Consts.Consts` as its first argument.
 | `make build` | The browser build, `.march/build/debug/skee.mjs` |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
-Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`.
+Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`.
 
 `make test-<piece>` keeps other suites and the `test/*_test.march` wrappers off
 its lib path, so a broken suite elsewhere cannot break it (`make selftest` proves
@@ -326,6 +327,14 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   becomes `fn x -> ...`. Use `make format`, which refuses, and never `match do`:
   chain `if ... else if ... else ... end end` instead. Put multi-line lambdas in a
   named function. (`format_deletes.march.txt`)
+- **`forge format` breaks non-ASCII string literals.** It prints each byte past
+  127 as a decimal escape (`"\194\183"`), which the lexer rejects, so the
+  formatted file no longer parses; `\xc2\xb7` is rewritten the same way. Keep
+  literals ASCII and build such characters with `String.from_codepoint`, as
+  `Skee.Presentation.middle_dot` and `times_sign` do. (`format_escapes_utf8.march.txt`)
+- **`forge format` deletes an `if` branch holding several statements** inside a
+  match arm's `do` block: it becomes `if c do ... else x end`. `make format`
+  refuses it. Move the branch into a named function. (`format_deletes_if_lets.march.txt`)
 - `forge format` also moves a file's leading comment inside the module, turns
   `use X.*` into `import X`, and rewrites `doc "x"` to `doc """x"""`.
 - A parse error in `lib/` shows up in dependants as `Unknown module`. Run
