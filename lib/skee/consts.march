@@ -6,6 +6,10 @@ mod Skee.Consts do
   -- constant needing more is built here from a string at run time. Parsing is
   -- not free: call `make` once, keep the record, and pass it to whatever needs
   -- it. Never call `make` in a loop.
+  --
+  -- The engine-generic constants live in Arcade.Numerics; `num` carries that
+  -- record for calls into the engine, and the flat fields below are copied
+  -- from it, so both spellings hold the same bits.
   cap pure
 
   type Consts = {
@@ -16,29 +20,23 @@ mod Skee.Consts do
     floor_u1 : Float,
     infinity : Float,
     nan : Float,
-    marshmallow_drawn : Float
+    marshmallow_drawn : Float,
+    num : Arcade.Numerics.Numerics
   }
-
-  -- Only ever called on the fixed strings below, and the rng suite pins each
-  -- result to Swift's bits, so the None arm cannot be reached.
-  pfn parse(text : String) : Float needs () do
-    match string_to_float(text) do
-    Some(x) -> x
-    None -> unreachable()
-    end
-  end
 
   doc """All constants, each bit-identical to the Swift expression it replaces."""
   fn make() : Consts needs () do
+    let n = Arcade.Numerics.make()
     {
-      pi: parse("3.141592653589793"),
-      tau: parse("6.283185307179586"),
-      dt: parse("0.004166666666666667"),
-      unit53: parse("1.1102230246251565e-16"),
-      floor_u1: 0.000000000001,
-      infinity: parse("1e308") *. 10.0,
-      nan: Math.sqrt(-1.0),
-      marshmallow_drawn: parse("1.2999999523162842")
+      pi: n.pi,
+      tau: n.tau,
+      dt: Arcade.Numerics.float_of_text("0.004166666666666667"),
+      unit53: n.unit53,
+      floor_u1: n.floor_u1,
+      infinity: n.infinity,
+      nan: n.nan,
+      marshmallow_drawn: Arcade.Numerics.float_of_text("1.2999999523162842"),
+      num: n
     }
   end
 

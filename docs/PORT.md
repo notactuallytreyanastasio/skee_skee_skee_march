@@ -31,6 +31,7 @@ foundation: ask before changing it.
 | `Skee.Types` | `types.march` | Shared types, default specs |
 | `Skee.Consts` | `consts.march` | Float constants a literal cannot hold |
 | `Arcade.U64` | `../arcade/u64.march` | UInt64 as two 32-bit limbs |
+| `Arcade.Numerics` | `../arcade/numerics.march` | Engine Float constants (`Numerics`), `float_of_text` |
 | `Skee.Maths` | `maths.march` | clamp, degrees, Vec2, `ieee_div` |
 | `Skee.Rng` | `rng.march` | SplitMix64 |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
@@ -75,7 +76,7 @@ and fails `make check`. Tell the coordinator when you add one.
 Modules may not depend in a cycle, so Swift's mutual references are split:
 
 ```
-Consts, U64 <- Maths, Rng <- Types <- Units, HoleMap
+Numerics <- Consts, U64 <- Maths, Rng <- Types <- Units, HoleMap
   <- Items <- Rooms <- Physics, Scoring <- Reducer <- Bots
 ```
 
@@ -86,7 +87,8 @@ Consts, U64 <- Maths, Rng <- Types <- Units, HoleMap
 
 These names are agreed so pieces can call each other before they land. If you
 own one, land it first. Every function that needs a pi-derived value or `dt`
-takes `k : Skee.Consts.Consts` as its first argument.
+takes `k : Skee.Consts.Consts` as its first argument. A call into an engine fn that needs
+constants passes `k.num : Arcade.Numerics.Numerics`.
 
 | Function | Returns |
 |---|---|

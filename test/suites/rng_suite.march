@@ -38,11 +38,19 @@ mod RngSuite do
   fn const_row(row : List(String)) : Outcome do
     let k = Skee.Consts.make()
     match row do
-    Cons("pi", Cons(bits, Nil)) -> GoldenIo.expect_float(k.pi, bits, "pi")
-    Cons("tau", Cons(bits, Nil)) -> GoldenIo.expect_float(k.tau, bits, "tau")
+    Cons("pi", Cons(bits, Nil)) -> do
+      all([GoldenIo.expect_float(k.pi, bits, "pi"), GoldenIo.expect_float(k.num.pi, bits, "num.pi")])
+    end
+    Cons("tau", Cons(bits, Nil)) -> do
+      all([GoldenIo.expect_float(k.tau, bits, "tau"), GoldenIo.expect_float(k.num.tau, bits, "num.tau")])
+    end
     Cons("dt", Cons(bits, Nil)) -> GoldenIo.expect_float(k.dt, bits, "dt")
-    Cons("unit53", Cons(bits, Nil)) -> GoldenIo.expect_float(k.unit53, bits, "unit53")
-    Cons("floor_u1", Cons(bits, Nil)) -> GoldenIo.expect_float(k.floor_u1, bits, "floor_u1")
+    Cons("unit53", Cons(bits, Nil)) -> do
+      all([GoldenIo.expect_float(k.unit53, bits, "unit53"), GoldenIo.expect_float(k.num.unit53, bits, "num.unit53")])
+    end
+    Cons("floor_u1", Cons(bits, Nil)) -> do
+      all([GoldenIo.expect_float(k.floor_u1, bits, "floor_u1"), GoldenIo.expect_float(k.num.floor_u1, bits, "num.floor_u1")])
+    end
     _ -> Mismatch("unknown constant row")
     end
   end

@@ -1,0 +1,42 @@
+mod Arcade.Numerics do
+
+  -- Float constants that cannot be written as literals.
+  --
+  -- The JS emitter prints every Float literal with 12 significant digits, so a
+  -- constant needing more is built here from a string at run time. Parsing is
+  -- not free: call `make` once, keep the record, and pass it to whatever needs
+  -- it. Never call `make` in a loop.
+  cap pure
+
+  type Numerics = {
+    pi : Float,
+    tau : Float,
+    unit53 : Float,
+    floor_u1 : Float,
+    infinity : Float,
+    nan : Float
+  }
+
+  doc """The Float a decimal string spells, for constants with more digits
+  than a literal keeps. Only for fixed, well-formed strings: an unparsable
+  one is a programming error and traps."""
+  fn float_of_text(text : String) : Float needs () do
+    match string_to_float(text) do
+    Some(x) -> x
+    None -> unreachable()
+    end
+  end
+
+  doc """All constants, each bit-identical to the IEEE double it names."""
+  fn make() : Numerics needs () do
+    {
+      pi: float_of_text("3.141592653589793"),
+      tau: float_of_text("6.283185307179586"),
+      unit53: float_of_text("1.1102230246251565e-16"),
+      floor_u1: 0.000000000001,
+      infinity: float_of_text("1e308") *. 10.0,
+      nan: Math.sqrt(-1.0)
+    }
+  end
+
+end
