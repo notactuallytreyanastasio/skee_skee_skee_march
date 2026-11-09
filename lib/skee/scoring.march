@@ -182,7 +182,7 @@ mod Skee.Scoring do
   doc """Mult a matching ball adds: half a mult per target matched, times the combo level, capped."""
   fn combo_mult(slot_hits : Int, level : Int) : Float needs () do
     let matched = if slot_hits > 0 do 1.0 else 0.0 end
-    0.5 *. int_to_float(slot_hits) *. int_to_float(Skee.Maths.clamp_int(level, 1, max_level())) *. matched
+    0.5 *. int_to_float(slot_hits) *. int_to_float(Arcade.Num.clamp_int(level, 1, max_level())) *. matched
   end
 
   doc """Free games a BONUS trigger awards."""

@@ -179,7 +179,7 @@ mod PhysicsSuite do
   end
 
   fn vec(r : List(String), i : Int) : Arcade.Vec2.Vec2 do
-    Skee.Maths.vec2(at(r, i), at(r, i + 1))
+    Arcade.Vec2.vec2(at(r, i), at(r, i + 1))
   end
 
   fn board_of(r : List(String)) : BoardSpec do
@@ -330,9 +330,9 @@ mod PhysicsSuite do
     {
       same: a.same && b.same,
       structural: a.structural || b.structural,
-      gap: Skee.Maths.max_float(a.gap, b.gap),
+      gap: Arcade.Num.max_float(a.gap, b.gap),
       ulps: Math.max_int(a.ulps, b.ulps),
-      time_gap: Skee.Maths.max_float(a.time_gap, b.time_gap)
+      time_gap: Arcade.Num.max_float(a.time_gap, b.time_gap)
     }
   end
 
@@ -695,7 +695,7 @@ mod PhysicsSuite do
   end
 
   fn worst(vs : List(ShotVerdict), pick : ShotVerdict -> Float) : Float do
-    List.fold_left(vs, 0.0, fn (acc, v) -> Skee.Maths.max_float(acc, pick(v)))
+    List.fold_left(vs, 0.0, fn (acc, v) -> Arcade.Num.max_float(acc, pick(v)))
   end
 
   doc """Replays that match Swift, of how many, as one line."""
@@ -829,7 +829,7 @@ mod PhysicsSuite do
     let zero = zero_bits()
     let k = consts()
     let sums = sums_row(zero, zero, zero, zero)
-    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Skee.Maths.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance"), needs_a_cause(position(0.000000001, zero)), replay_is_exact(), parting_is_judged(), parting_needs_a_cause(), budget_is_kept()])
+    all([is_real_difference(one_sample(lane_sample(), sample_text("air")), "a wrong phase"), is_real_difference(option_check(Some(0.0), "none"), "a hinge speed Swift lacks"), is_real_difference(option_check(None, zero), "a missing hinge speed"), is_real_difference(landing_check(Some(Arcade.Vec2.vec2(0.0, 0.0)), "none", "none"), "a landing Swift lacks"), is_real_difference(landing_check(None, zero, zero), "a missing landing"), is_real_difference(walk_samples([], 0, [sample_text("lane")], fine()), "a missing sample"), is_real_difference(times_check([], zero ++ "," ++ zero), "a wrong event count"), is_real_difference(sums_check(0.0, 1.0, 0.0, 0.0, 1, sums), "a changed sum"), is_real_difference(position(1.0, nan_bits()), "a number where Swift has NaN"), is_real_difference(position(k.nan, zero), "NaN where Swift has a number"), is_real_difference(position(1.0, zero), "a position past the tolerance"), is_tolerated(position(0.000000001, zero), "a position inside the tolerance"), is_tolerated(sums_check(0.0, 0.000000001, 0.0, 0.0, 1, sums), "a sum inside the tolerance"), needs_a_cause(position(0.000000001, zero)), replay_is_exact(), parting_is_judged(), parting_needs_a_cause(), budget_is_kept()])
   end
 
   fn agreement_is_not_difference() : Outcome do

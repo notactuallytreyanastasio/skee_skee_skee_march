@@ -10,7 +10,7 @@ mod Skee.Presentation do
   -- Every function that needs pi or infinity takes `k` first (docs/PORT.md).
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
 
   -- One animated moment between two game states.
   type Beat =

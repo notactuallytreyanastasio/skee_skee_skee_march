@@ -18,7 +18,8 @@ mod Skee.Scene do
   -- piece (no per-pixel depth, no cast shadows, no particles yet).
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
   import Skee.World
 
   -- ===================================================================
@@ -1964,7 +1965,7 @@ mod Skee.Scene do
       paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
     end
     MarkRing(centre, radius, width, c) -> do
-      let d = Math.abs(Skee.Maths.length(Skee.Maths.sub(q, centre)) -. radius)
+      let d = Math.abs(Arcade.Vec2.length(Arcade.Vec2.sub(q, centre)) -. radius)
       paint_texel(t, i, cover_of(d < width /. 2.0, Math.abs(d -. width /. 2.0)), c)
     end
     Undrawn(a, z, width) -> do
@@ -2008,13 +2009,13 @@ mod Skee.Scene do
 
   -- A butt-capped stroke's area: the segment widened to a rectangle.
   pfn segment_box(a : Vec2, z : Vec2, width : Float) : List(Vec2) needs () do
-    let d = Skee.Maths.normalized(Skee.Maths.sub(z, a))
-    let n = Skee.Maths.scale(vec2(0.0 -. d.y, d.x), width /. 2.0)
+    let d = Arcade.Vec2.normalized(Arcade.Vec2.sub(z, a))
+    let n = Arcade.Vec2.scale(vec2(0.0 -. d.y, d.x), width /. 2.0)
     [
-      Skee.Maths.add(a, n),
-      Skee.Maths.add(z, n),
-      Skee.Maths.sub(z, n),
-      Skee.Maths.sub(a, n)
+      Arcade.Vec2.add(a, n),
+      Arcade.Vec2.add(z, n),
+      Arcade.Vec2.sub(z, n),
+      Arcade.Vec2.sub(a, n)
     ]
   end
 
@@ -2050,8 +2051,8 @@ mod Skee.Scene do
   pfn edge_cross(e : (Vec2, Vec2), q : Vec2) : Float needs () do
     match e do
     (a, z) -> do
-      let d = Skee.Maths.sub(z, a)
-      let r = Skee.Maths.sub(q, a)
+      let d = Arcade.Vec2.sub(z, a)
+      let r = Arcade.Vec2.sub(q, a)
       d.x *. r.y -. d.y *. r.x
     end
     end
@@ -2065,15 +2066,15 @@ mod Skee.Scene do
   pfn segment_distance(e : (Vec2, Vec2), q : Vec2) : Float needs () do
     match e do
     (a, z) -> do
-      let d = Skee.Maths.sub(z, a)
-      let len2 = Skee.Maths.dot(d, d)
+      let d = Arcade.Vec2.sub(z, a)
+      let len2 = Arcade.Vec2.dot(d, d)
       let t =
         if len2 == 0.0 do
           0.0
         else
-          Skee.Maths.clamp(Skee.Maths.dot(Skee.Maths.sub(q, a), d) /. len2, 0.0, 1.0)
+          Arcade.Num.clamp(Arcade.Vec2.dot(Arcade.Vec2.sub(q, a), d) /. len2, 0.0, 1.0)
         end
-      Skee.Maths.length(Skee.Maths.sub(q, Skee.Maths.add(a, Skee.Maths.scale(d, t))))
+      Arcade.Vec2.length(Arcade.Vec2.sub(q, Arcade.Vec2.add(a, Arcade.Vec2.scale(d, t))))
     end
     end
   end

@@ -377,7 +377,7 @@ mod SynthSuite do
   end
 
   fn peak_of(xs : List(Float)) : Float do
-    List.fold_left(xs, 0.0, fn (acc, x) -> Skee.Maths.max_float(acc, if x < 0.0 do 0.0 -. x else x end))
+    List.fold_left(xs, 0.0, fn (acc, x) -> Arcade.Num.max_float(acc, if x < 0.0 do 0.0 -. x else x end))
   end
 
   -- A Double total of Float samples: as close as the samples are, relatively.
@@ -388,7 +388,7 @@ mod SynthSuite do
     else
       do
         let d = if got > want do got -. want else want -. got end
-        let scale = Skee.Maths.max_float(1.0, if want < 0.0 do 0.0 -. want else want end)
+        let scale = Arcade.Num.max_float(1.0, if want < 0.0 do 0.0 -. want else want end)
         if d <= tolerance() *. scale do
           Drifted(1, 1, ulps_apart(got, want))
         else
@@ -409,7 +409,7 @@ mod SynthSuite do
     {
       seen: a.seen + b.seen,
       off: a.off + b.off,
-      worst_abs: Skee.Maths.max_float(a.worst_abs, b.worst_abs),
+      worst_abs: Arcade.Num.max_float(a.worst_abs, b.worst_abs),
       worst_ulps: Math.max_int(a.worst_ulps, b.worst_ulps)
     }
   end
@@ -465,7 +465,7 @@ mod SynthSuite do
       {
         seen: g.seen + 1,
         off: g.off + 1,
-        worst_abs: Skee.Maths.max_float(g.worst_abs, abs(x -. want)),
+        worst_abs: Arcade.Num.max_float(g.worst_abs, abs(x -. want)),
         worst_ulps: Math.max_int(g.worst_ulps, ulps_apart(x, want))
       }
     end

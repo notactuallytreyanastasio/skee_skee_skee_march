@@ -6,7 +6,8 @@ mod Skee.Rooms do
   -- everywhere.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
 
   -- Why the host sat down: Haggle.Visit. The rest of Haggle is not ported yet.
   type HostVisit = VisitArrival | VisitNewRoom | VisitReturning
@@ -117,7 +118,7 @@ mod Skee.Rooms do
       { b with ring_walls: walls(0.085, 0.14, 0.2, 0.27), center_hole_offset: vec2(0.0, 0.035), pockets: pockets(0.22, 0.87, 0.033) }
     end
     Penthouse -> do
-      { b with tilt: degrees(k, 24.0), ring_center: vec2(0.0, 0.6), ring_walls: walls(0.11, 0.17, 0.23, 0.3), pockets: pockets(0.19, 0.88, 0.038) }
+      { b with tilt: degrees(k.num, 24.0), ring_center: vec2(0.0, 0.6), ring_walls: walls(0.11, 0.17, 0.23, 0.3), pockets: pockets(0.19, 0.88, 0.038) }
     end
     end
   end

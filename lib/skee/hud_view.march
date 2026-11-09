@@ -407,7 +407,7 @@ mod Skee.HudView do
 
   doc """SwiftUI's CelText: rounded black type, an ink outline and a hard drop."""
   fn cel(text : String, size : Float, fill : Rgba) : Html needs () do
-    let w = Skee.Maths.max_float(1.5, size *. 0.08)
+    let w = Arcade.Num.max_float(1.5, size *. 0.08)
     el("span", "cel", "font-size:" ++ px(size) ++ ";--w:" ++ px(w) ++ ";color:" ++ css(fill), [Words(text)])
   end
 
@@ -560,7 +560,7 @@ mod Skee.HudView do
   end
 
   pfn disc_d(c : Vec2, r0 : Float) : String needs () do
-    let r = Skee.Maths.max_float(0.0, r0)
+    let r = Arcade.Num.max_float(0.0, r0)
     let rr = num(r) ++ " " ++ num(r)
     "M" ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x +. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "Z"
   end
@@ -826,10 +826,10 @@ mod Skee.HudView do
   pfn grow(b : Box, p : (Float, Float)) : Box needs () do
     let (x, y) = p
     {
-      bx0: Skee.Maths.min_float(b.bx0, x),
-      by0: Skee.Maths.min_float(b.by0, y),
-      bx1: Skee.Maths.max_float(b.bx1, x),
-      by1: Skee.Maths.max_float(b.by1, y)
+      bx0: Arcade.Num.min_float(b.bx0, x),
+      by0: Arcade.Num.min_float(b.by0, y),
+      bx1: Arcade.Num.max_float(b.bx1, x),
+      by1: Arcade.Num.max_float(b.by1, y)
     }
   end
 
@@ -865,7 +865,7 @@ mod Skee.HudView do
 
   -- PrizeArt's rect(x, y, w, h, round:): corner radius at most half a side.
   pfn rect(x : Float, y : Float, w : Float, h : Float, round : Float) : List(Seg) needs () do
-    let rr = Skee.Maths.min_float(Skee.Maths.min_float(round, w /. 2.0), h /. 2.0)
+    let rr = Arcade.Num.min_float(Arcade.Num.min_float(round, w /. 2.0), h /. 2.0)
     if rr <= 0.0 do
       [
         SegMove(x, y),
@@ -1458,7 +1458,7 @@ mod Skee.HudView do
   -- The game (HUDView's game branch)
   -- ===================================================================
   pfn progress_track(fraction : Float) : Html needs () do
-    let w = Skee.Maths.max_float(6.0, 150.0 *. Skee.Maths.min_float(1.0, fraction))
+    let w = Arcade.Num.max_float(6.0, 150.0 *. Arcade.Num.min_float(1.0, fraction))
     let fill = if fraction >= 1.0 do mint() else sky() end
     div("track", "", [div("track-fill", "width:" ++ px(w) ++ ";background:" ++ css(fill), [])])
   end
@@ -1923,8 +1923,8 @@ mod Skee.HudView do
 
   pfn popup_view(p : ScreenPopup) : Html needs () do
     let size = if p.screen_kind == PopupJackpot do 44.0 else 30.0 end
-    let scale = 1.0 +. 0.3 *. (1.0 -. Skee.Maths.min_float(1.0, p.screen_age *. 4.0))
-    let o = Skee.Maths.max_float(0.0, 1.0 -. p.screen_age *. p.screen_age)
+    let scale = 1.0 +. 0.3 *. (1.0 -. Arcade.Num.min_float(1.0, p.screen_age *. 4.0))
+    let o = Arcade.Num.max_float(0.0, 1.0 -. p.screen_age *. p.screen_age)
     at(p.at.sx, p.at.sy -. 30.0 -. 50.0 *. p.screen_age, div("", "transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(o), [cel(p.screen_text, size, popup_colour(p.screen_kind))]))
   end
 
@@ -1939,7 +1939,7 @@ mod Skee.HudView do
         let r = 8.0 +. 9.0 *. b
         let turn = Math.abs(Math.cos(t *. (10.0 +. 12.0 *. a) +. c *. 6.0))
         let rx0 = x -. r *. turn
-        let rw = 2.0 *. r *. Skee.Maths.max_float(turn, 0.12)
+        let rw = 2.0 *. r *. Arcade.Num.max_float(turn, 0.12)
         let cx = rx0 +. rw /. 2.0
         [
           ellipse(cx, y, rw /. 2.0 +. 1.5, r +. 1.5, ink()),
@@ -1953,19 +1953,19 @@ mod Skee.HudView do
   end
 
   pfn ellipse(cx : Float, cy : Float, rx : Float, ry : Float, fill : Rgba) : Html needs () do
-    Tag("ellipse", [Prop("cx", num(cx)), Prop("cy", num(cy)), Prop("rx", num(Skee.Maths.max_float(0.0, rx))), Prop("ry", num(Skee.Maths.max_float(0.0, ry))), Prop("fill", css(fill))], [])
+    Tag("ellipse", [Prop("cx", num(cx)), Prop("cy", num(cy)), Prop("rx", num(Arcade.Num.max_float(0.0, rx))), Prop("ry", num(Arcade.Num.max_float(0.0, ry))), Prop("fill", css(fill))], [])
   end
 
   -- CoinRain: seventy coins, a pure function of the shower's progress.
   pfn coin_rain(progress : Float, w : Float, h : Float) : Html needs () do
     let t = 1.0 -. progress
     let coins = List.flat_map(List.range(0, 70), fn i -> coin_mark(t, w, h, i))
-    Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h)), Prop("style", "opacity:" ++ num(Skee.Maths.min_float(1.0, progress *. 3.0)))], coins)
+    Tag("svg", [Prop("class", "fill-svg"), Prop("width", num(w)), Prop("height", num(h)), Prop("viewBox", "0 0 " ++ num(w) ++ " " ++ num(h)), Prop("style", "opacity:" ++ num(Arcade.Num.min_float(1.0, progress *. 3.0)))], coins)
   end
 
   pfn banner_view(b : HudBanner) : Html needs () do
-    let in_a = Skee.Maths.min_float(1.0, b.progress *. 6.0)
-    let out_a = Skee.Maths.min_float(1.0, (1.0 -. b.progress) *. 5.0)
+    let in_a = Arcade.Num.min_float(1.0, b.progress *. 6.0)
+    let out_a = Arcade.Num.min_float(1.0, (1.0 -. b.progress) *. 5.0)
     let scale = 0.6 +. 0.4 *. in_a +. 0.05 *. Math.sin(b.progress *. 20.0)
     let sub =
       if b.sub == "" do
@@ -1973,7 +1973,7 @@ mod Skee.HudView do
       else
         cel(String.to_uppercase(b.sub), 16.0, cream())
       end
-    div("vs", "gap:4px;transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(Skee.Maths.max_float(0.0, Skee.Maths.min_float(in_a, out_a))), [cel(b.title, 52.0, butter()), sub])
+    div("vs", "gap:4px;transform:scale(" ++ num(scale) ++ ");opacity:" ++ num(Arcade.Num.max_float(0.0, Arcade.Num.min_float(in_a, out_a))), [cel(b.title, 52.0, butter()), sub])
   end
 
   pfn fx_pane(a : AppHud, w : Float, h : Float) : Html needs () do
@@ -2138,7 +2138,7 @@ mod Skee.HudView do
   -- still under a dim block.
   pfn coach_shown(c : CoachCard, w : Float, h : Float) : Html needs () do
     let block = if c.coach_needs_tap do div("hud-block dim", "", []) else nothing() end
-    let width = Skee.Maths.min_float(w -. 24.0, 420.0)
+    let width = Arcade.Num.min_float(w -. 24.0, 420.0)
     let place = if c.coach_high do "top:" ++ px(h *. 0.12) else "bottom:14px" end
     div("", "", [block, div("coach-place", place ++ ";width:" ++ px(width) ++ ";left:" ++ px((w -. width) /. 2.0), [coach_view(c)])])
   end

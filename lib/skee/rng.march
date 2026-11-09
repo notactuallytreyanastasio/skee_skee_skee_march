@@ -73,7 +73,7 @@ mod Skee.Rng do
   doc """Gaussian sample (Box-Muller). Used only by bots, never by the game."""
   fn next_gaussian(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
     let (first, r1) = next_unit(k, r)
-    let u1 = Skee.Maths.max_float(first, k.floor_u1)
+    let u1 = Arcade.Num.max_float(first, k.floor_u1)
     let (u2, r2) = next_unit(k, r1)
     (Math.sqrt(-2.0 *. Math.log(u1)) *. Math.cos(k.tau *. u2), r2)
   end

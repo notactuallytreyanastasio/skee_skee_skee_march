@@ -144,7 +144,7 @@ mod Skee.Painter do
     Poly(ps) -> ring(begun, ps)
     Holed(outer, inner) -> ring(ring(begun, outer), inner)
     Polys(rings) -> List.fold_left(rings, begun, ring)
-    Disc(c, r) -> push(begun, CvArc(c.x, c.y, Skee.Maths.max_float(0.0, r), p.sweep))
+    Disc(c, r) -> push(begun, CvArc(c.x, c.y, Arcade.Num.max_float(0.0, r), p.sweep))
     Outline(steps) -> List.fold_left(steps, begun, path_step)
     end
   end

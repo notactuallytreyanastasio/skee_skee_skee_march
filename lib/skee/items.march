@@ -223,7 +223,7 @@ mod Skee.Items do
       let hinge = t.hinge
       { t with lane: { lane with rolling_friction: 0.0 }, hinge: { hinge with carry: 1.04 } }
     end
-    Crosswind -> { t with board: { d with wind: Skee.Maths.vec2(0.4, 0.0) } }
+    Crosswind -> { t with board: { d with wind: Arcade.Vec2.vec2(0.4, 0.0) } }
     TightPockets -> do
       let board =
         { d with center_hole_radius: d.center_hole_radius *. 0.85, pockets: scale_pockets(d.pockets, 0.75) }
@@ -287,7 +287,7 @@ mod Skee.Items do
   end
 
   -- ---- Difficulty ----
-  -- Swift's clamp on Ints. Not Skee.Maths.clamp_int: when hi < lo that one (it is
+  -- Swift's clamp on Ints. Not Arcade.Num.clamp_int: when hi < lo that one (it is
   -- Math.clamp_int) can return lo, where min(max(x, lo), hi) is always hi.
   pfn clamp_swift(x : Int, lo : Int, hi : Int) : { Int | _ <= hi && (hi < lo || _ >= lo) } needs () do
     Math.min_int(Math.max_int(x, lo), hi)

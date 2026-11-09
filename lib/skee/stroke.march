@@ -7,7 +7,7 @@ mod Skee.Stroke do
   -- Swift keeps the last measurement in a global; here `measure_flick` returns it.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
 
   -- What the analyser measured on a flick it accepted.
   type FlickMetrics = {
@@ -41,7 +41,7 @@ mod Skee.Stroke do
 
   doc """The release line for a thumb landing at `touch_x`: the ball sits under it."""
   fn lane_start(k : Skee.Consts.Consts, touch_x : Float, g : FlickGeometry, tn : FlickTuning) : Float needs () do
-    clamp(ieee_div(k, touch_x -. g.lane_center_x, g.lane_half_width) *. tn.line_reach, -1.0, 1.0)
+    clamp(ieee_div(k.num, touch_x -. g.lane_center_x, g.lane_half_width) *. tn.line_reach, -1.0, 1.0)
   end
 
   fn crossed_foul_line(samples : List(FlickSample), g : FlickGeometry) : Bool needs () do
@@ -191,7 +191,7 @@ mod Skee.Stroke do
             let a_up = mean_or_zero(sum_y(a_tail), a_tail)
             let a_side = mean_or_zero(sum_x(a_tail), a_tail)
             let unit_accel = peak /. flick_time
-            let snap = ieee_div(k, a_up, unit_accel)
+            let snap = ieee_div(k.num, a_up, unit_accel)
             let base = tn.release_weight *. release +. (1.0 -. tn.release_weight) *. peak
             let speed =
               base *. (1.0 +. tn.snap_gain *. max_float(-1.5, min_float(1.5, snap)))
@@ -202,12 +202,12 @@ mod Skee.Stroke do
             let to = aim_to(first, samples, top.tt)
             let chord =
               Math.atan2(to.sample_x -. from.sample_x, max_float(from.sample_y -. to.sample_y, 1.0))
-            let aim = ieee_div(k, chord, tn.full_aim_angle)
-            let power = ieee_div(k, speed -. tn.slowest, tn.fastest -. tn.slowest)
+            let aim = ieee_div(k.num, chord, tn.full_aim_angle)
+            let power = ieee_div(k.num, speed -. tn.slowest, tn.fastest -. tn.slowest)
             let l =
               Skee.Physics.launch_of_power(k, power, aim, lane_start(k, first.sample_x, g, tn), fold, 0.0, skid)
             let metrics =
-              some_metrics(peak, release, flick_time, jerk, snap, ieee_div(k, a_side, unit_accel), speed)
+              some_metrics(peak, release, flick_time, jerk, snap, ieee_div(k.num, a_side, unit_accel), speed)
             (Release(l), metrics)
           end
         else

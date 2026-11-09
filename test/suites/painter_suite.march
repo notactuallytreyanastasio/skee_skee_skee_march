@@ -67,7 +67,7 @@ mod PainterSuite do
   end
 
   fn v(x : Float, y : Float) : Arcade.Vec2.Vec2 do
-    Skee.Maths.vec2(x, y)
+    Arcade.Vec2.vec2(x, y)
   end
 
   fn red() : Skee.Scene.Rgba do

@@ -437,7 +437,7 @@ mod Skee.Host do
         let asked = asked_for_perks(h)
         let push = if is_off_topic(r) || !asked do 0 else 1 end
         let patience =
-          Skee.Maths.clamp_int(h.patience - push + Skee.Maths.clamp_int(r.mood, -1, 1), lowest, max_patience())
+          Arcade.Num.clamp_int(h.patience - push + Arcade.Num.clamp_int(r.mood, -1, 1), lowest, max_patience())
         let terms = allowed_offer(h, proposed_of(h, r, asked))
         let line = { speaker: SpeakerHost, line_text: r.say, line_reply: Some(r) }
         let heard =

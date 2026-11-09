@@ -9,7 +9,8 @@ mod Skee.Camera do
   -- times the viewport size.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
   import Skee.World
 
   -- A look-at camera: vertical field of view in degrees. Up is always +y.
@@ -93,8 +94,9 @@ mod Skee.Camera do
   with y down. A point at zero depth goes to infinity, as in Swift.
   """
   fn fraction_of_seen(k : Skee.Consts.Consts, l : Lens, s : Seen) : Vec2 needs () do
-    let x = (ieee_div(k, s.across, s.depth *. l.tan_half *. l.aspect) +. 1.0) /. 2.0
-    let y = (1.0 -. ieee_div(k, s.rise, s.depth *. l.tan_half)) /. 2.0
+    let x =
+      (ieee_div(k.num, s.across, s.depth *. l.tan_half *. l.aspect) +. 1.0) /. 2.0
+    let y = (1.0 -. ieee_div(k.num, s.rise, s.depth *. l.tan_half)) /. 2.0
     vec2(x, y)
   end
 
@@ -210,7 +212,7 @@ mod Skee.Camera do
   end
 
   pfn screen_y(k : Skee.Consts.Consts, rise : Float, depth : Float, t : Float) : Float needs () do
-    (1.0 -. ieee_div(k, rise, depth *. t)) /. 2.0
+    (1.0 -. ieee_div(k.num, rise, depth *. t)) /. 2.0
   end
 
   pfn fit_error(k : Skee.Consts.Consts, s : Sighting, t : Float, fov : Float) : Float needs () do

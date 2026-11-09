@@ -62,7 +62,7 @@ mod RngSuite do
   fn clamp_row(row : List(String)) : Outcome do
     match row do
     Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> do
-      GoldenIo.expect_float(Skee.Maths.clamp(f(x), f(lo), f(hi)), want, "clamp " ++ x)
+      GoldenIo.expect_float(Arcade.Num.clamp(f(x), f(lo), f(hi)), want, "clamp " ++ x)
     end
     _ -> Mismatch("bad clamp row")
     end
@@ -71,7 +71,7 @@ mod RngSuite do
   fn clamp_int_row(row : List(String)) : Outcome do
     let n = List.map(row, GoldenIo.int)
     match n do
-    Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> expect_int(Skee.Maths.clamp_int(x, lo, hi), want, "clamp_int")
+    Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> expect_int(Arcade.Num.clamp_int(x, lo, hi), want, "clamp_int")
     _ -> Mismatch("bad clampi row")
     end
   end
@@ -79,7 +79,7 @@ mod RngSuite do
   fn degrees_row(row : List(String)) : Outcome do
     match row do
     Cons(d, Cons(want, Nil)) -> do
-      GoldenIo.expect_float(Skee.Maths.degrees(Skee.Consts.make(), f(d)), want, "degrees " ++ d)
+      GoldenIo.expect_float(Arcade.Num.degrees(Arcade.Numerics.make(), f(d)), want, "degrees " ++ d)
     end
     _ -> Mismatch("bad deg row")
     end
@@ -92,19 +92,19 @@ mod RngSuite do
   fn vec_row(row : List(String)) : Outcome do
     match row do
     Cons(ax, Cons(ay, Cons(cx, Cons(cy, Cons(k, Cons(sx, Cons(sy, Cons(dx, Cons(dy, Cons(mx, Cons(my, Cons(nx, Cons(ny, Cons(dot, Cons(len, Cons(ux, Cons(uy, Nil))))))))))))))))) -> do
-      let a = Skee.Maths.vec2(f(ax), f(ay))
-      let c = Skee.Maths.vec2(f(cx), f(cy))
-      all([expect_vec(Skee.Maths.add(a, c), sx, sy, "add"), expect_vec(Skee.Maths.sub(a, c), dx, dy, "sub"), expect_vec(Skee.Maths.scale(a, f(k)), mx, my, "scale"), expect_vec(Skee.Maths.neg(a), nx, ny, "neg"), GoldenIo.expect_float(Skee.Maths.dot(a, c), dot, "dot"), GoldenIo.expect_float(Skee.Maths.length(a), len, "length"), expect_vec(Skee.Maths.normalized(a), ux, uy, "normalized")])
+      let a = Arcade.Vec2.vec2(f(ax), f(ay))
+      let c = Arcade.Vec2.vec2(f(cx), f(cy))
+      all([expect_vec(Arcade.Vec2.add(a, c), sx, sy, "add"), expect_vec(Arcade.Vec2.sub(a, c), dx, dy, "sub"), expect_vec(Arcade.Vec2.scale(a, f(k)), mx, my, "scale"), expect_vec(Arcade.Vec2.neg(a), nx, ny, "neg"), GoldenIo.expect_float(Arcade.Vec2.dot(a, c), dot, "dot"), GoldenIo.expect_float(Arcade.Vec2.length(a), len, "length"), expect_vec(Arcade.Vec2.normalized(a), ux, uy, "normalized")])
     end
     _ -> Mismatch("bad vec row")
     end
   end
 
   fn vec_zero() : Outcome do
-    let z = Skee.Maths.zero()
+    let z = Arcade.Vec2.zero()
     match kind("veczero") do
     Cons(Cons(nx, Cons(ny, Cons(len, Nil))), Nil) -> do
-      all([expect_vec(Skee.Maths.normalized(z), nx, ny, "zero.normalized"), GoldenIo.expect_float(Skee.Maths.length(z), len, "zero.length")])
+      all([expect_vec(Arcade.Vec2.normalized(z), nx, ny, "zero.normalized"), GoldenIo.expect_float(Arcade.Vec2.length(z), len, "zero.length")])
     end
     _ -> Mismatch("expected one veczero row")
     end
@@ -112,8 +112,8 @@ mod RngSuite do
 
   fn vec_examples() : Outcome do
     let v =
-      Skee.Maths.add(Skee.Maths.vec2(1.0, 2.0), Skee.Maths.vec2(3.0, 0.0 -. 1.0))
-    all([expect(Skee.Maths.equal(v, Skee.Maths.vec2(4.0, 1.0)), "add and scale: sum"), expect(Skee.Maths.equal(Skee.Maths.scale(v, 2.0), Skee.Maths.vec2(8.0, 2.0)), "add and scale: product"), expect(Skee.Maths.length(Skee.Maths.vec2(3.0, 4.0)) == 5.0, "length of 3,4"), expect(Skee.Maths.dot(Skee.Maths.vec2(1.0, 0.0), Skee.Maths.vec2(0.0, 1.0)) == 0.0, "perpendicular dot"), expect(Skee.Maths.equal(Skee.Maths.normalized(Skee.Maths.vec2(3.0, 4.0)), Skee.Maths.vec2(0.6, 0.8)), "normalized 3,4")])
+      Arcade.Vec2.add(Arcade.Vec2.vec2(1.0, 2.0), Arcade.Vec2.vec2(3.0, 0.0 -. 1.0))
+    all([expect(Arcade.Vec2.equal(v, Arcade.Vec2.vec2(4.0, 1.0)), "add and scale: sum"), expect(Arcade.Vec2.equal(Arcade.Vec2.scale(v, 2.0), Arcade.Vec2.vec2(8.0, 2.0)), "add and scale: product"), expect(Arcade.Vec2.length(Arcade.Vec2.vec2(3.0, 4.0)) == 5.0, "length of 3,4"), expect(Arcade.Vec2.dot(Arcade.Vec2.vec2(1.0, 0.0), Arcade.Vec2.vec2(0.0, 1.0)) == 0.0, "perpendicular dot"), expect(Arcade.Vec2.equal(Arcade.Vec2.normalized(Arcade.Vec2.vec2(3.0, 4.0)), Arcade.Vec2.vec2(0.6, 0.8)), "normalized 3,4")])
   end
 
   -- Replay one kind of row in file order. Rows of one seed are contiguous, and
@@ -258,7 +258,7 @@ mod RngSuite do
   fn div_row(row : List(String)) : Outcome do
     match row do
     Cons(a, Cons(b, Cons(want, Nil))) -> do
-      GoldenIo.expect_float(Skee.Maths.ieee_div(Skee.Consts.make(), f(a), f(b)), want, "div " ++ a ++ " " ++ b)
+      GoldenIo.expect_float(Arcade.Num.ieee_div(Arcade.Numerics.make(), f(a), f(b)), want, "div " ++ a ++ " " ++ b)
     end
     _ -> Mismatch("bad div row")
     end
@@ -267,7 +267,7 @@ mod RngSuite do
   fn clamp_nan() : Outcome do
     match kind("clampnan") do
     Cons(Cons(want, Nil), Nil) -> do
-      GoldenIo.expect_float(Skee.Maths.clamp(Math.sqrt(0.0 -. 1.0), 0.0, 1.0), want, "clamp nan")
+      GoldenIo.expect_float(Arcade.Num.clamp(Math.sqrt(0.0 -. 1.0), 0.0, 1.0), want, "clamp nan")
     end
     _ -> Mismatch("expected one clampnan row")
     end

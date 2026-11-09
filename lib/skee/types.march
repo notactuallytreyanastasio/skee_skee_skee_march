@@ -21,7 +21,8 @@ mod Skee.Types do
   -- name, so a bare constructor always means one thing.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
 
   -- ---- Containers ----
   -- Exactly three of something: the three reels.
@@ -714,28 +715,32 @@ mod Skee.Types do
     {
       length: 2.4,
       width: 0.62,
-      incline: degrees(k, 6.0),
+      incline: degrees(k.num, 6.0),
       rolling_friction: 0.02,
       rail_restitution: 0.6,
       min_speed: 2.0,
       scoring_speed: 3.0,
       max_speed: 4.5,
       knee: 0.12,
-      max_aim_angle: degrees(k, 8.0),
+      max_aim_angle: degrees(k.num, 8.0),
       hook: 0.35,
       skid_loss: 0.12
     }
   end
 
   fn standard_hinge(k : Skee.Consts.Consts) : HingeSpec needs () do
-    { base_angle: degrees(k, 45.0), fold_gain: degrees(k, 20.0), carry: 1.0 }
+    {
+      base_angle: degrees(k.num, 45.0),
+      fold_gain: degrees(k.num, 20.0),
+      carry: 1.0
+    }
   end
 
   fn standard_board(k : Skee.Consts.Consts) : BoardSpec needs () do
     {
       board_width: 0.62,
       board_height: 1.0,
-      tilt: degrees(k, 20.0),
+      tilt: degrees(k.num, 20.0),
       ring_center: vec2(0.0, 0.58),
       center_hole_offset: vec2(0.0, 0.04),
       center_hole_radius: 0.03,

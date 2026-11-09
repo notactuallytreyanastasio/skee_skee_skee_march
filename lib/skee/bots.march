@@ -174,7 +174,7 @@ mod Skee.Bots do
   end
 
   pfn same_pocket(a : Pocket, b : Pocket) : Bool needs () do
-    a.pocket_hole == b.pocket_hole && Skee.Maths.equal(a.center, b.center) && a.radius == b.radius
+    a.pocket_hole == b.pocket_hole && Arcade.Vec2.equal(a.center, b.center) && a.radius == b.radius
   end
 
   pfn same_walls(a : RingWalls, b : RingWalls) : Bool needs () do
@@ -182,7 +182,7 @@ mod Skee.Bots do
   end
 
   pfn same_board(a : BoardSpec, b : BoardSpec) : Bool needs () do
-    a.board_width == b.board_width && a.board_height == b.board_height && a.tilt == b.tilt && Skee.Maths.equal(a.ring_center, b.ring_center) && Skee.Maths.equal(a.center_hole_offset, b.center_hole_offset) && a.center_hole_radius == b.center_hole_radius && a.capture_speed == b.capture_speed && a.pockets_need_flight == b.pockets_need_flight && a.lip_min_fall == b.lip_min_fall && same_walls(a.ring_walls, b.ring_walls) && same_pocket(a.pockets.left, b.pockets.left) && same_pocket(a.pockets.right, b.pockets.right) && a.lip_height == b.lip_height && a.ball_radius == b.ball_radius && a.lip_band == b.lip_band && a.bounce == b.bounce && a.lip_bounce == b.lip_bounce && a.lip_kick == b.lip_kick && a.wall_restitution == b.wall_restitution && a.backwall_restitution == b.backwall_restitution && a.board_rolling_friction == b.board_rolling_friction && a.landing_grip == b.landing_grip && Skee.Maths.equal(a.wind, b.wind) && a.ring_hole_radius == b.ring_hole_radius
+    a.board_width == b.board_width && a.board_height == b.board_height && a.tilt == b.tilt && Arcade.Vec2.equal(a.ring_center, b.ring_center) && Arcade.Vec2.equal(a.center_hole_offset, b.center_hole_offset) && a.center_hole_radius == b.center_hole_radius && a.capture_speed == b.capture_speed && a.pockets_need_flight == b.pockets_need_flight && a.lip_min_fall == b.lip_min_fall && same_walls(a.ring_walls, b.ring_walls) && same_pocket(a.pockets.left, b.pockets.left) && same_pocket(a.pockets.right, b.pockets.right) && a.lip_height == b.lip_height && a.ball_radius == b.ball_radius && a.lip_band == b.lip_band && a.bounce == b.bounce && a.lip_bounce == b.lip_bounce && a.lip_kick == b.lip_kick && a.wall_restitution == b.wall_restitution && a.backwall_restitution == b.backwall_restitution && a.board_rolling_friction == b.board_rolling_friction && a.landing_grip == b.landing_grip && Arcade.Vec2.equal(a.wind, b.wind) && a.ring_hole_radius == b.ring_hole_radius
   end
 
   pfn same_table(a : Table, b : Table) : Bool needs () do

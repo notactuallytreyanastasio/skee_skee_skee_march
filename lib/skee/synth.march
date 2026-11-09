@@ -218,7 +218,7 @@ mod Skee.Synth do
       wave: w,
       freq: f32(c, f),
       freq_end: f32(c, to),
-      glide_floor: Skee.Maths.max_float(f32(c, glide), c.min_glide),
+      glide_floor: Arcade.Num.max_float(f32(c, glide), c.min_glide),
       amp: f32(c, amp),
       decay: d,
       life: f32(c, d *. 6.0),
@@ -518,11 +518,11 @@ mod Skee.Synth do
   -- One voice for one sample, in Swift's order of operations.
   pfn sound_voice(c : SynthConsts, v : SynthVoice, m : Mix) : Mix needs () do
     let f =
-      f32(c, v.freq +. f32(c, f32(c, v.freq_end -. v.freq) *. Skee.Maths.min_float(1.0, f32(c, v.t /. v.glide_floor))))
+      f32(c, v.freq +. f32(c, f32(c, v.freq_end -. v.freq) *. Arcade.Num.min_float(1.0, f32(c, v.t /. v.glide_floor))))
     let stepped = f32(c, v.phase +. f32(c, f *. c.dt))
     let phase = if stepped > 1.0 do f32(c, stepped -. 1.0) else stepped end
     let (osc, seed) = oscillate(c, v.wave, phase, m.mix_seed)
-    let attack = Skee.Maths.min_float(1.0, f32(c, v.t /. c.attack_time))
+    let attack = Arcade.Num.min_float(1.0, f32(c, v.t /. c.attack_time))
     let envelope = expf(c, f32(c, (0.0 -. v.t) /. v.decay))
     let level =
       f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
@@ -585,7 +585,7 @@ mod Skee.Synth do
     let level = plus_zero(f32(c, f32(c, lowpass *. rumble) *. c.rumble_gain))
     let drummed = drum_roll({ s with rumble: rumble, lowpass: lowpass, seed: seed })
     let m = mix_voices(c, drummed.voices, { level: level, mix_seed: seed, kept: [] })
-    let out = Skee.Maths.max_float(-1.0, Skee.Maths.min_float(1.0, m.level))
+    let out = Arcade.Num.max_float(-1.0, Arcade.Num.min_float(1.0, m.level))
     (out, { drummed with seed: m.mix_seed, voices: List.reverse(m.kept) })
   end
 

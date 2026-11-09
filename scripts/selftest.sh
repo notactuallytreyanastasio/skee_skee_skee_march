@@ -161,7 +161,7 @@ mkdir -p "$work/arcade/web"
 printf '// glue for the skee shell\nexport const x = 1;\n' >"$work/arcade/web/arcade_glue.mjs"
 expect_red "engine: skee in arcade .mjs glue" core
 reset
-printf 'mod Skee.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    Skee.Maths.clamp_int(1, 0, 2)\n  end\nend\n' >"$work/lib/skee/planted.march"
+printf 'mod Skee.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    Skee.Units.chips_int(Chips(1))\n  end\nend\n' >"$work/lib/skee/planted.march"
 expect_green "engine: Skee. outside the engine is fine" core
 
 echo "== test runners"

@@ -4,15 +4,16 @@ mod Skee.Physics do
   -- Launch on the same Table and seed always gives the same ShotResult.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
   import Skee.Types
 
   doc """Ball speed for a power, up the curve with its knee at `lane.knee`."""
   fn release_speed(k : Skee.Consts.Consts, lane : LaneSpec, power : Float) : Float needs () do
     if power < lane.knee do
-      lane.min_speed +. ieee_div(k, power, lane.knee) *. (lane.scoring_speed -. lane.min_speed)
+      lane.min_speed +. ieee_div(k.num, power, lane.knee) *. (lane.scoring_speed -. lane.min_speed)
     else
-      lane.scoring_speed +. ieee_div(k, power -. lane.knee, 1.0 -. lane.knee) *. (lane.max_speed -. lane.scoring_speed)
+      lane.scoring_speed +. ieee_div(k.num, power -. lane.knee, 1.0 -. lane.knee) *. (lane.max_speed -. lane.scoring_speed)
     end
   end
 
@@ -20,9 +21,9 @@ mod Skee.Physics do
   fn power_for_speed(k : Skee.Consts.Consts, lane : LaneSpec, v : Float) : Float needs () do
     let p =
       if v < lane.scoring_speed do
-        ieee_div(k, v -. lane.min_speed, lane.scoring_speed -. lane.min_speed) *. lane.knee
+        ieee_div(k.num, v -. lane.min_speed, lane.scoring_speed -. lane.min_speed) *. lane.knee
       else
-        lane.knee +. ieee_div(k, v -. lane.scoring_speed, lane.max_speed -. lane.scoring_speed) *. (1.0 -. lane.knee)
+        lane.knee +. ieee_div(k.num, v -. lane.scoring_speed, lane.max_speed -. lane.scoring_speed) *. (1.0 -. lane.knee)
       end
     clamp(p, 0.0, 1.0)
   end

@@ -12,7 +12,8 @@ mod Skee.World do
   -- The scene suite compares against Swift with a stated tolerance.
   cap pure
 
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
 
   -- The drawing constants of World.swift, with the sines and cosines of the
   -- two angles worked out once, since every mapping needs them.
@@ -71,7 +72,7 @@ mod Skee.World do
 
   doc """World(table:) with World.swift's defaults."""
   fn make(k : Skee.Consts.Consts, t : Table) : World needs () do
-    let tilt = degrees(k, 50.0)
+    let tilt = degrees(k.num, 50.0)
     let incline = t.lane.incline
     {
       table: t,

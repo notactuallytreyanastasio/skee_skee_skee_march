@@ -5,7 +5,8 @@ mod SceneSuite do
   -- Float and this port in 64-bit, so values are compared within a tolerance
   -- stated next to each reader, and the worst measured error is printed.
   import Harness
-  import Skee.Maths
+  import Arcade.Num
+  import Arcade.Vec2
   import Skee.World
 
   fn rows(kind : String) : List(List(String)) do

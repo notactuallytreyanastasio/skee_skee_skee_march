@@ -294,13 +294,13 @@ mod Skee.App do
     CueLip -> Some(HapticImpact(ImpactLight, 0.8))
     CueDrop(h) -> do
       let face = int_to_float(Skee.Physics.face_value(h))
-      Some(HapticImpact(ImpactHeavy, Skee.Maths.min_float(1.0, 0.45 +. face /. 110.0)))
+      Some(HapticImpact(ImpactHeavy, Arcade.Num.min_float(1.0, 0.45 +. face /. 110.0)))
     end
     CueReelStop -> Some(HapticImpact(ImpactLight, 0.4))
     CueLever -> Some(HapticImpact(ImpactHeavy, 0.8))
     CuePullWin(_) -> Some(HapticImpact(ImpactRigid, 0.9))
     CueCombo(n) -> do
-      Some(HapticImpact(ImpactRigid, Skee.Maths.min_float(1.0, 0.5 +. int_to_float(n) *. 0.1)))
+      Some(HapticImpact(ImpactRigid, Arcade.Num.min_float(1.0, 0.5 +. int_to_float(n) *. 0.1)))
     end
     CueLaunch -> None
     CueRail -> None
@@ -828,7 +828,7 @@ mod Skee.App do
       None -> now
       end
     let dt =
-      Skee.Maths.min_float(longest_frame(), Skee.Maths.max_float(0.0, now -. last))
+      Arcade.Num.min_float(longest_frame(), Arcade.Num.max_float(0.0, now -. last))
     let p = Skee.Presentation.advance(m.k, m.pres, dt)
     let stepped = { m with pres: p, last_render: Some(now), now: now }
     let felt = List.fold_left(p.finished, stepped, beat_effects)
@@ -931,7 +931,7 @@ mod Skee.App do
     let speed =
       Math.abs(b.along -. l.mark_along) /. (now -. l.mark_t) *. Skee.Presentation.roll_speed()
     let on_ = if busy(m) do 1.0 else 0.0 end
-    let level = Skee.Maths.min_float(1.0, speed /. 4.0) *. on_
+    let level = Arcade.Num.min_float(1.0, speed /. 4.0) *. on_
     buzz_to(set_rumble(m, level), level *. phase_share(b))
   end
 
@@ -1036,7 +1036,7 @@ mod Skee.App do
   -- selected offer there. The selection goes either way.
   pfn tap_board(m0 : Model, sel : Int, s : FlickSample) : Model needs () do
     let m = { m0 with selected_offer: None }
-    match Skee.Camera.tapped_hole(m.k, m.world, m.rig, m.viewport, Skee.Maths.vec2(s.sample_x, s.sample_y)) do
+    match Skee.Camera.tapped_hole(m.k, m.world, m.rig, m.viewport, Arcade.Vec2.vec2(s.sample_x, s.sample_y)) do
     Some(h) -> send_action(m, Buy(sel, Some(h)))
     None -> touch_began(m, s)
     end

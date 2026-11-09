@@ -34,7 +34,6 @@ foundation: ask before changing it.
 | `Arcade.Numerics` | `../arcade/numerics.march` | Engine Float constants (`Numerics`), `float_of_text` |
 | `Arcade.Num` | `../arcade/num.march` | Swift-tie max/min, NaN-keeping clamp, clamp_int, `ieee_div`, degrees, is_negative |
 | `Arcade.Vec2`, `Arcade.Vec3` | `../arcade/vec2.march`, `vec3.march` | The `Vec2` and `Vec3` types and their algebra |
-| `Skee.Maths` | `maths.march` | Forwarders to `Arcade.Num` and `Arcade.Vec2` (until call sites migrate) |
 | `Skee.Rng` | `rng.march` | SplitMix64 |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
@@ -78,7 +77,7 @@ and fails `make check`. Tell the coordinator when you add one.
 Modules may not depend in a cycle, so Swift's mutual references are split:
 
 ```
-Numerics <- Consts, U64, Num, Vec2, Vec3 <- Maths, Rng <- Types <- Units, HoleMap
+Numerics <- Consts, U64, Num, Vec2, Vec3 <- Rng <- Types <- Units, HoleMap
   <- Items <- Rooms <- Physics, Scoring <- Reducer <- Bots
 ```
 
@@ -793,7 +792,7 @@ arcade/examples/putt/      the second game
 - Annotate every signature. Match exhaustively, listing constructors: a missing
   constructor is only a warning, which `make check` turns into a failure.
 - Same rules, constants, numbers and RNG call order as the Swift. Where Swift's
-  `max`, `min` or `clamp` is used, use `Skee.Maths`: argument order decides ties.
+  `max`, `min` or `clamp` is used, use `Arcade.Num`: argument order decides ties.
 - A pure function that draws takes the `Rng` and returns `(value, Rng)`.
 - No `panic` in the core. Swift's `precondition` becomes a refinement or a Result.
 
@@ -990,7 +989,7 @@ core. Only the first can reach zero, and only through the shell's geometry.
 
 | Swift | Divisor | Handling |
 |---|---|---|
-| `Input/Stroke.swift:82` | `g.laneHalfWidth` | Shell input. Use `Skee.Maths.ieee_div` |
+| `Input/Stroke.swift:82` | `g.laneHalfWidth` | Shell input. Use `Arcade.Num.ieee_div` |
 | `Input/Stroke.swift:100, 131` | `dt`, `den` | Guarded by `> 0` in Swift. Port the guard |
 | `Input/Stroke.swift:139, 142, 147, 150` | `T`, `unitAccel`, `peak` | `T >= 0.03`, `peak > 150` by earlier guards |
 | `Input/Stroke.swift:157, 160` | `fullAimAngle`, `fastest - slowest` | Tuning constants, non-zero |

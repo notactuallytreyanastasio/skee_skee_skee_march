@@ -734,7 +734,7 @@ mod ReducerSuite do
   fn clamp_row(row : List(String)) : Outcome do
     match List.map(row, GoldenIo.int) do
     Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> do
-      expect_int(Skee.Maths.clamp_int(x, lo, hi), want, "clamp_int " ++ String.join(row, " "))
+      expect_int(Arcade.Num.clamp_int(x, lo, hi), want, "clamp_int " ++ String.join(row, " "))
     end
     _ -> Mismatch("bad clampi row")
     end

@@ -789,7 +789,7 @@ mod ItemsSuite do
     match aims do
     Nil -> best
     Cons(aim, rest) -> do
-      let found = Skee.Maths.max_float(best, int_to_float(hits_at(k, t, aim)) /. 400.0)
+      let found = Arcade.Num.max_float(best, int_to_float(hits_at(k, t, aim)) /. 400.0)
       if found >= 0.015 do found else best_window(k, t, rest, found) end
     end
     end
