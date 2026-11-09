@@ -793,7 +793,7 @@ mod PhysicsSuite do
 
   fn bulk_of(compared : Int, parted_shots : Int) : BulkRun do
     {
-      rng_now: Skee.Rng.seed(Arcade.U64.make(0, 0)),
+      rng_now: Arcade.Rng.seed(Arcade.U64.make(0, 0)),
       position: 0,
       compared: compared,
       parted: parted_shots,
@@ -839,19 +839,19 @@ mod PhysicsSuite do
   end
 
   -- ---- BulkRun ----
-  fn draw(k : Skee.Consts.Consts, r : Skee.Rng.Rng, lo : Float, hi : Float) : (Float, Skee.Rng.Rng) do
-    let (u, next) = Skee.Rng.next_unit(k, r)
+  fn draw(k : Skee.Consts.Consts, r : Arcade.Rng.Rng, lo : Float, hi : Float) : (Float, Arcade.Rng.Rng) do
+    let (u, next) = Arcade.Rng.next_unit(k.num, r)
     (lo +. u *. (hi -. lo), next)
   end
 
-  fn bulk_shot(k : Skee.Consts.Consts, tables : List(Table), combo : List(String), r0 : Skee.Rng.Rng) : (String, Skee.Rng.Rng) do
+  fn bulk_shot(k : Skee.Consts.Consts, tables : List(Table), combo : List(String), r0 : Arcade.Rng.Rng) : (String, Arcade.Rng.Rng) do
     let (power, r1) = draw(k, r0, 0.3, 0.95)
     let (aim, r2) = draw(k, r1, -0.5, 0.5)
     let (start, r3) = draw(k, r2, -1.0, 1.0)
     let (fold, r4) = draw(k, r3, 0.0, 1.0)
     let (spin, r5) = draw(k, r4, -1.0, 1.0)
     let (skid, r6) = draw(k, r5, 0.0, 1.0)
-    let (seed, r7) = Skee.Rng.next(r6)
+    let (seed, r7) = Arcade.Rng.next(r6)
     let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
     let res =
       Skee.Physics.simulate_shot(k, l, table_at(tables, token(combo, 0)), ball_of(token(combo, 1)), seed)
@@ -861,7 +861,7 @@ mod PhysicsSuite do
   -- `parted` have a cause, as for a shot: V8's libm, or a pair plain sin and cos do
   -- not reproduce. `differing` have none.
   type BulkRun = {
-    rng_now : Skee.Rng.Rng,
+    rng_now : Arcade.Rng.Rng,
     position : Int,
     compared : Int,
     parted : Int,
@@ -894,7 +894,7 @@ mod PhysicsSuite do
       List.map(GoldenIo.of_kind(rows, "bulkpair"), fn row -> GoldenIo.int(token(row, 0)))
     let start =
       {
-        rng_now: Skee.Rng.seed(GoldenIo.u64(seed)),
+        rng_now: Arcade.Rng.seed(GoldenIo.u64(seed)),
         position: 0,
         compared: 0,
         parted: 0,

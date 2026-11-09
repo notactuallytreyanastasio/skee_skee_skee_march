@@ -457,9 +457,9 @@ mod ScoringSuite do
     match row do
     Cons(room, Cons(bet, Cons(free, Cons(before, Cons(after, Cons(stops, Cons(grid_token, Cons(centre_token, Cons(targets_token, Cons(active, Cons(wins, Cons(chips, Cons(scattered, Cons(trigger, Cons(tier, Nil))))))))))))))) -> do
       let (p, rng) =
-        spin(Skee.Rng.seed(GoldenIo.u64(before)), bet_of(bet), free == "1", room_of(room))
+        spin(Arcade.Rng.seed(GoldenIo.u64(before)), bet_of(bet), free == "1", room_of(room))
       let rows_shown = List.flat_map(three_list(grid(p)), three_list)
-      all([GoldenIo.expect_u64(Skee.Rng.word(rng), after, "rng after"), expect_string(comma(List.map(three_list(p.stops), int_to_string)), stops, "stops"), expect_string(comma(List.map(rows_shown, reel_name)), grid_token, "grid"), expect_string(reel_three(centre(p)), centre_token, "centre"), expect_string(comma(List.map(three_list(targets(p)), symbol_name)), targets_token, "targets"), expect_string(comma(List.map(active_lines(p), int_to_string)), active, "active lines"), expect_string(wins_token(line_wins(p)), wins, "wins"), expect_int(Skee.Units.chips_int(line_chips(p)), GoldenIo.int(chips), "line chips"), expect_int(scatters(p), GoldenIo.int(scattered), "scatters"), expect_string(bit(triggers_free_games(p)), trigger, "trigger"), expect_string(tier_token(jackpot(p)), tier, "jackpot")])
+      all([GoldenIo.expect_u64(Arcade.Rng.word(rng), after, "rng after"), expect_string(comma(List.map(three_list(p.stops), int_to_string)), stops, "stops"), expect_string(comma(List.map(rows_shown, reel_name)), grid_token, "grid"), expect_string(reel_three(centre(p)), centre_token, "centre"), expect_string(comma(List.map(three_list(targets(p)), symbol_name)), targets_token, "targets"), expect_string(comma(List.map(active_lines(p), int_to_string)), active, "active lines"), expect_string(wins_token(line_wins(p)), wins, "wins"), expect_int(Skee.Units.chips_int(line_chips(p)), GoldenIo.int(chips), "line chips"), expect_int(scatters(p), GoldenIo.int(scattered), "scatters"), expect_string(bit(triggers_free_games(p)), trigger, "trigger"), expect_string(tier_token(jackpot(p)), tier, "jackpot")])
     end
     _ -> Mismatch("bad pull row")
     end

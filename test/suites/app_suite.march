@@ -237,7 +237,7 @@ mod AppSuite do
   end
 
   fn same_run(a : RunState, b : RunState) : Bool do
-    Arcade.U64.equal(Skee.Rng.word(a.rng), Skee.Rng.word(b.rng)) && RunDigest.run(a) == RunDigest.run(b)
+    Arcade.U64.equal(Arcade.Rng.word(a.rng), Arcade.Rng.word(b.rng)) && RunDigest.run(a) == RunDigest.run(b)
   end
 
   fn has_pull(m : Skee.App.Model) : Bool do

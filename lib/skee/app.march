@@ -182,7 +182,7 @@ mod Skee.App do
     rumble_sent : Float,
     drum_sent : Bool,
     buzz : Option(Float),
-    seeds : Skee.Rng.Rng,
+    seeds : Arcade.Rng.Rng,
     out : List(Effect)
   }
 
@@ -688,13 +688,13 @@ mod Skee.App do
     carry_walk_done : Bool,
     carry_arrival_done : Bool,
     carry_viewport : Skee.Camera.Viewport,
-    carry_seeds : Skee.Rng.Rng,
+    carry_seeds : Arcade.Rng.Rng,
     carry_now : Float
   }
 
   -- GameModel.init(fresh:toGame:).
   pfn build(k : Skee.Consts.Consts, c : Carry, saved_run : Option(String), fresh : Bool, to_game : Bool) : Model needs () do
-    let (seed, seeds) = Skee.Rng.next(c.carry_seeds)
+    let (seed, seeds) = Arcade.Rng.next(c.carry_seeds)
     let o = resumed(k, saved_run, c.carry_wallet, seed, fresh)
     let room = o.open_wallet.wallet_room
     let world = Skee.World.make(k, Skee.Rooms.table(k, room))
@@ -770,7 +770,7 @@ mod Skee.App do
         carry_walk_done: Skee.Save.load_flag(saved.saved_walk_done),
         carry_arrival_done: Skee.Save.load_flag(saved.saved_arrival_done),
         carry_viewport: Skee.Camera.viewport(width, height),
-        carry_seeds: Skee.Rng.seed(seed),
+        carry_seeds: Arcade.Rng.seed(seed),
         carry_now: 0.0
       }
     flush(build(k, carry, saved.saved_run, false, false))
@@ -1307,7 +1307,7 @@ mod Skee.App do
 
   doc """GameModel.newGame: check in, start a run and save both."""
   fn new_game(m : Model) : Model needs () do
-    let (seed, seeds) = Skee.Rng.next(m.seeds)
+    let (seed, seeds) = Arcade.Rng.next(m.seeds)
     let started = Skee.Save.start_run(m.k, m.wallet, seed)
     let next =
       { m with seeds: seeds, run_seed: seed, actions_rev: [], extra: extra_of_file(started.started_file), wallet: started.started_wallet, run: started.started_run, selected_offer: None, selected_charm: None, screen: GameScreen }

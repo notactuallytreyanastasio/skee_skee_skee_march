@@ -116,9 +116,9 @@ mod Skee.Bots do
   end
 
   doc """A shaky hand on a launch: Gaussian noise on power, then on aim."""
-  fn perturb(k : Skee.Consts.Consts, skill : Skill, l : Launch, rng : Skee.Rng.Rng) : (Launch, Skee.Rng.Rng) needs () do
-    let (g1, r1) = Skee.Rng.next_gaussian(k, rng)
-    let (g2, r2) = Skee.Rng.next_gaussian(k, r1)
+  fn perturb(k : Skee.Consts.Consts, skill : Skill, l : Launch, rng : Arcade.Rng.Rng) : (Launch, Arcade.Rng.Rng) needs () do
+    let (g1, r1) = Arcade.Rng.next_gaussian(k.num, rng)
+    let (g2, r2) = Arcade.Rng.next_gaussian(k.num, r1)
     let shaken =
       Skee.Physics.launch_of_power(k, l.power +. g1 *. skill.power_sigma, l.aim +. g2 *. skill.aim_sigma, l.start, l.fold, 0.0, 0.0)
     (shaken, r2)
@@ -126,7 +126,7 @@ mod Skee.Bots do
 
   -- ---- Landing rates ----
   -- One hole's shots: where they landed, as a share per landing hole.
-  pfn spread_of(k : Skee.Consts.Consts, w : Window, table : Table, skill : Skill, ball : BallKind, rng : Skee.Rng.Rng) : (PerHole(Float), Skee.Rng.Rng) needs () do
+  pfn spread_of(k : Skee.Consts.Consts, w : Window, table : Table, skill : Skill, ball : BallKind, rng : Arcade.Rng.Rng) : (PerHole(Float), Arcade.Rng.Rng) needs () do
     let samples = 64
     let share = 1.0 /. int_to_float(samples)
     List.fold_left(List.range(0, samples), (Skee.HoleMap.fill(0.0), rng), fn (held, i) ->
@@ -143,7 +143,7 @@ mod Skee.Bots do
   order because the rng is shared.
   """
   fn landings(k : Skee.Consts.Consts, book : AimBook, table : Table, skill : Skill, ball : BallKind) : PerHole(Option(PerHole(Float))) needs () do
-    let start = Skee.Rng.seed(Arcade.U64.of_int(24301))
+    let start = Arcade.Rng.seed(Arcade.U64.of_int(24301))
     let (rates, _) =
       List.fold_left(Skee.HoleMap.reel_holes(), (Skee.HoleMap.fill(None), start), fn (held, hole) ->
         let (rates, rng) = held
@@ -311,7 +311,7 @@ mod Skee.Bots do
     skill : Skill,
     held_ball : BallKind,
     now : RunState,
-    hand : Skee.Rng.Rng,
+    hand : Arcade.Rng.Rng,
     done_actions : List(Action),
     done_events : List(List(GameEvent)),
     played : Int,
@@ -467,7 +467,7 @@ mod Skee.Bots do
         skill: skill,
         held_ball: ball,
         now: Skee.Reducer.new_run(k, seed, config, room, Tickets(0)),
-        hand: Skee.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.of_int(2823))),
+        hand: Arcade.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.of_int(2823))),
         done_actions: [],
         done_events: [],
         played: 0,

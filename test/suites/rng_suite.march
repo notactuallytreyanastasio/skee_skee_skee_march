@@ -118,13 +118,13 @@ mod RngSuite do
 
   -- Replay one kind of row in file order. Rows of one seed are contiguous, and
   -- the generator carries from row to row, so any drift fails every later row.
-  fn replay(rows : List(List(String)), step : Skee.Rng.Rng -> List(String) -> (Outcome, Skee.Rng.Rng)) : Outcome do
-    let start = (("", Skee.Rng.seed(Arcade.U64.make(0, 0))), [])
+  fn replay(rows : List(List(String)), step : Arcade.Rng.Rng -> List(String) -> (Outcome, Arcade.Rng.Rng)) : Outcome do
+    let start = (("", Arcade.Rng.seed(Arcade.U64.make(0, 0))), [])
     let (_, outcomes) =
       List.fold_left(rows, start, fn (acc, row) ->
         match (acc, row) do
         (((prev, rng), outs), Cons(seed, rest)) -> do
-          let current = if seed == prev do rng else Skee.Rng.seed(GoldenIo.u64(seed)) end
+          let current = if seed == prev do rng else Arcade.Rng.seed(GoldenIo.u64(seed)) end
           let (outcome, after) = step(current, rest)
           ((seed, after), Cons(outcome, outs))
         end
@@ -134,41 +134,41 @@ mod RngSuite do
     all(outcomes)
   end
 
-  fn next_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
-    let (v, after) = Skee.Rng.next(rng)
+  fn next_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next(rng)
     match row do
     Cons(_, Cons(want, Cons(word, Nil))) -> do
-      (all([GoldenIo.expect_u64(v, want, "next"), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      (all([GoldenIo.expect_u64(v, want, "next"), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad next row"), after)
     end
   end
 
-  fn unit_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
-    let (v, after) = Skee.Rng.next_unit(Skee.Consts.make(), rng)
+  fn unit_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next_unit(Arcade.Numerics.make(), rng)
     match row do
     Cons(_, Cons(want, Cons(word, Nil))) -> do
-      (all([GoldenIo.expect_float(v, want, "unit"), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      (all([GoldenIo.expect_float(v, want, "unit"), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad unit row"), after)
     end
   end
 
-  fn below_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
+  fn below_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
     match row do
     Cons(_, Cons(bound, Cons(want, Cons(word, Nil)))) -> do
-      let (v, after) = Skee.Rng.next_int_below(rng, GoldenIo.int(bound))
-      (all([expect_int(v, GoldenIo.int(want), "below " ++ bound), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      let (v, after) = Arcade.Rng.next_int_below(rng, GoldenIo.int(bound))
+      (all([expect_int(v, GoldenIo.int(want), "below " ++ bound), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad below row"), rng)
     end
   end
 
-  fn gauss_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
-    let (v, after) = Skee.Rng.next_gaussian(Skee.Consts.make(), rng)
+  fn gauss_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next_gaussian(Arcade.Numerics.make(), rng)
     match row do
     Cons(_, Cons(want, Cons(word, Nil))) -> do
-      (all([GoldenIo.expect_libm_float(v, want, "gaussian"), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      (all([GoldenIo.expect_libm_float(v, want, "gaussian"), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad gauss row"), after)
     end
@@ -178,37 +178,37 @@ mod RngSuite do
     expect(actual == List.map(expected, GoldenIo.int), what ++ ": got " ++ show(actual))
   end
 
-  fn shuffle_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
+  fn shuffle_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
     match row do
     Cons(n, Cons(word, want)) -> do
-      let (out, after) = Skee.Rng.shuffled(rng, List.range(0, GoldenIo.int(n)))
-      (all([expect_ints(out, want, "shuffle " ++ n), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      let (out, after) = Arcade.Rng.shuffled(rng, List.range(0, GoldenIo.int(n)))
+      (all([expect_ints(out, want, "shuffle " ++ n), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad shuffle row"), rng)
     end
   end
 
-  fn pick_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
+  fn pick_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
     match row do
     Cons(_, Cons(count, Cons(want, Cons(word, Nil)))) -> do
-      let (v, after) = Skee.Rng.pick(rng, List.range(100, 100 + GoldenIo.int(count)))
-      (all([expect_int(v, GoldenIo.int(want), "pick"), GoldenIo.expect_u64(Skee.Rng.word(after), word, "state")]), after)
+      let (v, after) = Arcade.Rng.pick(rng, List.range(100, 100 + GoldenIo.int(count)))
+      (all([expect_int(v, GoldenIo.int(want), "pick"), GoldenIo.expect_u64(Arcade.Rng.word(after), word, "state")]), after)
     end
     _ -> (Mismatch("bad pick row"), rng)
     end
   end
 
-  fn mixed_step(rng : Skee.Rng.Rng, row : List(String)) : (Outcome, Skee.Rng.Rng) do
+  fn mixed_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
     let k = Skee.Consts.make()
-    let (a, r1) = Skee.Rng.next(rng)
-    let (u, r2) = Skee.Rng.next_unit(k, r1)
-    let (below, r3) = Skee.Rng.next_int_below(r2, 20)
-    let (z, r4) = Skee.Rng.next_gaussian(k, r3)
-    let (s, r5) = Skee.Rng.shuffled(r4, [0, 1, 2, 3, 4])
-    let (p, r6) = Skee.Rng.pick(r5, [7, 8, 9])
+    let (a, r1) = Arcade.Rng.next(rng)
+    let (u, r2) = Arcade.Rng.next_unit(k.num, r1)
+    let (below, r3) = Arcade.Rng.next_int_below(r2, 20)
+    let (z, r4) = Arcade.Rng.next_gaussian(k.num, r3)
+    let (s, r5) = Arcade.Rng.shuffled(r4, [0, 1, 2, 3, 4])
+    let (p, r6) = Arcade.Rng.pick(r5, [7, 8, 9])
     match row do
     Cons(_, Cons(wa, Cons(wu, Cons(wk, Cons(wz, Cons(wp, Cons(word, ws))))))) -> do
-      (all([GoldenIo.expect_u64(a, wa, "next"), GoldenIo.expect_float(u, wu, "unit"), expect_int(below, GoldenIo.int(wk), "below"), GoldenIo.expect_libm_float(z, wz, "gaussian"), expect_ints(s, ws, "shuffled"), expect_int(p, GoldenIo.int(wp), "pick"), GoldenIo.expect_u64(Skee.Rng.word(r6), word, "state")]), r6)
+      (all([GoldenIo.expect_u64(a, wa, "next"), GoldenIo.expect_float(u, wu, "unit"), expect_int(below, GoldenIo.int(wk), "below"), GoldenIo.expect_libm_float(z, wz, "gaussian"), expect_ints(s, ws, "shuffled"), expect_int(p, GoldenIo.int(wp), "pick"), GoldenIo.expect_u64(Arcade.Rng.word(r6), word, "state")]), r6)
     end
     _ -> (Mismatch("bad mixed row"), r6)
     end
@@ -216,9 +216,9 @@ mod RngSuite do
 
   fn shuffle_is_permutation() : Outcome do
     let xs = List.range(0, 20)
-    let rng = Skee.Rng.seed(Arcade.U64.of_int(3))
-    let (a, _) = Skee.Rng.shuffled(rng, xs)
-    let (b, _) = Skee.Rng.shuffled(rng, xs)
+    let rng = Arcade.Rng.seed(Arcade.U64.of_int(3))
+    let (a, _) = Arcade.Rng.shuffled(rng, xs)
+    let (b, _) = Arcade.Rng.shuffled(rng, xs)
     all([expect(a == b, "same seed, same shuffle"), expect(List.sort_by(a, fn (x, y) -> x < y) == xs, "shuffle is a permutation")])
   end
 
@@ -274,7 +274,7 @@ mod RngSuite do
   end
 
   fn first_value() : Outcome do
-    let (v, _) = Skee.Rng.next(Skee.Rng.seed(Arcade.U64.make(0, 0)))
+    let (v, _) = Arcade.Rng.next(Arcade.Rng.seed(Arcade.U64.make(0, 0)))
     expect(Arcade.U64.equal(v, Arcade.U64.make(3793791033, 2065550767)), "reference value 0xE220A8397B1DCDAF")
   end
 

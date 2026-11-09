@@ -1135,11 +1135,11 @@ mod MetaSuite do
   end
 
   -- ---- Save properties ----
-  fn draw(r : Skee.Rng.Rng, n : { Int | _ > 0 }) : (Int, Skee.Rng.Rng) do
-    Skee.Rng.next_int_below(r, n)
+  fn draw(r : Arcade.Rng.Rng, n : { Int | _ > 0 }) : (Int, Arcade.Rng.Rng) do
+    Arcade.Rng.next_int_below(r, n)
   end
 
-  fn pick_some(r : Skee.Rng.Rng, xs : List(a), acc : List(a)) : (List(a), Skee.Rng.Rng) do
+  fn pick_some(r : Arcade.Rng.Rng, xs : List(a), acc : List(a)) : (List(a), Arcade.Rng.Rng) do
     match xs do
     Nil -> (List.reverse(acc), r)
     Cons(x, rest) -> do
@@ -1149,7 +1149,7 @@ mod MetaSuite do
     end
   end
 
-  fn random_comp(r : Skee.Rng.Rng, room : Room) : (Option(Comp), Skee.Rng.Rng) do
+  fn random_comp(r : Arcade.Rng.Rng, room : Room) : (Option(Comp), Arcade.Rng.Rng) do
     let (has, r1) = draw(r, 2)
     let (nights, r2) = draw(r1, 9)
     let (tickets, r3) = draw(r2, 9)
@@ -1165,11 +1165,11 @@ mod MetaSuite do
     (out, r4)
   end
 
-  fn random_wallet(r0 : Skee.Rng.Rng) : (Wallet, Skee.Rng.Rng) do
+  fn random_wallet(r0 : Arcade.Rng.Rng) : (Wallet, Arcade.Rng.Rng) do
     let (balance, r1) = draw(r0, 1000000)
     let (lifetime, r2) = draw(r1, 1000000000)
     let (owned, r3) = pick_some(r2, Skee.Rooms.all_prizes(), [])
-    let (shuffled, r4) = Skee.Rng.shuffled(r3, owned)
+    let (shuffled, r4) = Arcade.Rng.shuffled(r3, owned)
     let (rooms, r5) = pick_some(r4, Skee.Rooms.all_rooms(), [])
     let (room_i, r6) = draw(r5, 4)
     let (c1, r7) = random_comp(r6, Boardwalk)
@@ -1207,7 +1207,7 @@ mod MetaSuite do
     (w, rest)
   end
 
-  fn wallet_trips(r : Skee.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
+  fn wallet_trips(r : Arcade.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
     if n == 0 do
       acc
     else
@@ -1228,19 +1228,20 @@ mod MetaSuite do
     end
   end
 
-  fn seed_rng(n : Int) : Skee.Rng.Rng do
-    Skee.Rng.seed(Arcade.U64.of_int(n))
+  fn seed_rng(n : Int) : Arcade.Rng.Rng do
+    Arcade.Rng.seed(Arcade.U64.of_int(n))
   end
 
   fn wallet_round_trip() : Outcome do
     all(wallet_trips(seed_rng(11), 200, []))
   end
 
-  fn unit(r : Skee.Rng.Rng) : (Float, Skee.Rng.Rng) do
-    Skee.Rng.next_unit(k(), r)
+  fn unit(r : Arcade.Rng.Rng) : (Float, Arcade.Rng.Rng) do
+    let c = k()
+    Arcade.Rng.next_unit(c.num, r)
   end
 
-  fn random_action(r0 : Skee.Rng.Rng) : (Action, Skee.Rng.Rng) do
+  fn random_action(r0 : Arcade.Rng.Rng) : (Action, Arcade.Rng.Rng) do
     let (kind, r1) = draw(r0, 10)
     let (n, r2) = draw(r1, 7)
     let (a, r3) = unit(r2)
@@ -1300,7 +1301,7 @@ mod MetaSuite do
     (action, r8)
   end
 
-  fn random_actions(r : Skee.Rng.Rng, n : Int, acc : List(Action)) : (List(Action), Skee.Rng.Rng) do
+  fn random_actions(r : Arcade.Rng.Rng, n : Int, acc : List(Action)) : (List(Action), Arcade.Rng.Rng) do
     if n == 0 do
       (acc, r)
     else
@@ -1311,7 +1312,7 @@ mod MetaSuite do
     end
   end
 
-  fn run_trips(r : Skee.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
+  fn run_trips(r : Arcade.Rng.Rng, n : Int, acc : List(Outcome)) : List(Outcome) do
     if n == 0 do
       acc
     else
@@ -1374,7 +1375,7 @@ mod MetaSuite do
     all([expect(Skee.Save.load_flag(Some(Skee.Save.encode_flag(true))), "true"), expect(!Skee.Save.load_flag(Some(Skee.Save.encode_flag(false))), "false"), expect(!Skee.Save.load_flag(None), "unset"), expect(!Skee.Save.load_flag(Some("yes")), "corrupt"), expect(!Skee.Save.load_flag(Some("1")), "a number")])
   end
 
-  fn mutate(text : String, r : Skee.Rng.Rng) : (String, Skee.Rng.Rng) do
+  fn mutate(text : String, r : Arcade.Rng.Rng) : (String, Arcade.Rng.Rng) do
     let len = string_byte_length(text)
     let (how, r1) = draw(r, 3)
     let (at, r2) = draw(r1, Math.max_int(len, 1))
@@ -1393,7 +1394,7 @@ mod MetaSuite do
     (cut, r3)
   end
 
-  fn fuzz(r : Skee.Rng.Rng, n : Int, samples : List(String), done : Int) : Int do
+  fn fuzz(r : Arcade.Rng.Rng, n : Int, samples : List(String), done : Int) : Int do
     if n == 0 do
       done
     else

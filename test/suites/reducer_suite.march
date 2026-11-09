@@ -743,7 +743,7 @@ mod ReducerSuite do
   -- ---- Wallet.pulled ----
   type WalletWalk = {
     wallet : Wallet,
-    rng : Skee.Rng.Rng,
+    rng : Arcade.Rng.Rng,
     paid : Winnings,
     pulls : Int
   }
@@ -782,7 +782,7 @@ mod ReducerSuite do
       let start =
         {
           wallet: Skee.Rooms.empty_wallet(),
-          rng: Skee.Rng.seed(Arcade.U64.of_int(room_at + 40)),
+          rng: Arcade.Rng.seed(Arcade.U64.of_int(room_at + 40)),
           paid: Winnings(0),
           pulls: 0
         }

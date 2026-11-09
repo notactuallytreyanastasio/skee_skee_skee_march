@@ -529,7 +529,7 @@ mod Skee.Types do
     config : RunConfig,
     ball : BallKind,
     room : Room,
-    rng : Skee.Rng.Rng,
+    rng : Arcade.Rng.Rng,
     seed : Arcade.U64.U64,
     ante : { Int | ante >= 1 },
     boss : Boss,

@@ -36,7 +36,7 @@ mod BotsSuite do
     match Skee.HoleMap.at(book.best, Ring50) do
     None -> Mismatch("no window for the 50")
     Some(w) -> do
-      let (l, _) = perturb(k, perfect(), w.launch, Skee.Rng.seed(Arcade.U64.of_int(1)))
+      let (l, _) = perturb(k, perfect(), w.launch, Arcade.Rng.seed(Arcade.U64.of_int(1)))
       let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.of_int(0))
       expect(r.hole == Ring50, "landed in " ++ show(r.hole))
     end
@@ -58,8 +58,8 @@ mod BotsSuite do
       let k = consts()
       let l =
         Skee.Physics.launch_of_power(k, f(power), f(aim), f(start), f(fold), 0.0, 0.0)
-      let (out, hand) = perturb(k, skill_at(skill), l, Skee.Rng.seed(GoldenIo.u64(seed)))
-      all([GoldenIo.expect_libm_float(out.power, new_power, "power"), GoldenIo.expect_libm_float(out.aim, new_aim, "aim"), GoldenIo.expect_float(out.start, start, "start"), GoldenIo.expect_float(out.fold, fold, "fold"), GoldenIo.expect_u64(Skee.Rng.word(hand), word, "rng")])
+      let (out, hand) = perturb(k, skill_at(skill), l, Arcade.Rng.seed(GoldenIo.u64(seed)))
+      all([GoldenIo.expect_libm_float(out.power, new_power, "power"), GoldenIo.expect_libm_float(out.aim, new_aim, "aim"), GoldenIo.expect_float(out.start, start, "start"), GoldenIo.expect_float(out.fold, fold, "fold"), GoldenIo.expect_u64(Arcade.Rng.word(hand), word, "rng")])
     end
     _ -> Mismatch("bad hand row")
     end

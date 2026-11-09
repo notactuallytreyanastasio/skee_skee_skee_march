@@ -194,12 +194,12 @@ mod Skee.Host do
     "Here's my offer: one free night. A night is one game that starts with bonus tickets. Ask me for more nights, tickets or prize credit. Tap DEAL when you're happy."
   end
 
-  pfn hello_line(r : Room, h : HostPerson, v : Skee.Rooms.HostVisit, rng : Skee.Rng.Rng) : String needs () do
+  pfn hello_line(r : Room, h : HostPerson, v : Skee.Rooms.HostVisit, rng : Arcade.Rng.Rng) : String needs () do
     match v do
     VisitArrival -> arrival_hello()
     VisitNewRoom -> opening_line(r, h)
     VisitReturning -> do
-      let (which, _) = Skee.Rng.next_int_below(rng, 3)
+      let (which, _) = Arcade.Rng.next_int_below(rng, 3)
       welcome_back(r, h, which)
     end
     end
@@ -220,16 +220,16 @@ mod Skee.Host do
   arrival).
   """
   fn new_haggle(k : Skee.Consts.Consts, r : Room, seed : Arcade.U64.U64, v : Skee.Rooms.HostVisit) : Haggle needs () do
-    let rng0 = Skee.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.make(0, 263541)))
+    let rng0 = Arcade.Rng.seed(Arcade.U64.xor(seed, Arcade.U64.make(0, 263541)))
     let host = host_of(r)
     let opening = Skee.Rooms.comp_opening(r)
     let top = Skee.Rooms.comp_ceiling(r)
-    let (draw, rng1) = Skee.Rng.next_unit(k, rng0)
+    let (draw, rng1) = Arcade.Rng.next_unit(k.num, rng0)
     let arrival = is_arrival(v)
     let share = if arrival do 0.7 +. 0.2 *. draw else 0.35 +. 0.55 *. draw end
     let budget =
       value_of(opening) + float_to_int(int_to_float(value_of(top) - value_of(opening)) *. share)
-    let (temper, rng2) = Skee.Rng.next_int_below(rng1, 2)
+    let (temper, rng2) = Arcade.Rng.next_int_below(rng1, 2)
     let hello = hello_line(r, host, v, rng2)
     let first = reply(hello, { terms_nights: 1, terms_tickets: 0, terms_credit: 0 })
     let patience = if arrival do max_patience() else 3 + temper end

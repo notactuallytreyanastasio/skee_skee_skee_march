@@ -1793,22 +1793,22 @@ mod Skee.Scene do
   -- texture's SplitMix64(seed: 11) in Swift's order.
   type Plank = { tone : Float, streaks : List((Float, Float, Float)) }
 
-  pfn plank(k : Skee.Consts.Consts, r : Skee.Rng.Rng) : (Plank, Skee.Rng.Rng) needs () do
-    let (tone, r1) = Skee.Rng.next_unit(k, r)
+  pfn plank(k : Skee.Consts.Consts, r : Arcade.Rng.Rng) : (Plank, Arcade.Rng.Rng) needs () do
+    let (tone, r1) = Arcade.Rng.next_unit(k.num, r)
     let (a, r2) = streak(k, r1)
     let (c, r3) = streak(k, r2)
     let (d, r4) = streak(k, r3)
     ({ tone: tone, streaks: [a, c, d] }, r4)
   end
 
-  pfn streak(k : Skee.Consts.Consts, r : Skee.Rng.Rng) : ((Float, Float, Float), Skee.Rng.Rng) needs () do
-    let (x, r1) = Skee.Rng.next_unit(k, r)
-    let (y0, r2) = Skee.Rng.next_unit(k, r1)
-    let (len_, r3) = Skee.Rng.next_unit(k, r2)
+  pfn streak(k : Skee.Consts.Consts, r : Arcade.Rng.Rng) : ((Float, Float, Float), Arcade.Rng.Rng) needs () do
+    let (x, r1) = Arcade.Rng.next_unit(k.num, r)
+    let (y0, r2) = Arcade.Rng.next_unit(k.num, r1)
+    let (len_, r3) = Arcade.Rng.next_unit(k.num, r2)
     ((x, y0, len_), r3)
   end
 
-  pfn planks(k : Skee.Consts.Consts, r : Skee.Rng.Rng, n : Int) : List(Plank) needs () do
+  pfn planks(k : Skee.Consts.Consts, r : Arcade.Rng.Rng, n : Int) : List(Plank) needs () do
     if n <= 0 do
       []
     else
@@ -1821,7 +1821,7 @@ mod Skee.Scene do
 
   doc """Textures.lane's nine boards: tone and grain, deterministic."""
   fn lane_planks(k : Skee.Consts.Consts) : List(Plank) needs () do
-    planks(k, Skee.Rng.seed(Arcade.U64.make(0, 11)), 9)
+    planks(k, Arcade.Rng.seed(Arcade.U64.make(0, 11)), 9)
   end
 
   doc """Textures.lane's maple: the base fill, and where every board's tone starts."""

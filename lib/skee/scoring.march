@@ -491,12 +491,12 @@ mod Skee.Scoring do
     end
   end
 
-  pfn draw_stop(r : Skee.Rng.Rng, strip : List(ReelSymbol)) : (Int, Skee.Rng.Rng) needs () do
-    Skee.Rng.next_int_below(r, List.length(strip))
+  pfn draw_stop(r : Arcade.Rng.Rng, strip : List(ReelSymbol)) : (Int, Arcade.Rng.Rng) needs () do
+    Arcade.Rng.next_int_below(r, List.length(strip))
   end
 
   doc """One pull of the lever: one draw per reel, left to right."""
-  fn spin(r : Skee.Rng.Rng, bet : Bet, free : Bool, room : Room) : (Pull, Skee.Rng.Rng) needs () do
+  fn spin(r : Arcade.Rng.Rng, bet : Bet, free : Bool, room : Room) : (Pull, Arcade.Rng.Rng) needs () do
     match Skee.Rooms.strips(room) do
     Three(left, middle, right) -> do
       let (a, r1) = draw_stop(r, left)

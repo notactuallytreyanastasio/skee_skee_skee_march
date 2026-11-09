@@ -241,7 +241,7 @@ mod Skee.Physics do
     first_landing : Option(Vec2),
     peak : Float,
     touched_wall : Bool,
-    rng : Skee.Rng.Rng,
+    rng : Arcade.Rng.Rng,
     next_hop : Float,
     hop_until : Float,
     hops : Int,
@@ -371,8 +371,8 @@ mod Skee.Physics do
   pfn lane_hop(c : ShotSetup, sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
     if is_bean(c.ball) && sim.t >= sim.next_hop && b.lvs > 0.0 do
       do
-        let (shove, r1) = Skee.Rng.next_unit(c.k, sim.rng)
-        let (wait, r2) = Skee.Rng.next_unit(c.k, r1)
+        let (shove, r1) = Arcade.Rng.next_unit(c.k.num, sim.rng)
+        let (wait, r2) = Arcade.Rng.next_unit(c.k.num, r1)
         let hopped =
           emit({ sim with rng: r2, hop_until: sim.t +. 0.14, next_hop: sim.t +. 0.22 +. wait *. 0.2 }, ShotHop)
         (hopped, { b with lvx: b.lvx +. (shove -. 0.5) *. 0.7 })
@@ -555,10 +555,10 @@ mod Skee.Physics do
   pfn board_hop(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     if is_bean(c.ball) && sim.hops < 3 && sim.t >= sim.next_hop do
       do
-        let (lift, r1) = Skee.Rng.next_unit(c.k, sim.rng)
-        let (across, r2) = Skee.Rng.next_unit(c.k, r1)
-        let (up, r3) = Skee.Rng.next_unit(c.k, r2)
-        let (wait, r4) = Skee.Rng.next_unit(c.k, r3)
+        let (lift, r1) = Arcade.Rng.next_unit(c.k.num, sim.rng)
+        let (across, r2) = Arcade.Rng.next_unit(c.k.num, r1)
+        let (up, r3) = Arcade.Rng.next_unit(c.k.num, r2)
+        let (wait, r4) = Arcade.Rng.next_unit(c.k.num, r3)
         let shove = vec2((across -. 0.5) *. 0.5, up *. 0.35)
         let hopped =
           emit({ sim with rng: r4, hops: sim.hops + 1, next_hop: sim.t +. 0.25 +. wait *. 0.25 }, ShotHop)
@@ -813,7 +813,7 @@ mod Skee.Physics do
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
   -- The annotation on `blank` is load-bearing natively: tools/repros/none_float_field.march.
   pfn start_sim(k : Skee.Consts.Consts, ball : BallKind, seed : Arcade.U64.U64) : ShotSim needs () do
-    let rng0 = Skee.Rng.seed(seed)
+    let rng0 = Arcade.Rng.seed(seed)
     let blank : ShotSim =
       {
         t: 0.0,
@@ -832,13 +832,13 @@ mod Skee.Physics do
       }
     if is_bean(ball) do
       do
-        let (u, r) = Skee.Rng.next_unit(k, rng0)
+        let (u, r) = Arcade.Rng.next_unit(k.num, rng0)
         { blank with rng: r, next_hop: 0.08 +. u *. 0.12 }
       end
     else
       if is_wobbler(ball) do
         do
-          let (u, r) = Skee.Rng.next_unit(k, rng0)
+          let (u, r) = Arcade.Rng.next_unit(k.num, rng0)
           { blank with rng: r, sway_phase: u *. 2.0 *. k.pi }
         end
       else

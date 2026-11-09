@@ -34,7 +34,7 @@ foundation: ask before changing it.
 | `Arcade.Numerics` | `../arcade/numerics.march` | Engine Float constants (`Numerics`), `float_of_text` |
 | `Arcade.Num` | `../arcade/num.march` | Swift-tie max/min, NaN-keeping clamp, clamp_int, `ieee_div`, degrees, is_negative |
 | `Arcade.Vec2`, `Arcade.Vec3` | `../arcade/vec2.march`, `vec3.march` | The `Vec2` and `Vec3` types and their algebra |
-| `Skee.Rng` | `rng.march` | SplitMix64 |
+| `Arcade.Rng` | `../arcade/rng.march` | SplitMix64; `next_unit` and `next_gaussian` take `Numerics` |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
 

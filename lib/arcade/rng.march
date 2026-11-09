@@ -1,9 +1,9 @@
-mod Skee.Rng do
+mod Arcade.Rng do
 
   -- Seedable, platform-independent PRNG: SplitMix64 (Vigna 2015), ported from
   -- Random/SplitMix64.swift. Purely functional: every draw returns the value and
-  -- the new generator. Every random choice in a run flows from one seed, so a
-  -- run is fully described by its seed and actions.
+  -- the new generator, so a game whose every random choice flows from one seed
+  -- is fully described by its seed and inputs.
   cap pure
 
   import Arcade.U64
@@ -30,10 +30,10 @@ mod Skee.Rng do
   end
 
   doc """Uniform in [0, 1) from the top 53 bits."""
-  fn next_unit(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
+  fn next_unit(n : Arcade.Numerics.Numerics, r : Rng) : (Float, Rng) needs () do
     let (v, after) = next(r)
     let top53 = v.hi * 2097152 + int_shr(v.lo, 11)
-    (int_to_float(top53) *. k.unit53, after)
+    (int_to_float(top53) *. n.unit53, after)
   end
 
   -- r * 2 + bit, modulo n, for r < n, without ever exceeding n. Long division
@@ -64,18 +64,18 @@ mod Skee.Rng do
     end
   end
 
-  doc """Uniform in 0..<n. Modulo bias is negligible for the tiny n the game uses."""
+  doc """Uniform in 0..<n. Modulo bias is negligible for small n."""
   fn next_int_below(r : Rng, n : { Int | _ > 0 }) : (Int, Rng) needs () do
     let (v, after) = next(r)
     (mod_int(v, n), after)
   end
 
-  doc """Gaussian sample (Box-Muller). Used only by bots, never by the game."""
-  fn next_gaussian(k : Skee.Consts.Consts, r : Rng) : (Float, Rng) needs () do
-    let (first, r1) = next_unit(k, r)
-    let u1 = Arcade.Num.max_float(first, k.floor_u1)
-    let (u2, r2) = next_unit(k, r1)
-    (Math.sqrt(-2.0 *. Math.log(u1)) *. Math.cos(k.tau *. u2), r2)
+  doc """Gaussian sample (Box-Muller): two unit draws."""
+  fn next_gaussian(n : Arcade.Numerics.Numerics, r : Rng) : (Float, Rng) needs () do
+    let (first, r1) = next_unit(n, r)
+    let u1 = Arcade.Num.max_float(first, n.floor_u1)
+    let (u2, r2) = next_unit(n, r1)
+    (Math.sqrt(-2.0 *. Math.log(u1)) *. Math.cos(n.tau *. u2), r2)
   end
 
   pfn replace_at(xs : List(a), i : Int, x : a) : List(a) needs () do

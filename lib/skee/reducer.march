@@ -6,7 +6,7 @@ mod Skee.Reducer do
   -- described by its seed and actions.
   cap pure
 
-  import Skee.Rng
+  import Arcade.Rng
 
   -- ---- A new run ----
   doc """
@@ -15,7 +15,7 @@ mod Skee.Reducer do
   a save (seed and actions) must carry them to replay exactly.
   """
   fn new_run(_k : Skee.Consts.Consts, seed : Arcade.U64.U64, config : RunConfig, room : Room, extra_tickets : Tickets) : RunState needs () do
-    let (boss, rng) = pick(Skee.Rng.seed(seed), Skee.Items.all_bosses())
+    let (boss, rng) = pick(Arcade.Rng.seed(seed), Skee.Items.all_bosses())
     let scaled =
       { config with target_scale: config.target_scale *. Skee.Rooms.target_scale(room) }
     let blank_round = bare_round(Warmup, Points(0), 0)
@@ -484,7 +484,7 @@ mod Skee.Reducer do
   end
 
   -- ---- Prize counter ----
-  pfn roll_edit(r : Skee.Rng.Rng) : (Offer, Skee.Rng.Rng) needs () do
+  pfn roll_edit(r : Arcade.Rng.Rng) : (Offer, Arcade.Rng.Rng) needs () do
     let (kind, after) = next_int_below(r, 4)
     if kind == 0 do
       (OfferGild, after)
