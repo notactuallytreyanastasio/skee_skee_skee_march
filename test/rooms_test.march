@@ -3,7 +3,7 @@ mod RoomsTest do
   needs IO.Console
 
   test "rooms suite" do
-    assert Harness.failures(RoomsSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(RoomsSuite.cases()) == []
   end
 
 end

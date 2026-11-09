@@ -3,7 +3,7 @@ mod MetaMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("meta", MetaSuite.cases())
+    Arcade.Test.Harness.report("meta", MetaSuite.cases())
   end
 
 end

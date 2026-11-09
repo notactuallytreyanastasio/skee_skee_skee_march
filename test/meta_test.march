@@ -3,7 +3,7 @@ mod MetaTest do
   needs IO.Console
 
   test "meta suite" do
-    assert Harness.failures(MetaSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(MetaSuite.cases()) == []
   end
 
 end

@@ -4,13 +4,13 @@ mod SceneSuite do
   -- from the real SkeeScene (tools/golden_scene). SkeeScene computes in 32-bit
   -- Float and this port in 64-bit, so values are compared within a tolerance
   -- stated next to each reader, and the worst measured error is printed.
-  import Harness
+  import Arcade.Test.Harness
   import Arcade.Num
   import Arcade.Vec2
   import Skee.World
 
   fn rows(kind : String) : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Scene.chunks()), kind)
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Scene.chunks()), kind)
   end
 
   fn k() : Skee.Consts.Consts do
@@ -18,7 +18,7 @@ mod SceneSuite do
   end
 
   fn fl(token : String) : Float do
-    GoldenIo.float_of_bits(token)
+    Arcade.Test.GoldenIo.float_of_bits(token)
   end
 
   -- Tolerances. Float32 carries 24 bits: a scene coordinate near 3 m is good
@@ -167,7 +167,7 @@ mod SceneSuite do
   end
 
   fn view_of(w : String, h : String) : Skee.Camera.Viewport do
-    Skee.Camera.viewport(int_to_float(GoldenIo.int(w)), int_to_float(GoldenIo.int(h)))
+    Skee.Camera.viewport(int_to_float(Arcade.Test.GoldenIo.int(w)), int_to_float(Arcade.Test.GoldenIo.int(h)))
   end
 
   fn framing_row(row : List(String)) : Outcome do
@@ -216,7 +216,7 @@ mod SceneSuite do
                   f.top_point
                 else
                   if String.starts_with(name, "sample") do
-                    ball_center(w, sample_n(GoldenIo.int(String.replace_all(name, "sample", ""))))
+                    ball_center(w, sample_n(Arcade.Test.GoldenIo.int(String.replace_all(name, "sample", ""))))
                   else
                     board(w, Skee.Physics.hole_center(w.table.board, hole_of(name)), 0.0)
                   end
@@ -588,7 +588,7 @@ mod SceneSuite do
     let count_ok =
       match count do
       Cons(Cons(_, Cons(n, Nil)), Nil) -> do
-        expect_int(List.length(parts), GoldenIo.int(n), room_token(r) ++ " node count")
+        expect_int(List.length(parts), Arcade.Test.GoldenIo.int(n), room_token(r) ++ " node count")
       end
       _ -> Mismatch("no nodecount row")
       end
@@ -626,12 +626,12 @@ mod SceneSuite do
       let look = look_of(turn, glow, slot, pulse)
       let table = Skee.Rooms.table(k(), Boardwalk)
       let layout = Skee.Scene.reel_layout(k(), table.board, hole)
-      let c = Skee.Scene.coin(k(), layout, look, GoldenIo.int(i))
+      let c = Skee.Scene.coin(k(), layout, look, Arcade.Test.GoldenIo.int(i))
       let what = "decal " ++ h ++ " " ++ i ++ " turn " ++ float_to_string(fl(turn))
       let coins =
         List.filter(reel_parts_for(hole, look), fn p -> p.role == Skee.Scene.CoinPart(hole))
       let world_ok =
-        match List.nth_opt(coins, GoldenIo.int(i)) do
+        match List.nth_opt(coins, Arcade.Test.GoldenIo.int(i)) do
         Some(p) -> near3(p.frame.at, wx, wy, wz, metres_tol(), what ++ " world")
         None -> Mismatch(what ++ ": no such coin")
         end
@@ -666,7 +666,7 @@ mod SceneSuite do
   fn bulbs_row(row : List(String)) : Outcome do
     match row do
     Cons(phase, Cons(level, lit)) -> do
-      let light = { chase: GoldenIo.int(phase), level: fl(level) }
+      let light = { chase: Arcade.Test.GoldenIo.int(phase), level: fl(level) }
       let st = { fresh_stage(Boardwalk) with bulbs: light }
       let bulbs = List.filter(Skee.Scene.model(k(), st), fn p -> p.role == BulbPart)
       let got = List.map(bulbs, fn p -> p.emission.glow_r)
@@ -776,7 +776,7 @@ mod SceneSuite do
       kind: kind_of(token_at(row, 18)),
       anticipation: fl(token_at(row, 16)),
       shake: fl(token_at(row, 17)),
-      balls_left: GoldenIo.int(token_at(row, 15)),
+      balls_left: Arcade.Test.GoldenIo.int(token_at(row, 15)),
       excited: false,
       reel_cue: reel_cue
     }
@@ -830,7 +830,7 @@ mod SceneSuite do
       ]
     match tail do
     Cons(px, Cons(py, Cons(pz, Cons(qr, Cons(qx, Cons(qy, Cons(qz, Cons(scale, Cons(hidden, Cons(sx, Cons(sy, Cons(sz, Cons(sr, Cons(sqx, Cons(sqy, Cons(sqz, Cons(ss, Cons(so, Cons(shidden, Cons(waiting, Cons(cx, Cons(cy, Cons(cz, Nil))))))))))))))))))))))) -> do
-      all([compare_floats(List.take(got, 3), [px, py, pz], metres_tol(), what ++ " ball"), compare_floats(List.drop(got, 3), [qr, qx, qy, qz, scale], spin_tol(), what ++ " roll"), expect_string(if b.place.visible do "0" else "1" end, hidden, what ++ " ball hidden"), compare_floats(got_shadow, [sx, sy, sz, sr, sqx, sqy, sqz, ss, so], metres_tol(), what ++ " shadow"), expect_string(if sh.shown do "0" else "1" end, shidden, what ++ " shadow hidden"), expect_int(s.waiting, GoldenIo.int(waiting), what ++ " waiting"), near3(cam, cx, cy, cz, metres_tol(), what ++ " camera")])
+      all([compare_floats(List.take(got, 3), [px, py, pz], metres_tol(), what ++ " ball"), compare_floats(List.drop(got, 3), [qr, qx, qy, qz, scale], spin_tol(), what ++ " roll"), expect_string(if b.place.visible do "0" else "1" end, hidden, what ++ " ball hidden"), compare_floats(got_shadow, [sx, sy, sz, sr, sqx, sqy, sqz, ss, so], metres_tol(), what ++ " shadow"), expect_string(if sh.shown do "0" else "1" end, shidden, what ++ " shadow hidden"), expect_int(s.waiting, Arcade.Test.GoldenIo.int(waiting), what ++ " waiting"), near3(cam, cx, cy, cz, metres_tol(), what ++ " camera")])
     end
     _ -> Mismatch("bad frame row")
     end
@@ -1070,7 +1070,7 @@ mod SceneSuite do
       List.map(List.enumerate(Skee.HoleMap.reel_holes()), fn e -> reel_check(s, row, what, e))
     let lit = List.drop(bulbs, 2)
     let got_lit = List.map(List.range(0, List.length(lit)), fn i -> bulb_glow(s.bulbs, i))
-    let ring_count = GoldenIo.int(token_at(waves, 2))
+    let ring_count = Arcade.Test.GoldenIo.int(token_at(waves, 2))
     let rings = List.flat_map(s.waves, wave_floats)
     all([expect_string(token_at(row, 23), "1", what ++ " standard setup"), all(reels), expect_int(List.length(lit), List.length(Skee.Scene.bulb_spots(s.world)), what ++ " bulb count"), compare_floats(got_lit, lit, unit_tol(), what ++ " bulbs"), expect_int(List.length(s.waves), ring_count, what ++ " rings of light"), if ring_count == 0 do expect(List.length(rings) == 0, what ++ " no rings") else compare_floats(rings, List.drop(waves, 3), unit_tol(), what ++ " ring scale, opacity") end, near3(cam.eye, token_at(row, 87), token_at(row, 88), token_at(row, 89), metres_tol(), what ++ " camera"), near3(front, token_at(row, 90), token_at(row, 91), token_at(row, 92), look_tol(), what ++ " camera looks")])
   end
@@ -1472,7 +1472,7 @@ mod SceneSuite do
 
   -- CoreGraphics rounds its 8-bit channels its own way: one step either side.
   fn within_one(got : Int, token : String, what : String) : Outcome do
-    let d = got - GoldenIo.int(token)
+    let d = got - Arcade.Test.GoldenIo.int(token)
     expect(d <= 1 && d >= -1, what ++ ": got " ++ int_to_string(got) ++ ", want " ++ token)
   end
 
@@ -1499,8 +1499,8 @@ mod SceneSuite do
   fn runs_onto(acc : List(Int), tokens : List(String)) : List(Int) do
     match tokens do
     Cons(n, Cons(v, rest)) -> do
-      let x = GoldenIo.int(v)
-      runs_onto(List.fold_left(List.range(0, GoldenIo.int(n)), acc, fn (a, _) -> Cons(x, a)), rest)
+      let x = Arcade.Test.GoldenIo.int(v)
+      runs_onto(List.fold_left(List.range(0, Arcade.Test.GoldenIo.int(n)), acc, fn (a, _) -> Cons(x, a)), rest)
     end
     _ -> acc
     end
@@ -1555,7 +1555,7 @@ mod SceneSuite do
   fn texel_row(name : String, at : Vec2 -> Skee.Scene.Texel, acc : TexelTally, row : List(String)) : TexelTally do
     match row do
     Cons(y, runs) -> do
-      List.fold_left(List.enumerate(decode_runs(runs)), acc, fn (a, e) -> texel_step(name, at, GoldenIo.int(y), a, e))
+      List.fold_left(List.enumerate(decode_runs(runs)), acc, fn (a, e) -> texel_step(name, at, Arcade.Test.GoldenIo.int(y), a, e))
     end
     Nil -> acc
     end

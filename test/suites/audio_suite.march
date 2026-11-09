@@ -7,7 +7,7 @@ mod AudioSuite do
   -- block, then one block of Skee.Synth.render. Skee.Synth itself is checked
   -- against the real Swift by the synth suite, so these cases hold the feed
   -- to Skee.Synth exactly: same voices, same samples, bit for bit.
-  import Harness
+  import Arcade.Test.Harness
 
   -- ---- Comparing samples ----
   -- Bit-exact: a -0.0 for a +0.0 is a difference. `/.` by zero panics

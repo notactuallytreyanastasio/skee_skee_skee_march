@@ -7,14 +7,14 @@ mod SynthSuite do
   --
   -- Samples are Swift Floats. A sample passes exactly when it is bit-identical
   -- and drifts when it is within tolerance(), counted in Float ulps.
-  import Harness
+  import Arcade.Test.Harness
 
   fn golden() : List(List(String)) do
-    GoldenIo.rows(Golden.Synth.chunks())
+    Arcade.Test.GoldenIo.rows(Golden.Synth.chunks())
   end
 
   fn kind(all_rows : List(List(String)), k : String) : List(List(String)) do
-    GoldenIo.of_kind(all_rows, k)
+    Arcade.Test.GoldenIo.of_kind(all_rows, k)
   end
 
   -- The largest |Swift - March| a sample may differ by: 2^-22, four Float
@@ -22,12 +22,12 @@ mod SynthSuite do
   -- and expf; other inputs drift by other amounts inside this. See
   -- docs/PORT.md, "Skee.Synth". Never raise it silently.
   fn tolerance() : Float do
-    GoldenIo.pow2(-22, 1.0)
+    Arcade.Test.GoldenIo.pow2(-22, 1.0)
   end
 
   -- A Swift Float from its 8 hex digits, as a Float (double) holding it exactly.
   fn f32(token : String) : Float do
-    let v = GoldenIo.u64("00000000" ++ token)
+    let v = Arcade.Test.GoldenIo.u64("00000000" ++ token)
     let bits = v.lo
     let sign = bits >= 2147483648
     let rest = if sign do bits - 2147483648 else bits end
@@ -35,25 +35,25 @@ mod SynthSuite do
     let m = rest % 8388608
     let magnitude =
       if e == 0 do
-        GoldenIo.pow2(-149, int_to_float(m))
+        Arcade.Test.GoldenIo.pow2(-149, int_to_float(m))
       else
-        GoldenIo.pow2(e - 150, int_to_float(m + 8388608))
+        Arcade.Test.GoldenIo.pow2(e - 150, int_to_float(m + 8388608))
       end
     if sign do magnitude *. -1.0 else magnitude end
   end
 
   fn same(a : Float, b : Float) : Bool do
-    a == b && GoldenIo.is_negative(a) == GoldenIo.is_negative(b)
+    a == b && Arcade.Test.GoldenIo.is_negative(a) == Arcade.Test.GoldenIo.is_negative(b)
   end
 
   -- The spacing of Floats around |x|.
   fn ulp32(x : Float) : Float do
     let ax = if x < 0.0 do 0.0 -. x else x end
-    let tiny = GoldenIo.pow2(-126, 1.0)
+    let tiny = Arcade.Test.GoldenIo.pow2(-126, 1.0)
     if ax < tiny do
-      GoldenIo.pow2(-149, 1.0)
+      Arcade.Test.GoldenIo.pow2(-149, 1.0)
     else
-      ulp_from(ax, GoldenIo.pow2(-23, 1.0))
+      ulp_from(ax, Arcade.Test.GoldenIo.pow2(-23, 1.0))
     end
   end
 
@@ -93,7 +93,7 @@ mod SynthSuite do
   fn fround_row(c : Skee.Synth.SynthConsts, row : List(String)) : Outcome do
     match row do
     Cons(x, Cons(want, Nil)) -> do
-      GoldenIo.expect_float(Skee.Synth.f32(c, GoldenIo.float_of_bits(x)), want, "fround " ++ x)
+      Arcade.Test.GoldenIo.expect_float(Skee.Synth.f32(c, Arcade.Test.GoldenIo.float_of_bits(x)), want, "fround " ++ x)
     end
     _ -> Mismatch("bad fround row")
     end
@@ -103,8 +103,8 @@ mod SynthSuite do
   fn libm_row(c : Skee.Synth.SynthConsts, f : Skee.Synth.SynthConsts -> Float -> Float, row : List(String)) : Outcome do
     match row do
     Cons(x, Cons(want, Nil)) -> do
-      let got = f(c, GoldenIo.float_of_bits(x))
-      let w = GoldenIo.float_of_bits(want)
+      let got = f(c, Arcade.Test.GoldenIo.float_of_bits(x))
+      let w = Arcade.Test.GoldenIo.float_of_bits(want)
       if same(got, w) do
         Passed(1)
       else
@@ -123,8 +123,8 @@ mod SynthSuite do
     match row do
     Cons(base, Cons(e, Cons(want, Nil))) -> do
       let got =
-        Skee.Synth.powf(c, GoldenIo.float_of_bits(base), GoldenIo.float_of_bits(e))
-      GoldenIo.expect_float(got, want, "powf " ++ base ++ " " ++ e)
+        Skee.Synth.powf(c, Arcade.Test.GoldenIo.float_of_bits(base), Arcade.Test.GoldenIo.float_of_bits(e))
+      Arcade.Test.GoldenIo.expect_float(got, want, "powf " ++ base ++ " " ++ e)
     end
     _ -> Mismatch("bad powf row")
     end
@@ -218,7 +218,7 @@ mod SynthSuite do
     Cons(name, Nil) -> bare_sound(name)
     Cons("drop", Cons(h, Nil)) -> Option.map(hole(h), fn x -> SndDrop(x))
     Cons("banner", Cons(text, Nil)) -> Some(SndBanner(String.replace_all(text, "~", " ")))
-    Cons(name, Cons(n, Nil)) -> int_sound(name, GoldenIo.int(n))
+    Cons(name, Cons(n, Nil)) -> int_sound(name, Arcade.Test.GoldenIo.int(n))
     _ -> None
     end
   end
@@ -226,8 +226,8 @@ mod SynthSuite do
   fn script_op(tokens : List(String)) : Option(SynthOp) do
     match tokens do
     Cons("play", rest) -> Option.map(sound(rest), fn s -> SynthPlayOp(s))
-    Cons("render", Cons(n, Nil)) -> Some(SynthRenderOp(GoldenIo.int(n)))
-    Cons("rumble", Cons(x, Nil)) -> Some(SynthRumbleOp(GoldenIo.float_of_bits(x)))
+    Cons("render", Cons(n, Nil)) -> Some(SynthRenderOp(Arcade.Test.GoldenIo.int(n)))
+    Cons("rumble", Cons(x, Nil)) -> Some(SynthRumbleOp(Arcade.Test.GoldenIo.float_of_bits(x)))
     Cons("drum", Cons(flag, Nil)) -> Some(SynthDrumOp(flag == "1"))
     _ -> None
     end
@@ -237,7 +237,7 @@ mod SynthSuite do
     match row do
     Cons(_, Cons(voices, rest)) -> do
       match script_op(rest) do
-      Some(op) -> { op: op, voices_after: GoldenIo.int(voices) }
+      Some(op) -> { op: op, voices_after: Arcade.Test.GoldenIo.int(voices) }
       None -> panic("bad synth op: " ++ String.join(row, " "))
       end
     end
@@ -247,7 +247,7 @@ mod SynthSuite do
 
   fn kept_of(row : List(String)) : (Int, String) do
     match row do
-    Cons(_, Cons(index, Cons(bits, Nil))) -> (GoldenIo.int(index), bits)
+    Cons(_, Cons(index, Cons(bits, Nil))) -> (Arcade.Test.GoldenIo.int(index), bits)
     _ -> panic("bad synth sample row")
     end
   end
@@ -316,7 +316,7 @@ mod SynthSuite do
       name: name,
       steps: List.map(kind(rows, "op"), step_of),
       kept: List.map(kind(rows, "s"), kept_of),
-      total: GoldenIo.int(single_token(kind(rows, "len"), "len")),
+      total: Arcade.Test.GoldenIo.int(single_token(kind(rows, "len"), "len")),
       sumsq: single_token(kind(rows, "sumsq"), "sumsq"),
       peak: single_token(kind(rows, "peak"), "peak")
     }
@@ -347,7 +347,7 @@ mod SynthSuite do
   fn replay_step(name : String, r : SynthReplay, step : SynthStep) : SynthReplay do
     let (next, out) = apply_op(r.synth, step.op)
     let count =
-      Harness.expect_int(Skee.Synth.voice_count(next), step.voices_after, name ++ " voices")
+      Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(next), step.voices_after, name ++ " voices")
     { synth: next, chunks: Cons(out, r.chunks), counts: Cons(count, r.counts) }
   end
 
@@ -382,7 +382,7 @@ mod SynthSuite do
 
   -- A Double total of Float samples: as close as the samples are, relatively.
   fn close(got : Float, token : String, what : String) : Outcome do
-    let want = GoldenIo.float_of_bits(token)
+    let want = Arcade.Test.GoldenIo.float_of_bits(token)
     if same(got, want) do
       Passed(1)
     else
@@ -424,7 +424,7 @@ mod SynthSuite do
     let samples = List.concat(List.reverse(r.chunks))
     let compared = walk(samples, 0, s.kept, s.name, [])
     let outcome =
-      all(List.concat([r.counts, compared, [Harness.expect_int(List.length(samples), s.total, s.name ++ " length"), close(sum_squares(samples), s.sumsq, s.name ++ " sum of squares"), close(peak_of(samples), s.peak, s.name ++ " peak")]]))
+      all(List.concat([r.counts, compared, [Arcade.Test.Harness.expect_int(List.length(samples), s.total, s.name ++ " length"), close(sum_squares(samples), s.sumsq, s.name ++ " sum of squares"), close(peak_of(samples), s.peak, s.name ++ " peak")]]))
     {
       name: s.name,
       outcome: outcome,
@@ -454,8 +454,8 @@ mod SynthSuite do
 
   fn drift_is_pinned(results : List(SynthResult)) : Outcome do
     let g = List.fold_left(results, no_gap(), fn (acc, r) -> gap_join(acc, r.gap))
-    let worst = GoldenIo.pow2(-24, 1.0)
-    all([Harness.expect_int(g.seen, kept_samples(), "kept Swift samples compared"), expect(g.off <= drift_ceiling(), int_to_string(g.off) ++ " samples differ from Swift; the ceiling is " ++ int_to_string(drift_ceiling())), expect(g.worst_abs <= worst, "worst |error| " ++ float_to_string(g.worst_abs) ++ " is past 2^-24")])
+    let worst = Arcade.Test.GoldenIo.pow2(-24, 1.0)
+    all([Arcade.Test.Harness.expect_int(g.seen, kept_samples(), "kept Swift samples compared"), expect(g.off <= drift_ceiling(), int_to_string(g.off) ++ " samples differ from Swift; the ceiling is " ++ int_to_string(drift_ceiling())), expect(g.worst_abs <= worst, "worst |error| " ++ float_to_string(g.worst_abs) ++ " is past 2^-24")])
   end
 
   fn gap_add(g : SynthGap, x : Float, want : Float) : SynthGap do
@@ -541,11 +541,11 @@ mod SynthSuite do
     let cues = [SndJackpot, SndBanner("MEGA JACKPOT"), SndHotSpot]
     let s =
       List.fold_left(cues, Skee.Synth.new(), fn (acc, c) -> Skee.Synth.play(acc, c))
-    Harness.expect_int(Skee.Synth.voice_count(s), Skee.Synth.max_voices(), "voices after three big cues")
+    Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s), Skee.Synth.max_voices(), "voices after three big cues")
   end
 
   fn max_voices_is_48() : Outcome do
-    Harness.expect_int(Skee.Synth.max_voices(), 48, "maxVoices")
+    Arcade.Test.Harness.expect_int(Skee.Synth.max_voices(), 48, "maxVoices")
   end
 
   fn rate_is_44100() : Outcome do
@@ -578,14 +578,14 @@ mod SynthSuite do
     let (last_alive, s2) = Skee.Synth.render(s1, 1)
     let (last, s3) = Skee.Synth.render(s2, 1)
     let (after, s4) = Skee.Synth.render(s3, 1)
-    all([Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.zip_with(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"], fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
+    all([Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.zip_with(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"], fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
   end
 
   fn cases() : List(Case) do
     let rows = golden()
     let c = Skee.Synth.consts()
     let results = List.map(scenarios(rows), run_scenario)
-    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("a voice lives through t == decay * 6", fn () -> voice_lives_through_t_equal_to_life()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
+    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("a voice lives through t == decay * 6", fn () -> voice_lives_through_t_equal_to_life()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> Arcade.Test.GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
   end
 
 end

@@ -3,14 +3,14 @@ mod MetaSuite do
   -- The meta piece: Skee.Guide, Skee.Walkthrough (steps, coach cards, tips) and
   -- Skee.Save. Golden rows come from tools/golden/Sources/golden-meta. The
   -- ported WalkthroughTests are named after their Swift functions.
-  import Harness
+  import Arcade.Test.Harness
 
   fn k() : Skee.Consts.Consts do
     Skee.Consts.make()
   end
 
   fn rows(kind : String) : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Meta.chunks()), kind)
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Meta.chunks()), kind)
   end
 
   -- ---- Text as hex, as the generator writes it ----
@@ -105,7 +105,7 @@ mod MetaSuite do
   end
 
   fn step_of(token : String) : WalkthroughStep do
-    match Skee.Walkthrough.step_of_index(GoldenIo.int(token)) do
+    match Skee.Walkthrough.step_of_index(Arcade.Test.GoldenIo.int(token)) do
     Some(s) -> s
     None -> panic("bad golden step " ++ token)
     end
@@ -126,8 +126,8 @@ mod MetaSuite do
   fn topic_row(row : List(String)) : Outcome do
     match row do
     Cons(ti, Cons(title, Cons(unlocks, Cons(count, Nil)))) -> do
-      let t = topic_at(GoldenIo.int(ti))
-      all([expect_string(hex(t.topic_title), title, "topic " ++ ti ++ " title"), expect_string(tips_token(t.topic_unlocks), unlocks, "topic " ++ ti ++ " unlocks"), expect_int(List.length(t.topic_pages), GoldenIo.int(count), "topic " ++ ti ++ " pages")])
+      let t = topic_at(Arcade.Test.GoldenIo.int(ti))
+      all([expect_string(hex(t.topic_title), title, "topic " ++ ti ++ " title"), expect_string(tips_token(t.topic_unlocks), unlocks, "topic " ++ ti ++ " unlocks"), expect_int(List.length(t.topic_pages), Arcade.Test.GoldenIo.int(count), "topic " ++ ti ++ " pages")])
     end
     _ -> Mismatch("bad topic row")
     end
@@ -136,8 +136,8 @@ mod MetaSuite do
   fn page_row(row : List(String)) : Outcome do
     match row do
     Cons(ti, Cons(pi, Cons(text, Nil))) -> do
-      let t = topic_at(GoldenIo.int(ti))
-      match List.nth_opt(t.topic_pages, GoldenIo.int(pi)) do
+      let t = topic_at(Arcade.Test.GoldenIo.int(ti))
+      match List.nth_opt(t.topic_pages, Arcade.Test.GoldenIo.int(pi)) do
       Some(page) -> expect_string(hex(page), text, "topic " ++ ti ++ " page " ++ pi)
       None -> Mismatch("topic " ++ ti ++ " has no page " ++ pi)
       end
@@ -208,7 +208,7 @@ mod MetaSuite do
   fn practice_row(row : List(String)) : Outcome do
     match row do
     Cons(target, Cons(gap, Nil)) -> do
-      all([expect_int(Skee.Units.points_int(Skee.Walkthrough.practice_target()), GoldenIo.int(target), "practiceTarget"), expect_int(Skee.Walkthrough.gap(), GoldenIo.int(gap), "Tip.gap")])
+      all([expect_int(Skee.Units.points_int(Skee.Walkthrough.practice_target()), Arcade.Test.GoldenIo.int(target), "practiceTarget"), expect_int(Skee.Walkthrough.gap(), Arcade.Test.GoldenIo.int(gap), "Tip.gap")])
     end
     _ -> Mismatch("bad practice row")
     end
@@ -228,7 +228,7 @@ mod MetaSuite do
       match Skee.Save.room_of_name(room) do
       Some(r) -> do
         let s = Skee.Walkthrough.practice_run(k(), r)
-        all([GoldenIo.expect_u64(s.seed, seed, room ++ " seed"), expect_int(Skee.Units.points_int(s.round.target), GoldenIo.int(target), room ++ " target"), expect_int(Skee.Units.tickets_int(s.tickets), GoldenIo.int(tickets), room ++ " tickets"), expect_string(kind_name(s.round.kind), kind, room ++ " kind"), expect_int(s.ante, GoldenIo.int(ante), room ++ " ante"), expect(s.room == r, room ++ " room")])
+        all([Arcade.Test.GoldenIo.expect_u64(s.seed, seed, room ++ " seed"), expect_int(Skee.Units.points_int(s.round.target), Arcade.Test.GoldenIo.int(target), room ++ " target"), expect_int(Skee.Units.tickets_int(s.tickets), Arcade.Test.GoldenIo.int(tickets), room ++ " tickets"), expect_string(kind_name(s.round.kind), kind, room ++ " kind"), expect_int(s.ante, Arcade.Test.GoldenIo.int(ante), room ++ " ante"), expect(s.room == r, room ++ " room")])
       end
       None -> Mismatch("unknown room " ++ room)
       end
@@ -443,7 +443,11 @@ mod MetaSuite do
   end
 
   fn since_of(token : String) : SinceTip do
-    if token == "max" do NoTipYet else BallsSince(GoldenIo.int(token)) end
+    if token == "max" do
+      NoTipYet
+    else
+      BallsSince(Arcade.Test.GoldenIo.int(token))
+    end
   end
 
   fn tip_option_token(t : Option(Tip)) : String do

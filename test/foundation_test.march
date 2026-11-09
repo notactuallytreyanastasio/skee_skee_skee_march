@@ -3,7 +3,7 @@ mod FoundationTest do
   needs IO.Console
 
   test "foundation suite" do
-    assert Harness.failures(FoundationSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(FoundationSuite.cases()) == []
   end
 
 end

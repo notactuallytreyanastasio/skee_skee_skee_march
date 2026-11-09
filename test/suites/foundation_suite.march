@@ -2,11 +2,11 @@ mod FoundationSuite do
 
   -- The shared types: units, per-key records and the default spec values, the
   -- latter pinned to the real Swift structs by the `spec*` rows of the golden.
-  import Harness
+  import Arcade.Test.Harness
   import Skee.Types
 
   fn rows(k : String) : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Rng.chunks()), k)
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Rng.chunks()), k)
   end
 
   fn pick_spec(k : Skee.Consts.Consts, name : String) : Option(Float) do
@@ -89,7 +89,7 @@ mod FoundationSuite do
     match row do
     Cons(name, Cons(bits, Nil)) -> do
       match pick_spec(Skee.Consts.make(), name) do
-      Some(x) -> GoldenIo.expect_float(x, bits, name)
+      Some(x) -> Arcade.Test.GoldenIo.expect_float(x, bits, name)
       None -> Mismatch("no field for spec " ++ name)
       end
     end
@@ -126,7 +126,7 @@ mod FoundationSuite do
     match row do
     Cons(name, Cons(want, Nil)) -> do
       match pick_int(name) do
-      Some(n) -> expect_int(n, GoldenIo.int(want), name)
+      Some(n) -> expect_int(n, Arcade.Test.GoldenIo.int(want), name)
       None -> Mismatch("no field for spec " ++ name)
       end
     end
@@ -139,7 +139,7 @@ mod FoundationSuite do
     Cons(want, Nil) -> do
       let c = standard_config()
       let got = List.map(c.ante_base, Skee.Units.points_int)
-      expect(got == List.map(want, GoldenIo.int), "ante_base: got " ++ show(got))
+      expect(got == List.map(want, Arcade.Test.GoldenIo.int), "ante_base: got " ++ show(got))
     end
     _ -> Mismatch("expected one anteBase row")
     end

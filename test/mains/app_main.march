@@ -3,7 +3,7 @@ mod AppMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("app", AppSuite.cases())
+    Arcade.Test.Harness.report("app", AppSuite.cases())
   end
 
 end

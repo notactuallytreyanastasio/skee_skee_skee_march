@@ -2,7 +2,7 @@ mod ReducerSuite do
 
   -- Owned by the reducer piece. The ported Swift RunTests, and the goldens that
   -- tools/golden/Sources/golden-run writes from the real Swift.
-  import Harness
+  import Arcade.Test.Harness
   import Skee.Reducer
 
   fn consts() : Skee.Consts.Consts do
@@ -732,7 +732,7 @@ mod ReducerSuite do
 
   -- ---- Swift's clamp, on a range the wrong way round ----
   fn clamp_row(row : List(String)) : Outcome do
-    match List.map(row, GoldenIo.int) do
+    match List.map(row, Arcade.Test.GoldenIo.int) do
     Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> do
       expect_int(Arcade.Num.clamp_int(x, lo, hi), want, "clamp_int " ++ String.join(row, " "))
     end
@@ -775,7 +775,7 @@ mod ReducerSuite do
   end
 
   fn wallet_row(row : List(String)) : Outcome do
-    let n = List.map(row, GoldenIo.int)
+    let n = List.map(row, Arcade.Test.GoldenIo.int)
     match n do
     Cons(room_at, Cons(pulls, Cons(paid, Cons(balance, Cons(lifetime, Cons(mini, Cons(minor, Cons(major, Cons(grand, Nil))))))))) -> do
       let room = List.nth(Skee.Rooms.all_rooms(), room_at)
@@ -843,27 +843,27 @@ mod ReducerSuite do
   }
 
   fn golden_rows() : List(List(String)) do
-    GoldenIo.rows(Golden.Run.chunks())
+    Arcade.Test.GoldenIo.rows(Golden.Run.chunks())
   end
 
   -- Chaos runs on seeds and configs the main golden never uses: what a bound
   -- fitted to the main golden is checked against.
   fn heldout_rows() : List(List(String)) do
-    GoldenIo.rows(Golden.RunHeldout.chunks())
+    Arcade.Test.GoldenIo.rows(Golden.RunHeldout.chunks())
   end
 
   fn config_of(row : List(String)) : RunConfig do
     match row do
     Cons(_, Cons(antes, Cons(frames, Cons(balls, Cons(start, Cons(charms, Cons(powers, Cons(fever, Cons(scale, Cons(step, Cons(cap, Cons(per, Cons(interest, Cons(offers, Cons(bases, Nil))))))))))))))) -> do
-      let n = GoldenIo.int
-      { Skee.Types.standard_config() with antes: n(antes), frames_per_round: n(frames), balls_per_frame: n(balls), start_tickets: Tickets(n(start)), charm_slots: n(charms), power_up_slots: n(powers), fever_heat: n(fever), target_scale: GoldenIo.float_of_bits(scale), overkill_step: GoldenIo.float_of_bits(step), overkill_cap: n(cap), interest_per: n(per), interest_cap: n(interest), offer_count: n(offers), ante_base: List.map(String.split(bases, ","), fn b -> Points(n(b))) }
+      let n = Arcade.Test.GoldenIo.int
+      { Skee.Types.standard_config() with antes: n(antes), frames_per_round: n(frames), balls_per_frame: n(balls), start_tickets: Tickets(n(start)), charm_slots: n(charms), power_up_slots: n(powers), fever_heat: n(fever), target_scale: Arcade.Test.GoldenIo.float_of_bits(scale), overkill_step: Arcade.Test.GoldenIo.float_of_bits(step), overkill_cap: n(cap), interest_per: n(per), interest_cap: n(interest), offer_count: n(offers), ante_base: List.map(String.split(bases, ","), fn b -> Points(n(b))) }
     end
     _ -> panic("bad cfg row")
     end
   end
 
   fn golden_float(token : String) : Float do
-    if token == "0" do 0.0 else GoldenIo.float_of_bits(token) end
+    if token == "0" do 0.0 else Arcade.Test.GoldenIo.float_of_bits(token) end
   end
 
   fn hole_at(i : Int) : Hole do
@@ -879,7 +879,11 @@ mod ReducerSuite do
   end
 
   fn target_of(token : String) : Option(Hole) do
-    if token == "n" do None else Some(hole_at(GoldenIo.int(token))) end
+    if token == "n" do
+      None
+    else
+      Some(hole_at(Arcade.Test.GoldenIo.int(token)))
+    end
   end
 
   fn action_of(k : Skee.Consts.Consts, token : String) : Action do
@@ -893,11 +897,11 @@ mod ReducerSuite do
       ThrowBall(Skee.Physics.launch_of_speed(k, f(v), f(from), f(a), f(st), f(fo), f(sp), f(sk)))
     end
     Cons("f", Nil) -> CommitFoul
-    Cons("c", Cons(i, Nil)) -> ChooseBall(List.nth(Skee.Items.all_balls(), GoldenIo.int(i)))
-    Cons("a", Cons(i, Nil)) -> Arm(GoldenIo.int(i))
-    Cons("b", Cons(i, Cons(target, Nil))) -> Buy(GoldenIo.int(i), target_of(target))
+    Cons("c", Cons(i, Nil)) -> ChooseBall(List.nth(Skee.Items.all_balls(), Arcade.Test.GoldenIo.int(i)))
+    Cons("a", Cons(i, Nil)) -> Arm(Arcade.Test.GoldenIo.int(i))
+    Cons("b", Cons(i, Cons(target, Nil))) -> Buy(Arcade.Test.GoldenIo.int(i), target_of(target))
     Cons("r", Nil) -> Reroll
-    Cons("s", Cons(i, Nil)) -> Sell(GoldenIo.int(i))
+    Cons("s", Cons(i, Nil)) -> Sell(Arcade.Test.GoldenIo.int(i))
     Cons("l", Nil) -> LeaveCounter
     _ -> panic("bad action token: " ++ token)
     end
@@ -1133,12 +1137,12 @@ mod ReducerSuite do
     (None, false) -> { m with shape: true, ulps: ulp_cap() }
     (Some(_), true) -> { m with shape: true, ulps: ulp_cap() }
     (Some(x), false) -> do
-      let bits = GoldenIo.float_bits(x)
-      let wanted = GoldenIo.u64(want)
+      let bits = Arcade.Test.GoldenIo.float_bits(x)
+      let wanted = Arcade.Test.GoldenIo.u64(want)
       if Arcade.U64.equal(bits, wanted) do
         { m with values: m.values + 1 }
       else
-        { m with values: m.values + 1, differ: m.differ + 1, ulps: Math.max_int(m.ulps, GoldenIo.ulps_between(bits, wanted)) }
+        { m with values: m.values + 1, differ: m.differ + 1, ulps: Math.max_int(m.ulps, Arcade.Test.GoldenIo.ulps_between(bits, wanted)) }
       end
     end
     end
@@ -1163,7 +1167,7 @@ mod ReducerSuite do
       let empty = { values: 0, differ: 0, ulps: 0, shape: false }
       let m0 = compare_floats(empty, shot_floats_of(r), List.reverse(rest))
       let m =
-        if GoldenIo.int(count) == List.length(r.path) do
+        if Arcade.Test.GoldenIo.int(count) == List.length(r.path) do
           m0
         else
           { m0 with shape: true, ulps: ulp_cap() }
@@ -1191,7 +1195,7 @@ mod ReducerSuite do
 
   fn started(k : Skee.Consts.Consts, configs : List(RunConfig), t : RunTally, label : String, seed : String, room : String, extra : String, cfg : String, digest : String) : RunTally do
     let s =
-      new_run(k, GoldenIo.u64(seed), List.nth(configs, GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(GoldenIo.int(extra)))
+      new_run(k, Arcade.Test.GoldenIo.u64(seed), List.nth(configs, Arcade.Test.GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)), Tickets(Arcade.Test.GoldenIo.int(extra)))
     let l = { label: label, seed_token: seed, at: 0, s: s }
     let opened = { t with runs: t.runs + 1 }
     let got = int_to_string(RunDigest.run(s))
@@ -1231,7 +1235,7 @@ mod ReducerSuite do
   end
 
   fn replay(k : Skee.Consts.Consts, mode : Mode, rows : List(List(String))) : RunTally do
-    let configs = List.map(GoldenIo.of_kind(rows, "cfg"), config_of)
+    let configs = List.map(Arcade.Test.GoldenIo.of_kind(rows, "cfg"), config_of)
     let empty =
       {
         runs: 0,
@@ -1326,14 +1330,14 @@ mod ReducerSuite do
     if token == "n" do
       None
     else
-      Some(List.nth(Skee.Items.all_power_ups(), GoldenIo.int(token)))
+      Some(List.nth(Skee.Items.all_power_ups(), Arcade.Test.GoldenIo.int(token)))
     end
   end
 
   fn table_for_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
     match row do
     Cons(room, Cons(ante, Cons(antes, Cons(kind, Cons(boss, Cons(power, Cons(ball, Cons(want, Nil)))))))) -> do
-      let n = GoldenIo.int
+      let n = Arcade.Test.GoldenIo.int
       let base =
         new_run(k, Arcade.U64.of_int(7), { Skee.Types.standard_config() with antes: n(antes) }, List.nth(Skee.Rooms.all_rooms(), n(room)), Tickets(0))
       let a = n(ante)
@@ -1392,7 +1396,7 @@ mod ReducerSuite do
   fn alone_open(k : Skee.Consts.Consts, configs : List(RunConfig), t : AloneTally, label : String, seed : String, room : String, extra : String, cfg : String, digest : String) : AloneTally do
     let closed = alone_close(t)
     let s =
-      new_run(k, GoldenIo.u64(seed), List.nth(configs, GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(GoldenIo.int(extra)))
+      new_run(k, Arcade.Test.GoldenIo.u64(seed), List.nth(configs, Arcade.Test.GoldenIo.int(cfg)), List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)), Tickets(Arcade.Test.GoldenIo.int(extra)))
     { closed with runs: closed.runs + 1, current: Some({ label: label, s: s, want: digest, at: 0 }) }
   end
 
@@ -1445,7 +1449,7 @@ mod ReducerSuite do
   end
 
   fn replay_alone(k : Skee.Consts.Consts, rows : List(List(String))) : AloneTally do
-    let configs = List.map(GoldenIo.of_kind(rows, "cfg"), config_of)
+    let configs = List.map(Arcade.Test.GoldenIo.of_kind(rows, "cfg"), config_of)
     let empty = { runs: 0, actions: 0, refused: 0, bad: 0, shown: [], current: None }
     alone_close(List.fold_left(rows, empty, fn (t, row) -> alone_row(k, configs, t, row)))
   end
@@ -1511,11 +1515,11 @@ mod ReducerSuite do
       case("reroll is deterministic and gets pricier", fn () -> reroll_is_deterministic_and_gets_pricier()),
       case("counter actions outside are rejected", fn () -> counter_actions_outside_are_rejected()),
       case("leaving the counter advances round and ante", fn () -> leaving_the_counter_advances_round_and_ante()),
-      case("clamp_int is Swift's clamp, inverted ranges too", fn () -> all(List.map(GoldenIo.of_kind(rows, "clampi"), clamp_row))),
+      case("clamp_int is Swift's clamp, inverted ranges too", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(rows, "clampi"), clamp_row))),
       case("a jackpot pull pays the meter into the wallet", fn () -> a_jackpot_pull_pays_the_meter_into_the_wallet()),
       case("free games do not feed the meters", fn () -> free_games_do_not_feed_the_meters()),
-      case("wallet goldens", fn () -> all(List.map(GoldenIo.of_kind(rows, "wallet"), wallet_row))),
-      case("table_for stacks ante, boss, power-up and ball as Swift", fn () -> all(List.map(GoldenIo.of_kind(rows, "tablefor"), fn row -> table_for_row(k, row)))),
+      case("wallet goldens", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(rows, "wallet"), wallet_row))),
+      case("table_for stacks ante, boss, power-up and ball as Swift", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(rows, "tablefor"), fn row -> table_for_row(k, row)))),
       case("golden runs, Swift's recorded shots", fn () -> counted(recorded)),
       case("golden runs, this target's physics", fn () -> with_physics(real)),
       case("golden shots, floats against Swift", fn () -> shot_floats(real)),

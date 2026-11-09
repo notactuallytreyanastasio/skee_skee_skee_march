@@ -4,7 +4,7 @@ mod AppSuite do
   -- tests, so every case here drives `update` with Msg sequences, as the
   -- shell will, and checks the model and the effects against what
   -- GameModel.swift does.
-  import Harness
+  import Arcade.Test.Harness
 
   fn k() : Skee.Consts.Consts do
     Skee.Consts.make()

@@ -3,15 +3,15 @@ mod ItemsSuite do
   -- BallKind, Charm, PowerUp, Offer, Boss, difficulty_table and target against
   -- the real Swift. Every row of test/golden/items.march is read here; the
   -- `coverage` case fails if a row kind stops being read.
-  import Harness
+  import Arcade.Test.Harness
   import Skee.Items
 
   fn golden_rows() : List(List(String)) do
-    GoldenIo.rows(Golden.Items.chunks())
+    Arcade.Test.GoldenIo.rows(Golden.Items.chunks())
   end
 
   fn rows(k : String) : List(List(String)) do
-    GoldenIo.of_kind(golden_rows(), k)
+    Arcade.Test.GoldenIo.of_kind(golden_rows(), k)
   end
 
   -- The golden writes spaces in display text as underscores.
@@ -48,7 +48,7 @@ mod ItemsSuite do
     match row do
     Cons(raw, Cons(name, Cons(short, Cons(blurb, Cons(pay, Cons(label, Cons(random, Cons(speed, Cons(drawn, Nil))))))))) -> do
       let what = ball_raw(b)
-      all([expect_string(ball_raw(b), raw, "order"), expect_string(text(ball_name(b)), name, what ++ " name"), expect_string(text(ball_short(b)), short, what ++ " short"), expect_string(text(ball_blurb(b)), blurb, what ++ " blurb"), GoldenIo.expect_float(Skee.Items.pay(b), pay, what ++ " pay"), expect_string(text(pay_label(b)), label, what ++ " pay label"), expect_string(bool_token(is_random(b)), random, what ++ " random"), GoldenIo.expect_float(speed_scale(b), speed, what ++ " speed"), GoldenIo.expect_float(drawn_size(k, b), drawn, what ++ " drawn")])
+      all([expect_string(ball_raw(b), raw, "order"), expect_string(text(ball_name(b)), name, what ++ " name"), expect_string(text(ball_short(b)), short, what ++ " short"), expect_string(text(ball_blurb(b)), blurb, what ++ " blurb"), Arcade.Test.GoldenIo.expect_float(Skee.Items.pay(b), pay, what ++ " pay"), expect_string(text(pay_label(b)), label, what ++ " pay label"), expect_string(bool_token(is_random(b)), random, what ++ " random"), Arcade.Test.GoldenIo.expect_float(speed_scale(b), speed, what ++ " speed"), Arcade.Test.GoldenIo.expect_float(drawn_size(k, b), drawn, what ++ " drawn")])
     end
     _ -> Mismatch("bad ball row")
     end
@@ -73,7 +73,7 @@ mod ItemsSuite do
     match row do
     Cons(raw, Cons(name, Cons(blurb, Cons(cost, Nil)))) -> do
       let what = power_raw(p)
-      all([expect_string(what, raw, "order"), expect_string(text(power_up_name(p)), name, what ++ " name"), expect_string(text(power_up_blurb(p)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(power_up_cost(p)), GoldenIo.int(cost), what ++ " cost")])
+      all([expect_string(what, raw, "order"), expect_string(text(power_up_name(p)), name, what ++ " name"), expect_string(text(power_up_blurb(p)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(power_up_cost(p)), Arcade.Test.GoldenIo.int(cost), what ++ " cost")])
     end
     _ -> Mismatch("bad power row")
     end
@@ -95,7 +95,7 @@ mod ItemsSuite do
     match row do
     Cons(raw, Cons(name, Cons(blurb, Cons(delta, Cons(pairs, Nil))))) -> do
       let what = boss_raw(b)
-      all([expect_string(what, raw, "order"), expect_string(text(boss_name(b)), name, what ++ " name"), expect_string(text(boss_blurb(b)), blurb, what ++ " blurb"), expect_int(frame_delta(b), GoldenIo.int(delta), what ++ " frame delta"), expect_string(bool_token(pairs_pay(b)), pairs, what ++ " pairs pay")])
+      all([expect_string(what, raw, "order"), expect_string(text(boss_name(b)), name, what ++ " name"), expect_string(text(boss_blurb(b)), blurb, what ++ " blurb"), expect_int(frame_delta(b), Arcade.Test.GoldenIo.int(delta), what ++ " frame delta"), expect_string(bool_token(pairs_pay(b)), pairs, what ++ " pairs pay")])
     end
     _ -> Mismatch("bad boss row")
     end
@@ -106,8 +106,8 @@ mod ItemsSuite do
     Cons(boss, Cons(hole, Cons(base, Cons(want, Nil)))) -> do
       let b = lookup(all_bosses(), boss_raw, boss)
       let h = lookup(Skee.HoleMap.all_holes(), hole_raw, hole)
-      let got = boss_chips(b, h, Chips(GoldenIo.int(base)))
-      expect_int(Skee.Units.chips_int(got), GoldenIo.int(want), boss ++ " " ++ hole ++ " " ++ base)
+      let got = boss_chips(b, h, Chips(Arcade.Test.GoldenIo.int(base)))
+      expect_int(Skee.Units.chips_int(got), Arcade.Test.GoldenIo.int(want), boss ++ " " ++ hole ++ " " ++ base)
     end
     _ -> Mismatch("bad boss_chips row")
     end
@@ -137,7 +137,7 @@ mod ItemsSuite do
     match row do
     Cons(raw, Cons(name, Cons(blurb, Cons(cost, Nil)))) -> do
       let what = charm_raw(c)
-      all([expect_string(what, raw, "order"), expect_string(text(charm_name(c)), name, what ++ " name"), expect_string(text(charm_blurb(c)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(charm_cost(c)), GoldenIo.int(cost), what ++ " cost")])
+      all([expect_string(what, raw, "order"), expect_string(text(charm_name(c)), name, what ++ " name"), expect_string(text(charm_blurb(c)), blurb, what ++ " blurb"), expect_int(Skee.Units.tickets_int(charm_cost(c)), Arcade.Test.GoldenIo.int(cost), what ++ " cost")])
     end
     _ -> Mismatch("bad charm row")
     end
@@ -180,8 +180,8 @@ mod ItemsSuite do
         record_hole: lookup(Skee.HoleMap.all_holes(), hole_raw, hole),
         record_symbol: symbol_of(symbol),
         record_chips: Chips(0),
-        rattles: GoldenIo.int(rattles),
-        record_fold: GoldenIo.float_of_bits(fold),
+        rattles: Arcade.Test.GoldenIo.int(rattles),
+        record_fold: Arcade.Test.GoldenIo.float_of_bits(fold),
         foul: foul == "1",
         slot_hits: 0,
         record_combo: 0,
@@ -199,10 +199,10 @@ mod ItemsSuite do
 
   fn effect_matches(e : ScoreEffect, token : String, what : String) : Outcome do
     match (e, String.split(token, ":")) do
-    (AddMult(m), Cons("m", Cons(bits, Nil))) -> GoldenIo.expect_float(m, bits, what)
-    (TimesMult(m), Cons("x", Cons(bits, Nil))) -> GoldenIo.expect_float(m, bits, what)
-    (AddChips(c), Cons("c", Cons(n, Nil))) -> expect_int(Skee.Units.chips_int(c), GoldenIo.int(n), what)
-    (AddTickets(t), Cons("t", Cons(n, Nil))) -> expect_int(Skee.Units.tickets_int(t), GoldenIo.int(n), what)
+    (AddMult(m), Cons("m", Cons(bits, Nil))) -> Arcade.Test.GoldenIo.expect_float(m, bits, what)
+    (TimesMult(m), Cons("x", Cons(bits, Nil))) -> Arcade.Test.GoldenIo.expect_float(m, bits, what)
+    (AddChips(c), Cons("c", Cons(n, Nil))) -> expect_int(Skee.Units.chips_int(c), Arcade.Test.GoldenIo.int(n), what)
+    (AddTickets(t), Cons("t", Cons(n, Nil))) -> expect_int(Skee.Units.tickets_int(t), Arcade.Test.GoldenIo.int(n), what)
     (Note(s), Cons("n", Cons(note, Nil))) -> expect_string(text(s), note, what)
     _ -> Mismatch(what ++ ": got " ++ show(e) ++ ", want " ++ token)
     end
@@ -231,7 +231,7 @@ mod ItemsSuite do
         {
           view_balls: balls_of(balls),
           view_payline: payline_of(payline),
-          view_streak_after: GoldenIo.int(streak)
+          view_streak_after: Arcade.Test.GoldenIo.int(streak)
         }
       let what = streak ++ " " ++ payline ++ " " ++ balls
       if List.length(effects) == List.length(all_charms()) do
@@ -261,7 +261,7 @@ mod ItemsSuite do
     Cons(kind, Cons(arg, Cons(cost, Cons(target, Nil)))) -> do
       let o = offer_of(kind, arg)
       let what = kind ++ " " ++ arg
-      all([expect_int(Skee.Units.tickets_int(offer_cost(o)), GoldenIo.int(cost), what ++ " cost"), expect_string(bool_token(offer_needs_target(o)), target, what ++ " target")])
+      all([expect_int(Skee.Units.tickets_int(offer_cost(o)), Arcade.Test.GoldenIo.int(cost), what ++ " cost"), expect_string(bool_token(offer_needs_target(o)), target, what ++ " target")])
     end
     _ -> Mismatch("bad offer row")
     end
@@ -270,7 +270,7 @@ mod ItemsSuite do
   fn gild_row(row : List(String)) : Outcome do
     match row do
     Cons(n, Nil) -> do
-      expect_int(Skee.Units.chips_int(gild_amount()), GoldenIo.int(n), "gild amount")
+      expect_int(Skee.Units.chips_int(gild_amount()), Arcade.Test.GoldenIo.int(n), "gild amount")
     end
     _ -> Mismatch("bad gild_amount row")
     end
@@ -304,8 +304,8 @@ mod ItemsSuite do
 
   fn target_matches(c : RunConfig, ante : String, kind : String, want : String) : Outcome do
     let what = "ante " ++ ante ++ " " ++ kind ++ " at scale " ++ show(c.target_scale)
-    match target(c, GoldenIo.int(ante), lookup(all_round_kinds(), round_raw, kind)) do
-    Some(p) -> expect_int(Skee.Units.points_int(p), GoldenIo.int(want), what)
+    match target(c, Arcade.Test.GoldenIo.int(ante), lookup(all_round_kinds(), round_raw, kind)) do
+    Some(p) -> expect_int(Skee.Units.points_int(p), Arcade.Test.GoldenIo.int(want), what)
     None -> Mismatch(what ++ ": no target")
     end
   end
@@ -321,7 +321,7 @@ mod ItemsSuite do
     match row do
     Cons(scale, Cons(warmup, Cons(feature, Cons(boss, Cons(bases, Cons(ante, Cons(kind, Cons(want, Nil)))))))) -> do
       let c =
-        { Skee.Types.standard_config() with target_scale: GoldenIo.float_of_bits(scale), kind_scale: { warmup: GoldenIo.float_of_bits(warmup), feature: GoldenIo.float_of_bits(feature), boss_round: GoldenIo.float_of_bits(boss) }, ante_base: List.map(String.split(bases, ","), fn n -> Points(GoldenIo.int(n))) }
+        { Skee.Types.standard_config() with target_scale: Arcade.Test.GoldenIo.float_of_bits(scale), kind_scale: { warmup: Arcade.Test.GoldenIo.float_of_bits(warmup), feature: Arcade.Test.GoldenIo.float_of_bits(feature), boss_round: Arcade.Test.GoldenIo.float_of_bits(boss) }, ante_base: List.map(String.split(bases, ","), fn n -> Points(Arcade.Test.GoldenIo.int(n))) }
       target_matches(c, ante, kind, want)
     end
     _ -> Mismatch("bad target row")
@@ -445,13 +445,13 @@ mod ItemsSuite do
 
   fn field_matches(pair : ((String, Float), String), what : String) : Outcome do
     match pair do
-    ((name, value), token) -> GoldenIo.expect_float(value, token, what ++ " " ++ name)
+    ((name, value), token) -> Arcade.Test.GoldenIo.expect_float(value, token, what ++ " " ++ name)
     end
   end
 
   fn float_at(tokens : List(String), n : Int) : Float do
     match List.drop(tokens, n) do
-    Cons(token, _) -> GoldenIo.float_of_bits(token)
+    Cons(token, _) -> Arcade.Test.GoldenIo.float_of_bits(token)
     Nil -> panic("alt_table row is too short")
     end
   end
@@ -539,7 +539,7 @@ mod ItemsSuite do
     if ante == "-" do
       t
     else
-      difficulty_table(GoldenIo.int(ante), t, GoldenIo.int(antes))
+      difficulty_table(Arcade.Test.GoldenIo.int(ante), t, Arcade.Test.GoldenIo.int(antes))
     end
   end
 
@@ -662,10 +662,12 @@ mod ItemsSuite do
     match row do
     Cons(ball, Cons(seed, Cons(hole, Cons(events, Cons(path, Cons(hop_count, Nil)))))) -> do
       let b = lookup(all_balls(), ball_raw, ball)
-      let shot = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(seed))
-      let again = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(seed))
+      let shot =
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(seed))
+      let again =
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(seed))
       let what = ball ++ " seed " ++ seed
-      all([expect_string(hole_raw(shot.hole), hole, what ++ " hole"), expect_int(List.length(shot.events), GoldenIo.int(events), what ++ " events"), expect_int(List.length(shot.path), GoldenIo.int(path), what ++ " path"), expect_int(hops(shot), GoldenIo.int(hop_count), what ++ " hops"), expect(same_shot(again, shot), what ++ " replays")])
+      all([expect_string(hole_raw(shot.hole), hole, what ++ " hole"), expect_int(List.length(shot.events), Arcade.Test.GoldenIo.int(events), what ++ " events"), expect_int(List.length(shot.path), Arcade.Test.GoldenIo.int(path), what ++ " path"), expect_int(hops(shot), Arcade.Test.GoldenIo.int(hop_count), what ++ " hops"), expect(same_shot(again, shot), what ++ " replays")])
     end
     _ -> Mismatch("bad ball_shot row")
     end
@@ -676,8 +678,10 @@ mod ItemsSuite do
     match row do
     Cons(ball, Cons(x, Cons(y, Cons(same, Nil)))) -> do
       let b = lookup(all_balls(), ball_raw, ball)
-      let first = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(x))
-      let second = Skee.Physics.simulate_shot(k, throw_one(k), std, b, GoldenIo.u64(y))
+      let first =
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(x))
+      let second =
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(y))
       expect_string(bool_token(same_shot(first, second)), same, ball ++ " seeds " ++ x ++ " and " ++ y)
     end
     _ -> Mismatch("bad ball_same row")
@@ -728,7 +732,7 @@ mod ItemsSuite do
   fn hinge_row(k : Skee.Consts.Consts, row : List(String)) : Outcome do
     match row do
     Cons(ball, Cons(speed, Nil)) -> do
-      GoldenIo.expect_libm_float(hinge_speed_of(k, lookup(all_balls(), ball_raw, ball)), speed, ball ++ " hinge speed")
+      Arcade.Test.GoldenIo.expect_libm_float(hinge_speed_of(k, lookup(all_balls(), ball_raw, ball)), speed, ball ++ " hinge speed")
     end
     _ -> Mismatch("bad hinge_speed row")
     end
@@ -748,7 +752,8 @@ mod ItemsSuite do
     match row do
     Cons(ball, Cons(power, Cons(aim, Cons(hole, Nil)))) -> do
       let b = lookup(all_balls(), ball_raw, ball)
-      let l = aimed(k, GoldenIo.float_of_bits(power), GoldenIo.float_of_bits(aim))
+      let l =
+        aimed(k, Arcade.Test.GoldenIo.float_of_bits(power), Arcade.Test.GoldenIo.float_of_bits(aim))
       let shot = Skee.Physics.simulate_shot(k, l, modify_for_ball(b, std), b, seed_of(0))
       let found = hole_raw(shot.hole)
       (if found == "ring50" do ball else "-" end, expect_string(found, hole, ball ++ " " ++ power ++ " " ++ aim))
@@ -801,7 +806,7 @@ mod ItemsSuite do
       let b = lookup(all_bosses(), boss_raw, boss)
       let t = modify_for_boss(b, difficulty_table(8, Skee.Types.standard_table(k), 8))
       let found = best_window(k, t, aims, 0.0)
-      all([GoldenIo.expect_float(found, best, boss ++ " window"), expect(found >= 0.015, boss ++ ": no window for the 50 at the last ante")])
+      all([Arcade.Test.GoldenIo.expect_float(found, best, boss ++ " window"), expect(found >= 0.015, boss ++ ": no window for the 50 at the last ante")])
     end
     _ -> Mismatch("bad window row")
     end
@@ -810,7 +815,7 @@ mod ItemsSuite do
   fn last_ante_is_still_playable() : Outcome do
     let k = Skee.Consts.make()
     let aims =
-      List.map(List.flat_map(rows("window_aims"), fn row -> row), GoldenIo.float_of_bits)
+      List.map(List.flat_map(rows("window_aims"), fn row -> row), Arcade.Test.GoldenIo.float_of_bits)
     all(List.map(rows("window"), fn row -> window_row(k, aims, row)))
   end
 

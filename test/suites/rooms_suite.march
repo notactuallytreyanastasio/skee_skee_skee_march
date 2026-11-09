@@ -2,10 +2,10 @@ mod RoomsSuite do
 
   -- Everything here is checked against rows the real Swift wrote: see
   -- tools/golden/Sources/golden-rooms/room_golden.swift.
-  import Harness
+  import Arcade.Test.Harness
 
   fn rows(kind : String) : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Rooms.chunks()), kind)
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Rooms.chunks()), kind)
   end
 
   -- Golden text travels with `_` for a space.
@@ -40,7 +40,7 @@ mod RoomsSuite do
     match row do
     Cons(token, Cons(name, Cons(blurb, Cons(rank, Cons(next, Cons(threshold, Cons(scale, Nil))))))) -> do
       let r = room_of(token)
-      all([expect_string(Skee.Rooms.name(r), spaced(name), token ++ " name"), expect_string(Skee.Rooms.blurb(r), spaced(blurb), token ++ " blurb"), expect_int(Skee.Units.room_rank(r), GoldenIo.int(rank), token ++ " rank"), expect_string(room_option_token(Skee.Rooms.next(r)), next, token ++ " next"), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_threshold(r)), GoldenIo.int(threshold), token ++ " threshold"), GoldenIo.expect_float(Skee.Rooms.target_scale(r), scale, token ++ " target scale")])
+      all([expect_string(Skee.Rooms.name(r), spaced(name), token ++ " name"), expect_string(Skee.Rooms.blurb(r), spaced(blurb), token ++ " blurb"), expect_int(Skee.Units.room_rank(r), Arcade.Test.GoldenIo.int(rank), token ++ " rank"), expect_string(room_option_token(Skee.Rooms.next(r)), next, token ++ " next"), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_threshold(r)), Arcade.Test.GoldenIo.int(threshold), token ++ " threshold"), Arcade.Test.GoldenIo.expect_float(Skee.Rooms.target_scale(r), scale, token ++ " target scale")])
     end
     _ -> Mismatch("bad room row")
     end
@@ -138,7 +138,7 @@ mod RoomsSuite do
     match row do
     Cons(token, Cons(label, Cons(bits, Nil))) -> do
       match field_named(table_fields(Skee.Rooms.table(k, room_of(token))), label) do
-      Some((_, value)) -> GoldenIo.expect_float(value, bits, token ++ " " ++ label)
+      Some((_, value)) -> Arcade.Test.GoldenIo.expect_float(value, bits, token ++ " " ++ label)
       None -> Mismatch("no table field " ++ label)
       end
     end
@@ -174,7 +174,7 @@ mod RoomsSuite do
     match row do
     Cons(token, Cons(walls, Cons(pockets, Cons(left, Cons(right, Cons(flight, Nil)))))) -> do
       let t = Skee.Rooms.table(k, room_of(token))
-      all([expect_int(4, GoldenIo.int(walls), token ++ " ring walls"), expect_int(2, GoldenIo.int(pockets), token ++ " pockets"), expect_string(hole_token(t.board.pockets.left.pocket_hole), left, token ++ " left pocket"), expect_string(hole_token(t.board.pockets.right.pocket_hole), right, token ++ " right pocket"), expect_string(bit(t.board.pockets_need_flight), flight, token ++ " pockets need flight")])
+      all([expect_int(4, Arcade.Test.GoldenIo.int(walls), token ++ " ring walls"), expect_int(2, Arcade.Test.GoldenIo.int(pockets), token ++ " pockets"), expect_string(hole_token(t.board.pockets.left.pocket_hole), left, token ++ " left pocket"), expect_string(hole_token(t.board.pockets.right.pocket_hole), right, token ++ " right pocket"), expect_string(bit(t.board.pockets_need_flight), flight, token ++ " pockets need flight")])
     end
     _ -> Mismatch("bad table shape row")
     end
@@ -252,7 +252,7 @@ mod RoomsSuite do
       let setup = Skee.Rooms.setup(room_of(token))
       match Skee.HoleMap.reel_at(setup.gild, hole_of(hole)) do
       Some(c) -> do
-        expect_int(Skee.Units.chips_int(c), GoldenIo.int(chips), token ++ " gild " ++ hole)
+        expect_int(Skee.Units.chips_int(c), Arcade.Test.GoldenIo.int(chips), token ++ " gild " ++ hole)
       end
       None -> Mismatch("no gild at " ++ hole)
       end
@@ -270,7 +270,8 @@ mod RoomsSuite do
   fn strip_row(row : List(String)) : Outcome do
     match row do
     Cons(token, Cons(n, Cons(symbols, Nil))) -> do
-      let strip = reel_of_three(Skee.Rooms.strips(room_of(token)), GoldenIo.int(n))
+      let strip =
+        reel_of_three(Skee.Rooms.strips(room_of(token)), Arcade.Test.GoldenIo.int(n))
       expect_string(csv(List.map(strip, reel_symbol_token)), symbols, token ++ " strip " ++ n)
     end
     _ -> Mismatch("bad strip row")
@@ -280,7 +281,7 @@ mod RoomsSuite do
   fn base_strip_row(row : List(String)) : Outcome do
     match row do
     Cons(n, Cons(symbols, Nil)) -> do
-      let strip = reel_of_three(Skee.Rooms.base_strips(), GoldenIo.int(n))
+      let strip = reel_of_three(Skee.Rooms.base_strips(), Arcade.Test.GoldenIo.int(n))
       expect_string(csv(List.map(strip, reel_symbol_token)), symbols, "Pull.strips " ++ n)
     end
     _ -> Mismatch("bad base strip row")
@@ -305,7 +306,7 @@ mod RoomsSuite do
     let bits =
       List.map(table_fields(Skee.Rooms.table(k, r)), fn f ->
         match f do
-        (_, v) -> show(GoldenIo.float_bits(v))
+        (_, v) -> show(Arcade.Test.GoldenIo.float_bits(v))
         end
       )
     String.join(bits, ",")
@@ -397,7 +398,7 @@ mod RoomsSuite do
     match row do
     Cons(token, Cons(name, Cons(price, Cons(room, Nil)))) -> do
       let p = prize_of(token)
-      all([expect_string(Skee.Rooms.prize_name(p), spaced(name), token ++ " name"), expect_int(Skee.Units.winnings_int(Skee.Rooms.prize_price(p)), GoldenIo.int(price), token ++ " price"), expect_string(room_token(Skee.Rooms.prize_room(p)), room, token ++ " room")])
+      all([expect_string(Skee.Rooms.prize_name(p), spaced(name), token ++ " name"), expect_int(Skee.Units.winnings_int(Skee.Rooms.prize_price(p)), Arcade.Test.GoldenIo.int(price), token ++ " price"), expect_string(room_token(Skee.Rooms.prize_room(p)), room, token ++ " room")])
     end
     _ -> Mismatch("bad prize row")
     end
@@ -420,9 +421,9 @@ mod RoomsSuite do
   fn comp_of(room : String, nights : String, tickets : String, credit : String) : Comp do
     {
       comp_room: room_of(room),
-      nights: GoldenIo.int(nights),
-      comp_tickets: Tickets(GoldenIo.int(tickets)),
-      credit: Winnings(GoldenIo.int(credit))
+      nights: Arcade.Test.GoldenIo.int(nights),
+      comp_tickets: Tickets(Arcade.Test.GoldenIo.int(tickets)),
+      credit: Winnings(Arcade.Test.GoldenIo.int(credit))
     }
   end
 
@@ -434,7 +435,7 @@ mod RoomsSuite do
 
   fn expect_comp(c : Comp, room : String, nights : String, tickets : String, credit : String, value : String, what : String) : Outcome do
     let want = comp_of(room, nights, tickets, credit)
-    all([expect_string(comp_text(c), comp_text(want), what), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(c)), GoldenIo.int(value), what ++ " value")])
+    all([expect_string(comp_text(c), comp_text(want), what), expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(c)), Arcade.Test.GoldenIo.int(value), what ++ " value")])
   end
 
   fn opening_row(row : List(String)) : Outcome do
@@ -459,7 +460,7 @@ mod RoomsSuite do
     match row do
     Cons(room, Cons(n, Cons(t, Cons(c, Cons(v, Cons(room2, Cons(n2, Cons(t2, Cons(c2, Cons(v2, Nil)))))))))) -> do
       let comp = comp_of(room, n, t, c)
-      all([expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(comp)), GoldenIo.int(v), "value"), expect_comp(Skee.Rooms.comp_clamped(comp), room2, n2, t2, c2, v2, "clamped")])
+      all([expect_int(Skee.Units.winnings_int(Skee.Rooms.comp_value(comp)), Arcade.Test.GoldenIo.int(v), "value"), expect_comp(Skee.Rooms.comp_clamped(comp), room2, n2, t2, c2, v2, "clamped")])
     end
     _ -> Mismatch("bad comp row")
     end
@@ -480,9 +481,9 @@ mod RoomsSuite do
     match row do
     Cons(points, Cons(rounds, Cons(won, Cons(want, Nil)))) -> do
       let stats =
-        { blank_stats() with points: Points(GoldenIo.int(points)), rounds_cleared: GoldenIo.int(rounds) }
+        { blank_stats() with points: Points(Arcade.Test.GoldenIo.int(points)), rounds_cleared: Arcade.Test.GoldenIo.int(rounds) }
       let got = Skee.Rooms.winnings(stats, won == "1")
-      expect_int(Skee.Units.winnings_int(got), GoldenIo.int(want), "winnings " ++ points)
+      expect_int(Skee.Units.winnings_int(got), Arcade.Test.GoldenIo.int(want), "winnings " ++ points)
     end
     _ -> Mismatch("bad winnings row")
     end
@@ -509,7 +510,7 @@ mod RoomsSuite do
     let m = w.progressive.meters
     match row do
     Cons(mini, Cons(minor, Cons(major, Cons(grand, Nil)))) -> do
-      all([expect_int(Skee.Units.winnings_int(m.mini), GoldenIo.int(mini), "mini"), expect_int(Skee.Units.winnings_int(m.minor), GoldenIo.int(minor), "minor"), expect_int(Skee.Units.winnings_int(m.major), GoldenIo.int(major), "major"), expect_int(Skee.Units.winnings_int(m.grand), GoldenIo.int(grand), "grand")])
+      all([expect_int(Skee.Units.winnings_int(m.mini), Arcade.Test.GoldenIo.int(mini), "mini"), expect_int(Skee.Units.winnings_int(m.minor), Arcade.Test.GoldenIo.int(minor), "minor"), expect_int(Skee.Units.winnings_int(m.major), Arcade.Test.GoldenIo.int(major), "major"), expect_int(Skee.Units.winnings_int(m.grand), Arcade.Test.GoldenIo.int(grand), "grand")])
     end
     _ -> Mismatch("bad meters row")
     end
@@ -576,7 +577,7 @@ mod RoomsSuite do
   end
 
   fn int_winnings(token : String) : Winnings do
-    Winnings(GoldenIo.int(token))
+    Winnings(Arcade.Test.GoldenIo.int(token))
   end
 
   fn wallet_of_args(balance : String, lifetime : String) : Wallet do
@@ -766,7 +767,9 @@ mod RoomsSuite do
           end
         )
       match found do
-      Some((_, colour)) -> expect_int(colour.packed, GoldenIo.int(want), token ++ " " ++ label)
+      Some((_, colour)) -> do
+        expect_int(colour.packed, Arcade.Test.GoldenIo.int(want), token ++ " " ++ label)
+      end
       None -> Mismatch("no colour " ++ label)
       end
     end
@@ -775,7 +778,7 @@ mod RoomsSuite do
   end
 
   fn colour_rows() : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Cabinet.chunks()), "colour")
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Cabinet.chunks()), "colour")
   end
 
   fn golden_covers_every_colour() : Outcome do

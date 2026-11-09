@@ -171,7 +171,7 @@ plant_suite() {
   cases="$2"
   cat >"$work/test/suites/${name}_suite.march" <<EOF
 mod PlantedSuite do
-  fn cases() : List(Harness.Case) do
+  fn cases() : List(Arcade.Test.Harness.Case) do
     $cases
   end
 end
@@ -181,13 +181,13 @@ mod PlantedMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("$name", PlantedSuite.cases())
+    Arcade.Test.Harness.report("$name", PlantedSuite.cases())
   end
 end
 EOF
 }
 reset
-plant_suite planted '[Harness.case("bad", fn -> Harness.expect_int(1, 2, "one"))]'
+plant_suite planted '[Arcade.Test.Harness.case("bad", fn -> Arcade.Test.Harness.expect_int(1, 2, "one"))]'
 expect_red "a failing case, native" suite planted native
 expect_red "a failing case, js" suite planted js
 reset
@@ -195,11 +195,11 @@ plant_suite planted '[]'
 expect_red "an empty suite, native" suite planted native
 expect_red "an empty suite, js" suite planted js
 reset
-plant_suite planted '[Harness.case("nothing", fn -> Harness.all([]))]'
+plant_suite planted '[Arcade.Test.Harness.case("nothing", fn -> Arcade.Test.Harness.all([]))]'
 expect_red "a case that compared nothing, native" suite planted native
 expect_red "a case that compared nothing, js" suite planted js
 reset
-plant_suite planted '[Harness.case("boom", fn -> panic("boom"))]'
+plant_suite planted '[Arcade.Test.Harness.case("boom", fn -> panic("boom"))]'
 expect_red "a panic, native" suite planted native
 expect_red "a panic, js" suite planted js
 reset
@@ -224,7 +224,7 @@ mod PlantedMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.pending("planted")
+    Arcade.Test.Harness.pending("planted")
   end
 end
 EOF
@@ -244,7 +244,7 @@ mod Skee.Planted do
   end
 end
 EOF
-plant_suite planted '[Harness.case("record eq", fn -> Harness.expect(Skee.Planted.p() == Skee.Planted.p(), "same"))]'
+plant_suite planted '[Arcade.Test.Harness.case("record eq", fn -> Arcade.Test.Harness.expect(Skee.Planted.p() == Skee.Planted.p(), "same"))]'
 expect_red "== on a record, native" suite planted native
 
 echo "== isolation between agents"

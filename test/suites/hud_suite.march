@@ -6,7 +6,7 @@ mod HudSuite do
   -- sequences, as the shell does, and check the tree against SkeeHUD's text
   -- and against Skee.App.accepts: a button the HUD draws must be one the model
   -- takes, so the screen can never offer a tap that does nothing.
-  import Harness
+  import Arcade.Test.Harness
 
   fn k() : Skee.Consts.Consts do
     Skee.Consts.make()

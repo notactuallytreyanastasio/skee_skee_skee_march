@@ -3,7 +3,7 @@ mod ReducerMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("reducer", ReducerSuite.cases())
+    Arcade.Test.Harness.report("reducer", ReducerSuite.cases())
   end
 
 end

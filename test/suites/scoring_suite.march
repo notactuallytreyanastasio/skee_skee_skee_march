@@ -2,7 +2,7 @@ mod ScoringSuite do
 
   -- Owned by the scoring piece. The ported Swift tests, and the goldens that
   -- tools/golden/Sources/golden-scoring writes from the real Swift.
-  import Harness
+  import Arcade.Test.Harness
   import Skee.Scoring
 
   fn all_symbols() : List(Symbol) do
@@ -42,7 +42,7 @@ mod ScoringSuite do
     match row do
     Cons(name, Cons(flat, Cons(pair, Cons(triple, Cons(wild, Nil))))) -> do
       let s = symbol_of(name)
-      all([expect_int(Skee.Units.chips_int(flat_chips(s)), GoldenIo.int(flat), "flat " ++ name), GoldenIo.expect_float(pair_mult(s), pair, "pair " ++ name), GoldenIo.expect_float(triple_mult(s), triple, "triple " ++ name), expect_string(bit(is_wild(s)), wild, "wild " ++ name)])
+      all([expect_int(Skee.Units.chips_int(flat_chips(s)), Arcade.Test.GoldenIo.int(flat), "flat " ++ name), Arcade.Test.GoldenIo.expect_float(pair_mult(s), pair, "pair " ++ name), Arcade.Test.GoldenIo.expect_float(triple_mult(s), triple, "triple " ++ name), expect_string(bit(is_wild(s)), wild, "wild " ++ name)])
     end
     _ -> Mismatch("bad symbol row")
     end
@@ -87,7 +87,7 @@ mod ScoringSuite do
     match row do
     Cons(symbols, Cons(token, Cons(added, Nil))) -> do
       let p = evaluate(symbols_of(symbols))
-      all([expect(payline_matches(p, token), symbols ++ ": want " ++ token), GoldenIo.expect_float(added_mult(p), added, "added " ++ symbols)])
+      all([expect(payline_matches(p, token), symbols ++ ": want " ++ token), Arcade.Test.GoldenIo.expect_float(added_mult(p), added, "added " ++ symbols)])
     end
     _ -> Mismatch("bad payline row")
     end
@@ -120,7 +120,7 @@ mod ScoringSuite do
     match row do
     Cons(window, Cons(ball, Cons(want, Nil))) -> do
       let t = { targets: three_of(symbols_of(window)) }
-      expect_int(hits(t, symbol_of(ball)), GoldenIo.int(want), window ++ " hit by " ++ ball)
+      expect_int(hits(t, symbol_of(ball)), Arcade.Test.GoldenIo.int(want), window ++ " hit by " ++ ball)
     end
     _ -> Mismatch("bad hits row")
     end
@@ -129,8 +129,9 @@ mod ScoringSuite do
   fn combo_row(row : List(String)) : Outcome do
     match row do
     Cons(slot_hits, Cons(level, Cons(want, Nil))) -> do
-      let got = combo_mult(GoldenIo.int(slot_hits), GoldenIo.int(level))
-      GoldenIo.expect_float(got, want, "combo " ++ slot_hits ++ " at " ++ level)
+      let got =
+        combo_mult(Arcade.Test.GoldenIo.int(slot_hits), Arcade.Test.GoldenIo.int(level))
+      Arcade.Test.GoldenIo.expect_float(got, want, "combo " ++ slot_hits ++ " at " ++ level)
     end
     _ -> Mismatch("bad combo row")
     end
@@ -139,7 +140,7 @@ mod ScoringSuite do
   fn consts_row(row : List(String)) : Outcome do
     match row do
     Cons(level, Cons(tickets, Cons(free, Nil))) -> do
-      all([expect_int(max_level(), GoldenIo.int(level), "max level"), expect_int(Skee.Units.tickets_int(jackpot_tickets()), GoldenIo.int(tickets), "jackpot tickets"), expect_int(free_games_awarded(), GoldenIo.int(free), "free games")])
+      all([expect_int(max_level(), Arcade.Test.GoldenIo.int(level), "max level"), expect_int(Skee.Units.tickets_int(jackpot_tickets()), Arcade.Test.GoldenIo.int(tickets), "jackpot tickets"), expect_int(free_games_awarded(), Arcade.Test.GoldenIo.int(free), "free games")])
     end
     _ -> Mismatch("bad consts row")
     end
@@ -224,7 +225,7 @@ mod ScoringSuite do
     match row do
     Cons(name, Cons(wild, Cons(mult, Cons(pay, Cons(target, Nil))))) -> do
       let s = reel_of(name)
-      all([expect_string(bit(reel_is_wild(s)), wild, "wild " ++ name), expect_int(line_multiplier(s), GoldenIo.int(mult), "multiplier " ++ name), expect_int(Skee.Units.chips_int(line_pay(s)), GoldenIo.int(pay), "pay " ++ name), expect_string(symbol_name(reel_target(s)), target, "target " ++ name)])
+      all([expect_string(bit(reel_is_wild(s)), wild, "wild " ++ name), expect_int(line_multiplier(s), Arcade.Test.GoldenIo.int(mult), "multiplier " ++ name), expect_int(Skee.Units.chips_int(line_pay(s)), Arcade.Test.GoldenIo.int(pay), "pay " ++ name), expect_string(symbol_name(reel_target(s)), target, "target " ++ name)])
     end
     _ -> Mismatch("bad reel row")
     end
@@ -234,7 +235,7 @@ mod ScoringSuite do
     match row do
     Cons(raw, Cons(lines, Cons(cost, Cons(max, Nil)))) -> do
       let b = bet_of(raw)
-      all([expect_int(bet_lines(b), GoldenIo.int(lines), "lines " ++ raw), expect_int(Skee.Units.tickets_int(bet_cost(b)), GoldenIo.int(cost), "cost " ++ raw), expect_string(bit(bet_is_max(b)), max, "max " ++ raw)])
+      all([expect_int(bet_lines(b), Arcade.Test.GoldenIo.int(lines), "lines " ++ raw), expect_int(Skee.Units.tickets_int(bet_cost(b)), Arcade.Test.GoldenIo.int(cost), "cost " ++ raw), expect_string(bit(bet_is_max(b)), max, "max " ++ raw)])
     end
     _ -> Mismatch("bad bet row")
     end
@@ -244,7 +245,7 @@ mod ScoringSuite do
     match row do
     Cons(name, Cons(title, Cons(seed, Cons(growth, Nil)))) -> do
       let t = tier_of(name)
-      all([expect_string(tier_title(t), title, "title " ++ name), expect_int(Skee.Units.winnings_int(tier_seed(t)), GoldenIo.int(seed), "seed " ++ name), expect_int(Skee.Units.winnings_int(tier_growth(t)), GoldenIo.int(growth), "growth " ++ name)])
+      all([expect_string(tier_title(t), title, "title " ++ name), expect_int(Skee.Units.winnings_int(tier_seed(t)), Arcade.Test.GoldenIo.int(seed), "seed " ++ name), expect_int(Skee.Units.winnings_int(tier_growth(t)), Arcade.Test.GoldenIo.int(growth), "growth " ++ name)])
     end
     _ -> Mismatch("bad tier row")
     end
@@ -264,7 +265,7 @@ mod ScoringSuite do
     match row do
     Cons(symbols, Cons(want, Cons(line, Nil))) -> do
       let s = three_of(List.map(names(symbols), reel_of))
-      expect_string(line_win_token(line_win(s, GoldenIo.int(line))), want, symbols)
+      expect_string(line_win_token(line_win(s, Arcade.Test.GoldenIo.int(line))), want, symbols)
     end
     _ -> Mismatch("bad line win row")
     end
@@ -289,7 +290,7 @@ mod ScoringSuite do
       let (paid, after) = hit(p, tier_of(tier))
       let checks =
         [
-          expect_int(Skee.Units.winnings_int(paid), GoldenIo.int(won), "won"),
+          expect_int(Skee.Units.winnings_int(paid), Arcade.Test.GoldenIo.int(won), "won"),
           expect_string(meters_token(after), want, "after hit")
         ]
       (after, List.append(checks, outcomes))
@@ -353,7 +354,7 @@ mod ScoringSuite do
   end
 
   fn expect_board(setup : BoardSetup, h : Hole, want_reel : String, want_home : String, want_chips : String) : Outcome do
-    all([expect_string(comma(List.map(reel(setup, h), symbol_name)), want_reel, "reel"), expect_string(symbol_name(home_symbol(setup, h)), want_home, "home"), expect_int(Skee.Units.chips_int(hole_chips(setup, h)), GoldenIo.int(want_chips), "chips")])
+    all([expect_string(comma(List.map(reel(setup, h), symbol_name)), want_reel, "reel"), expect_string(symbol_name(home_symbol(setup, h)), want_home, "home"), expect_int(Skee.Units.chips_int(hole_chips(setup, h)), Arcade.Test.GoldenIo.int(want_chips), "chips")])
   end
 
   fn board_row(row : List(String)) : Outcome do
@@ -457,9 +458,9 @@ mod ScoringSuite do
     match row do
     Cons(room, Cons(bet, Cons(free, Cons(before, Cons(after, Cons(stops, Cons(grid_token, Cons(centre_token, Cons(targets_token, Cons(active, Cons(wins, Cons(chips, Cons(scattered, Cons(trigger, Cons(tier, Nil))))))))))))))) -> do
       let (p, rng) =
-        spin(Arcade.Rng.seed(GoldenIo.u64(before)), bet_of(bet), free == "1", room_of(room))
+        spin(Arcade.Rng.seed(Arcade.Test.GoldenIo.u64(before)), bet_of(bet), free == "1", room_of(room))
       let rows_shown = List.flat_map(three_list(grid(p)), three_list)
-      all([GoldenIo.expect_u64(Arcade.Rng.word(rng), after, "rng after"), expect_string(comma(List.map(three_list(p.stops), int_to_string)), stops, "stops"), expect_string(comma(List.map(rows_shown, reel_name)), grid_token, "grid"), expect_string(reel_three(centre(p)), centre_token, "centre"), expect_string(comma(List.map(three_list(targets(p)), symbol_name)), targets_token, "targets"), expect_string(comma(List.map(active_lines(p), int_to_string)), active, "active lines"), expect_string(wins_token(line_wins(p)), wins, "wins"), expect_int(Skee.Units.chips_int(line_chips(p)), GoldenIo.int(chips), "line chips"), expect_int(scatters(p), GoldenIo.int(scattered), "scatters"), expect_string(bit(triggers_free_games(p)), trigger, "trigger"), expect_string(tier_token(jackpot(p)), tier, "jackpot")])
+      all([Arcade.Test.GoldenIo.expect_u64(Arcade.Rng.word(rng), after, "rng after"), expect_string(comma(List.map(three_list(p.stops), int_to_string)), stops, "stops"), expect_string(comma(List.map(rows_shown, reel_name)), grid_token, "grid"), expect_string(reel_three(centre(p)), centre_token, "centre"), expect_string(comma(List.map(three_list(targets(p)), symbol_name)), targets_token, "targets"), expect_string(comma(List.map(active_lines(p), int_to_string)), active, "active lines"), expect_string(wins_token(line_wins(p)), wins, "wins"), expect_int(Skee.Units.chips_int(line_chips(p)), Arcade.Test.GoldenIo.int(chips), "line chips"), expect_int(scatters(p), Arcade.Test.GoldenIo.int(scattered), "scatters"), expect_string(bit(triggers_free_games(p)), trigger, "trigger"), expect_string(tier_token(jackpot(p)), tier, "jackpot")])
     end
     _ -> Mismatch("bad pull row")
     end
@@ -541,7 +542,7 @@ mod ScoringSuite do
         }
       let s =
         List.fold_left(all_pulls(room_of(room), bet_of(bet), free == "1"), start, sweep_step)
-      all([expect_int(s.chips, GoldenIo.int(chips), "chips " ++ room), expect_int(s.scattered, GoldenIo.int(scattered), "scatters " ++ room), expect_int(s.triggered, GoldenIo.int(triggered), "triggers " ++ room), expect_int(s.won, GoldenIo.int(won), "wins " ++ room), expect_int(s.hash, GoldenIo.int(hash), "hash " ++ room), expect_string(comma(List.map(s.tiers, int_to_string)), tiers, "tiers " ++ room)])
+      all([expect_int(s.chips, Arcade.Test.GoldenIo.int(chips), "chips " ++ room), expect_int(s.scattered, Arcade.Test.GoldenIo.int(scattered), "scatters " ++ room), expect_int(s.triggered, Arcade.Test.GoldenIo.int(triggered), "triggers " ++ room), expect_int(s.won, Arcade.Test.GoldenIo.int(won), "wins " ++ room), expect_int(s.hash, Arcade.Test.GoldenIo.int(hash), "hash " ++ room), expect_string(comma(List.map(s.tiers, int_to_string)), tiers, "tiers " ++ room)])
     end
     _ -> Mismatch("bad windows row")
     end
@@ -895,12 +896,12 @@ mod ScoringSuite do
       {
         record_hole: hole_of(hole),
         record_symbol: symbol_of(symbol),
-        record_chips: Chips(GoldenIo.int(chips)),
-        rattles: GoldenIo.int(rattled),
-        record_fold: GoldenIo.float_of_bits(fold),
+        record_chips: Chips(Arcade.Test.GoldenIo.int(chips)),
+        rattles: Arcade.Test.GoldenIo.int(rattled),
+        record_fold: Arcade.Test.GoldenIo.float_of_bits(fold),
         foul: foul == "1",
-        slot_hits: GoldenIo.int(slot_count),
-        record_combo: GoldenIo.int(combo),
+        slot_hits: Arcade.Test.GoldenIo.int(slot_count),
+        record_combo: Arcade.Test.GoldenIo.int(combo),
         record_ball: named(Skee.Items.all_balls(), ball_kind_name, kind),
         hot: hot == "1"
       }
@@ -912,7 +913,7 @@ mod ScoringSuite do
   fn pull_of(token : String) : Option(Pull) do
     match String.split(token, ",") do
     Cons(a, Cons(b, Cons(c, Cons(bet, Cons(free, Cons(room, Nil)))))) -> do
-      Some({ stops: Three(GoldenIo.int(a), GoldenIo.int(b), GoldenIo.int(c)), bet: bet_of(bet), free: free == "1", pull_room: room_of(room) })
+      Some({ stops: Three(Arcade.Test.GoldenIo.int(a), Arcade.Test.GoldenIo.int(b), Arcade.Test.GoldenIo.int(c)), bet: bet_of(bet), free: free == "1", pull_room: room_of(room) })
     end
     _ -> None
     end
@@ -935,7 +936,7 @@ mod ScoringSuite do
   end
 
   fn bits_token(x : Float) : String do
-    let v = GoldenIo.float_bits(x)
+    let v = Arcade.Test.GoldenIo.float_bits(x)
     hex_word(v.hi, 8, "") ++ hex_word(v.lo, 8, "")
   end
 
@@ -980,7 +981,7 @@ mod ScoringSuite do
       let context =
         {
           context_charms: List.map(names(charms), charm_of),
-          streak_before: GoldenIo.int(streak),
+          streak_before: Arcade.Test.GoldenIo.int(streak),
           context_fever: fever == "1",
           pairs_pay: pairs == "1",
           context_pull: pull_of(pull)
@@ -994,7 +995,7 @@ mod ScoringSuite do
   fn frame_row(row : List(String)) : Outcome do
     match (frame_of(row), List.drop(row, 6)) do
     (Some(f), Cons(line, Cons(steps, Cons(chips, Cons(mult, Cons(tickets, Cons(streak_after, Cons(total, Cons(big, Nil))))))))) -> do
-      all([expect(payline_matches(f.payline, line), "payline: want " ++ line), expect_string(steps_token(f.steps), steps, "steps"), expect_int(chips_n(f), GoldenIo.int(chips), "chips"), GoldenIo.expect_float(f.mult, mult, "mult"), expect_int(tickets_n(f), GoldenIo.int(tickets), "tickets"), expect_int(f.streak_after, GoldenIo.int(streak_after), "streak"), expect_int(total_n(f), GoldenIo.int(total), "total"), expect_string(bit(is_jackpot(f)), big, "is jackpot"), expect_folds(f)])
+      all([expect(payline_matches(f.payline, line), "payline: want " ++ line), expect_string(steps_token(f.steps), steps, "steps"), expect_int(chips_n(f), Arcade.Test.GoldenIo.int(chips), "chips"), Arcade.Test.GoldenIo.expect_float(f.mult, mult, "mult"), expect_int(tickets_n(f), Arcade.Test.GoldenIo.int(tickets), "tickets"), expect_int(f.streak_after, Arcade.Test.GoldenIo.int(streak_after), "streak"), expect_int(total_n(f), Arcade.Test.GoldenIo.int(total), "total"), expect_string(bit(is_jackpot(f)), big, "is jackpot"), expect_folds(f)])
     end
     _ -> Mismatch("bad frame row")
     end
@@ -1024,8 +1025,8 @@ mod ScoringSuite do
   end
 
   fn cases() : List(Case) do
-    let golden = GoldenIo.rows(Golden.Scoring.chunks())
-    let rows = fn kind -> GoldenIo.of_kind(golden, kind)
+    let golden = Arcade.Test.GoldenIo.rows(Golden.Scoring.chunks())
+    let rows = fn kind -> Arcade.Test.GoldenIo.of_kind(golden, kind)
     List.concat([payline_cases(), top_slot_cases(), line_cases(), pull_cases(), frame_cases(), charm_cases(), [case("rates over every window", fn () -> rates()), case("golden symbol table", fn () -> all(List.map(rows("symbol"), symbol_row))), case("golden paylines", fn () -> all(List.map(rows("payline"), payline_row))), case("golden top slot hits", fn () -> all(List.map(rows("hits"), hits_row))), case("golden combo mult", fn () -> all(List.map(rows("combo"), combo_row))), case("golden constants", fn () -> all(List.map(rows("consts"), consts_row))), case("golden reel symbols", fn () -> all(List.map(rows("reel"), reel_row))), case("golden bets", fn () -> all(List.map(rows("bet"), bet_row))), case("golden jackpot tiers", fn () -> all(List.map(rows("tier"), tier_row))), case("golden line wins", fn () -> all(List.map(rows("linewin"), line_win_row))), case("golden progressive chain", fn () -> meters_chain(rows("meters"))), case("golden board setups", fn () -> all(List.map(rows("board"), board_row))), case("golden changed board setups", fn () -> all(List.map(rows("boardchanged"), board_changed_row))), case("golden line definitions", fn () -> line_defs(rows("linedef"))), case("golden seeded pulls", fn () -> all(List.map(rows("pull"), pull_row))), case("golden every window", fn () -> all(List.map(rows("windows"), windows_row))), case("golden frames", fn () -> all(List.map(rows("frame"), frame_row))), case("golden step coverage", fn () -> coverage_outcome(rows("frame"), rows("coverage")))]])
   end
 

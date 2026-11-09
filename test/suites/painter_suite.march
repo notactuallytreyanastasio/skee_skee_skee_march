@@ -4,7 +4,7 @@ mod PainterSuite do
   -- 2D calls the shell makes, one for one, in the order
   -- tools/scene_preview/paint.html (the reference painter) makes them. The
   -- shell only executes the list, so everything it could get wrong is here.
-  import Harness
+  import Arcade.Test.Harness
 
   fn k() : Skee.Consts.Consts do
     Skee.Consts.make()
@@ -63,7 +63,7 @@ mod PainterSuite do
   end
 
   fn expect_calls(got : List(Skee.Painter.CanvasCall), want : List(String), what : String) : Outcome do
-    Harness.expect_string(String.join(List.map(got, describe), " | "), String.join(want, " | "), what)
+    Arcade.Test.Harness.expect_string(String.join(List.map(got, describe), " | "), String.join(want, " | "), what)
   end
 
   fn v(x : Float, y : Float) : Arcade.Vec2.Vec2 do
@@ -185,7 +185,7 @@ mod PainterSuite do
       Cons(c, _) -> describe(c)
       Nil -> "none"
       end
-    all([Harness.expect(List.length(ops) > 50, "the alley has ops: " ++ int_to_string(List.length(ops))), Harness.expect_string(first, "transform 3000,0,0,3000,0,0", "opening"), Harness.expect_int(count(cs, "save"), count(cs, "restore"), "saves restored"), Harness.expect(count(cs, "begin") >= List.length(ops) / 2, "paths begun")])
+    all([Arcade.Test.Harness.expect(List.length(ops) > 50, "the alley has ops: " ++ int_to_string(List.length(ops))), Arcade.Test.Harness.expect_string(first, "transform 3000,0,0,3000,0,0", "opening"), Arcade.Test.Harness.expect_int(count(cs, "save"), count(cs, "restore"), "saves restored"), Arcade.Test.Harness.expect(count(cs, "begin") >= List.length(ops) / 2, "paths begun")])
   end
 
   fn cases() : List(Case) do

@@ -3,7 +3,7 @@ mod HostTest do
   needs IO.Console
 
   test "host suite" do
-    assert Harness.failures(HostSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(HostSuite.cases()) == []
   end
 
 end

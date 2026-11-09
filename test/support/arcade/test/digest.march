@@ -1,0 +1,68 @@
+mod Arcade.Test.Digest do
+
+  -- A 32-bit digest of a run: tools/golden/Sources/golden-run/digest.swift, word
+  -- for word. Every function takes the digest so far and returns the next one.
+  -- Enums go in as their Swift allCases index; lists carry a count and optionals
+  -- a tag, so two different shapes cannot feed the same words.
+  fn start() : Int do
+    2166136261
+  end
+
+  fn mask32() : Int do
+    4294967295
+  end
+
+  -- h * 16777619 mod 2^32, as h * 403 + h * 2^24. A plain product passes 2^53.
+  fn times_prime(h : Int) : Int do
+    int_and(h * 403 + int_and(h, 255) * 16777216, mask32())
+  end
+
+  fn word(h : Int, x : Int) : Int do
+    let m = times_prime(int_xor(h, x))
+    int_xor(m, int_shr(m, 15))
+  end
+
+  fn int(h : Int, x : Int) : Int do
+    word(h, int_and(x, mask32()))
+  end
+
+  fn ints(h : Int, xs : List(Int)) : Int do
+    List.fold_left(xs, h, int)
+  end
+
+  fn bool(h : Int, x : Bool) : Int do
+    word(h, if x do 1 else 0 end)
+  end
+
+  fn u64(h : Int, x : Arcade.U64.U64) : Int do
+    word(word(h, x.hi), x.lo)
+  end
+
+  fn float(h : Int, x : Float) : Int do
+    u64(h, Arcade.Test.GoldenIo.float_bits(x))
+  end
+
+  fn text(h : Int, s : String) : Int do
+    let n = String.byte_size(s)
+    List.fold_left(List.range(0, n), int(h, n), fn (acc, i) -> word(acc, string_byte_at(s, i)))
+  end
+
+  fn list(h : Int, xs : List(a), one : Int -> a -> Int) : Int do
+    List.fold_left(xs, int(h, List.length(xs)), one)
+  end
+
+  fn option(h : Int, x : Option(a), one : Int -> a -> Int) : Int do
+    match x do
+    Some(v) -> one(word(h, 1), v)
+    None -> word(h, 0)
+    end
+  end
+
+  fn index_of(xs : List(a), x : a, i : Int) : Int do
+    match xs do
+    Nil -> panic("not in allCases")
+    Cons(y, rest) -> if x == y do i else index_of(rest, x, i + 1) end
+    end
+  end
+
+end

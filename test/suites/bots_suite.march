@@ -2,7 +2,7 @@ mod BotsSuite do
 
   -- Owned by the reducer piece. The ported Swift BotTests, and goldens from
   -- tools/golden/Sources/golden-bots. Whole bot runs come from golden-run.
-  import Harness
+  import Arcade.Test.Harness
   import Skee.Bots
 
   fn consts() : Skee.Consts.Consts do
@@ -45,11 +45,11 @@ mod BotsSuite do
 
   -- ---- Goldens ----
   fn f(token : String) : Float do
-    GoldenIo.float_of_bits(token)
+    Arcade.Test.GoldenIo.float_of_bits(token)
   end
 
   fn skill_at(token : String) : Skill do
-    List.nth(all_skills(), GoldenIo.int(token))
+    List.nth(all_skills(), Arcade.Test.GoldenIo.int(token))
   end
 
   fn hand_row(row : List(String)) : Outcome do
@@ -58,15 +58,16 @@ mod BotsSuite do
       let k = consts()
       let l =
         Skee.Physics.launch_of_power(k, f(power), f(aim), f(start), f(fold), 0.0, 0.0)
-      let (out, hand) = perturb(k, skill_at(skill), l, Arcade.Rng.seed(GoldenIo.u64(seed)))
-      all([GoldenIo.expect_libm_float(out.power, new_power, "power"), GoldenIo.expect_libm_float(out.aim, new_aim, "aim"), GoldenIo.expect_float(out.start, start, "start"), GoldenIo.expect_float(out.fold, fold, "fold"), GoldenIo.expect_u64(Arcade.Rng.word(hand), word, "rng")])
+      let (out, hand) =
+        perturb(k, skill_at(skill), l, Arcade.Rng.seed(Arcade.Test.GoldenIo.u64(seed)))
+      all([Arcade.Test.GoldenIo.expect_libm_float(out.power, new_power, "power"), Arcade.Test.GoldenIo.expect_libm_float(out.aim, new_aim, "aim"), Arcade.Test.GoldenIo.expect_float(out.start, start, "start"), Arcade.Test.GoldenIo.expect_float(out.fold, fold, "fold"), Arcade.Test.GoldenIo.expect_u64(Arcade.Rng.word(hand), word, "rng")])
     end
     _ -> Mismatch("bad hand row")
     end
   end
 
   fn grid_hash(book : AimBook) : Int do
-    List.fold_left(book.grid, RunDigest.start(), fn (h, row) -> List.fold_left(row, h, fn (acc, hole) -> RunDigest.word(acc, RunDigest.hole_index(hole))))
+    List.fold_left(book.grid, Arcade.Test.Digest.start(), fn (h, row) -> List.fold_left(row, h, fn (acc, hole) -> Arcade.Test.Digest.word(acc, RunDigest.hole_index(hole))))
   end
 
   type BookSpec = {
@@ -80,20 +81,20 @@ mod BotsSuite do
     match row do
     Cons(room, Cons(ante, Cons(boss, Cons(ball, Cons(steps, Cons(digest, Nil)))))) -> do
       let k = consts()
-      let kind = List.nth(Skee.Items.all_balls(), GoldenIo.int(ball))
+      let kind = List.nth(Skee.Items.all_balls(), Arcade.Test.GoldenIo.int(ball))
       let base =
-        Skee.Rooms.table(k, List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)))
-      let tight = Skee.Items.difficulty_table(GoldenIo.int(ante), base, 8)
+        Skee.Rooms.table(k, List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)))
+      let tight = Skee.Items.difficulty_table(Arcade.Test.GoldenIo.int(ante), base, 8)
       let bossed =
         if boss == "n" do
           tight
         else
-          Skee.Items.modify_for_boss(List.nth(Skee.Items.all_bosses(), GoldenIo.int(boss)), tight)
+          Skee.Items.modify_for_boss(List.nth(Skee.Items.all_bosses(), Arcade.Test.GoldenIo.int(boss)), tight)
         end
       {
         table: Skee.Items.modify_for_ball(kind, bossed),
         ball: kind,
-        steps: GoldenIo.int(steps),
+        steps: Arcade.Test.GoldenIo.int(steps),
         grid_digest: digest
       }
     end
@@ -104,10 +105,10 @@ mod BotsSuite do
   fn window_row(book : AimBook, row : List(String)) : Outcome do
     match row do
     Cons(hole, Cons(power, Cons(aim, Cons(width, Nil)))) -> do
-      match Skee.HoleMap.at(book.best, List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(hole))) do
+      match Skee.HoleMap.at(book.best, List.nth(Skee.HoleMap.all_holes(), Arcade.Test.GoldenIo.int(hole))) do
       None -> Mismatch("no window for hole " ++ hole)
       Some(w) -> do
-        all([GoldenIo.expect_float(w.launch.power, power, "window power"), GoldenIo.expect_float(w.launch.aim, aim, "window aim"), GoldenIo.expect_float(w.width, width, "window width")])
+        all([Arcade.Test.GoldenIo.expect_float(w.launch.power, power, "window power"), Arcade.Test.GoldenIo.expect_float(w.launch.aim, aim, "window aim"), Arcade.Test.GoldenIo.expect_float(w.width, width, "window width")])
       end
       end
     end
@@ -119,12 +120,12 @@ mod BotsSuite do
     match row do
     Cons(skill, Cons(hole, shares)) -> do
       let spread =
-        Skee.HoleMap.at(List.nth(rates, GoldenIo.int(skill)), List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(hole)))
+        Skee.HoleMap.at(List.nth(rates, Arcade.Test.GoldenIo.int(skill)), List.nth(Skee.HoleMap.all_holes(), Arcade.Test.GoldenIo.int(hole)))
       match spread do
       None -> Mismatch("no rates for hole " ++ hole)
       Some(s) -> do
         let pairs = List.zip(Skee.HoleMap.all_holes(), shares)
-        all(List.map(pairs, fn pair -> GoldenIo.expect_float(Skee.HoleMap.at(s, Tuple.first(pair)), Tuple.second(pair), "rate")))
+        all(List.map(pairs, fn pair -> Arcade.Test.GoldenIo.expect_float(Skee.HoleMap.at(s, Tuple.first(pair)), Tuple.second(pair), "rate")))
       end
       end
     end
@@ -138,8 +139,8 @@ mod BotsSuite do
     let book = aim_book(k, spec.table, spec.steps, default_aims(), 0.0, spec.ball)
     let rates =
       List.map(all_skills(), fn skill -> landings(k, book, spec.table, skill, spec.ball))
-    let windows = GoldenIo.of_kind(rows, "window")
-    let shares = GoldenIo.of_kind(rows, "rate")
+    let windows = Arcade.Test.GoldenIo.of_kind(rows, "window")
+    let shares = Arcade.Test.GoldenIo.of_kind(rows, "rate")
     all([expect_string(int_to_string(grid_hash(book)), spec.grid_digest, "grid"), all(List.map(windows, fn r -> window_row(book, r))), all(List.map(shares, fn r -> rate_row(rates, r)))])
   end
 
@@ -197,10 +198,10 @@ mod BotsSuite do
         Nil -> ""
         end
       {
-        seed: GoldenIo.u64(seed),
-        room: List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)),
+        seed: Arcade.Test.GoldenIo.u64(seed),
+        room: List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)),
         skill: skill_named(skill),
-        ball: List.nth(Skee.Items.all_balls(), GoldenIo.int(ball)),
+        ball: List.nth(Skee.Items.all_balls(), Arcade.Test.GoldenIo.int(ball)),
         actions: List.map(steps, Tuple.first),
         end_digest: last_digest
       }
@@ -235,13 +236,14 @@ mod BotsSuite do
   end
 
   -- The hand adds noise to a launch, and the noise goes through libm. Exact on
-  -- native. On JS the noise is within GoldenIo.libm_ulps(), but a sum that lands
+  -- native. On JS the noise is within Arcade.Test.GoldenIo.libm_ulps(), but a sum that lands
   -- near zero has far smaller ulps than the noise it came from, so ulps of the sum
   -- mean nothing there. The allowance is 2^-51: two ulps of 1, the largest the
   -- noise reaches. It covers the bot's hand only, and always reports. The state
   -- the run ends in is still compared exactly.
   fn near(a : Float, b : Float, what : String) : Outcome do
-    let ulps = GoldenIo.ulps_between(GoldenIo.float_bits(a), GoldenIo.float_bits(b))
+    let ulps =
+      Arcade.Test.GoldenIo.ulps_between(Arcade.Test.GoldenIo.float_bits(a), Arcade.Test.GoldenIo.float_bits(b))
     let apart = if a > b do a -. b else b -. a end
     let k = consts()
     if ulps == 0 do
@@ -329,12 +331,12 @@ mod BotsSuite do
   end
 
   fn cases() : List(Case) do
-    let rows = GoldenIo.rows(Golden.Bots.chunks())
-    let bots = golden_bots(GoldenIo.rows(Golden.Run.chunks()), [])
+    let rows = Arcade.Test.GoldenIo.rows(Golden.Bots.chunks())
+    let bots = golden_bots(Arcade.Test.GoldenIo.rows(Golden.Run.chunks()), [])
     [
       case("aim book finds a window for every hole", fn () -> aim_book_finds_a_window_for_every_hole()),
       case("perfect bot hits what it aims at", fn () -> perfect_bot_hits_what_it_aims_at()),
-      case("hand noise goldens", fn () -> all(List.map(GoldenIo.of_kind(rows, "hand"), hand_row))),
+      case("hand noise goldens", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(rows, "hand"), hand_row))),
       case("aim book and landing goldens", fn () -> all(List.map(book_groups(rows, []), fn g -> book_rows(Tuple.first(g), Tuple.second(g))))),
       case("bot run is deterministic", fn () -> bot_run_is_deterministic()),
       case("skill matters", fn () -> skill_matters()),

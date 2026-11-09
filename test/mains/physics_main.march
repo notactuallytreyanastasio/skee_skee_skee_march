@@ -10,7 +10,7 @@ mod PhysicsMain do
     println(PhysicsSuite.replay_line(exact, shots))
     println(PhysicsSuite.divergence_line(shots))
     println(PhysicsSuite.bulk_line(bulk))
-    Harness.report("physics", PhysicsSuite.cases_of(rows, shots, exact, bulk))
+    Arcade.Test.Harness.report("physics", PhysicsSuite.cases_of(rows, shots, exact, bulk))
   end
 
 end

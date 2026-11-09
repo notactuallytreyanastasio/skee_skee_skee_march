@@ -8,7 +8,7 @@ mod SceneMain do
     println("scene: replay c reached " ++ SceneSuite.look_seen("c"))
     println("scene: replay d reached " ++ SceneSuite.look_seen("d"))
     println("scene: worst texel error (8-bit steps) " ++ SceneSuite.texture_worst())
-    Harness.report("scene", SceneSuite.cases())
+    Arcade.Test.Harness.report("scene", SceneSuite.cases())
   end
 
 end

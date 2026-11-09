@@ -9,15 +9,15 @@ mod PresentationGolden do
   --
   -- Tolerances. Times, clocks, flashes, ages, progress and every count are
   -- exact: they only add and multiply. Reel and pull positions go through pow
-  -- and sin, so they get GoldenIo's libm tolerance. The ball's along, x and
+  -- and sin, so they get Arcade.Test.GoldenIo's libm tolerance. The ball's along, x and
   -- height come from the physics, whose positions differ from Swift's in the
   -- last bits on JS (and rarely natively, docs/PORT.md), so they get the
   -- reducer suite's shot bound. A shot that parted from Swift's would change
   -- times and cues and fail exactly.
-  import Harness
+  import Arcade.Test.Harness
 
   fn rows() : List(List(String)) do
-    GoldenIo.rows(Golden.Presentation.chunks())
+    Arcade.Test.GoldenIo.rows(Golden.Presentation.chunks())
   end
 
   -- One value of a row, with how it is compared.
@@ -40,7 +40,7 @@ mod PresentationGolden do
   end
 
   fn hash(s : String) : GoldenField do
-    FieldWord(int_to_string(RunDigest.text(RunDigest.start(), s)))
+    FieldWord(int_to_string(Arcade.Test.Digest.text(Arcade.Test.Digest.start(), s)))
   end
 
   -- The reducer suite's float_bound_ulps, for the same shots.
@@ -60,14 +60,14 @@ mod PresentationGolden do
     FieldWord(w) -> expect_string(w, token, what)
     FieldExact(x) -> do
       if is_bits(token) do
-        GoldenIo.expect_float(x, token, what)
+        Arcade.Test.GoldenIo.expect_float(x, token, what)
       else
         Mismatch(what ++ ": a float where Swift wrote " ++ token)
       end
     end
     FieldLibm(x) -> do
       if is_bits(token) do
-        GoldenIo.expect_libm_float(x, token, what)
+        Arcade.Test.GoldenIo.expect_libm_float(x, token, what)
       else
         Mismatch(what ++ ": a float where Swift wrote " ++ token)
       end
@@ -91,10 +91,10 @@ mod PresentationGolden do
   end
 
   fn shot_float(x : Float, token : String, what : String) : Outcome do
-    let got = GoldenIo.float_bits(x)
-    let want = GoldenIo.u64(token)
-    let ulps = GoldenIo.ulps_between(got, want)
-    let gap = float_abs(x -. GoldenIo.float_of_bits(token))
+    let got = Arcade.Test.GoldenIo.float_bits(x)
+    let want = Arcade.Test.GoldenIo.u64(token)
+    let ulps = Arcade.Test.GoldenIo.ulps_between(got, want)
+    let gap = float_abs(x -. Arcade.Test.GoldenIo.float_of_bits(token))
     if Arcade.U64.equal(got, want) do
       Passed(1)
     else
@@ -190,7 +190,9 @@ mod PresentationGolden do
     CueFrameDone -> "frameDone"
     CueLineWon -> "lineWon"
     CueJackpot -> "jackpot"
-    CueBanner(t) -> "banner" ++ int_to_string(RunDigest.text(RunDigest.start(), t))
+    CueBanner(t) -> do
+      "banner" ++ int_to_string(Arcade.Test.Digest.text(Arcade.Test.Digest.start(), t))
+    end
     CueFoul -> "foul"
     end
   end
@@ -376,7 +378,7 @@ mod PresentationGolden do
 
   -- ---- Actions ----
   fn floats_of(xs : List(String)) : List(Float) do
-    List.map(xs, GoldenIo.float_of_bits)
+    List.map(xs, Arcade.Test.GoldenIo.float_of_bits)
   end
 
   fn bet_of(lines : String) : Bet do
@@ -399,19 +401,19 @@ mod PresentationGolden do
       end
     end
     Cons("f", Nil) -> CommitFoul
-    Cons("c", Cons(i, Nil)) -> ChooseBall(List.nth(Skee.Items.all_balls(), GoldenIo.int(i)))
-    Cons("a", Cons(i, Nil)) -> Arm(GoldenIo.int(i))
+    Cons("c", Cons(i, Nil)) -> ChooseBall(List.nth(Skee.Items.all_balls(), Arcade.Test.GoldenIo.int(i)))
+    Cons("a", Cons(i, Nil)) -> Arm(Arcade.Test.GoldenIo.int(i))
     Cons("b", Cons(i, Cons(target, Nil))) -> do
       let hole =
         if target == "n" do
           None
         else
-          Some(List.nth(Skee.HoleMap.all_holes(), GoldenIo.int(target)))
+          Some(List.nth(Skee.HoleMap.all_holes(), Arcade.Test.GoldenIo.int(target)))
         end
-      Buy(GoldenIo.int(i), hole)
+      Buy(Arcade.Test.GoldenIo.int(i), hole)
     end
     Cons("r", Nil) -> Reroll
-    Cons("s", Cons(i, Nil)) -> Sell(GoldenIo.int(i))
+    Cons("s", Cons(i, Nil)) -> Sell(Arcade.Test.GoldenIo.int(i))
     Cons("l", Nil) -> LeaveCounter
     _ -> panic("bad action token " ++ token)
     end
@@ -433,7 +435,7 @@ mod PresentationGolden do
 
   fn config_of(antes : String, scale : String, tickets : String, frames : String) : RunConfig do
     let c = Skee.Types.standard_config()
-    { c with antes: GoldenIo.int(antes), target_scale: GoldenIo.float_of_bits(scale), start_tickets: Tickets(GoldenIo.int(tickets)), frames_per_round: GoldenIo.int(frames) }
+    { c with antes: Arcade.Test.GoldenIo.int(antes), target_scale: Arcade.Test.GoldenIo.float_of_bits(scale), start_tickets: Tickets(Arcade.Test.GoldenIo.int(tickets)), frames_per_round: Arcade.Test.GoldenIo.int(frames) }
   end
 
   fn where(r : PresentationReplay) : String do
@@ -445,7 +447,7 @@ mod PresentationGolden do
     match row do
     Cons("run", Cons(label, Cons(seed, Cons(room, Cons(antes, Cons(scale, Cons(tickets, Cons(frames, Nil)))))))) -> do
       let s =
-        Skee.Reducer.new_run(r.k, GoldenIo.u64(seed), config_of(antes, scale, tickets, frames), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)), Tickets(0))
+        Skee.Reducer.new_run(r.k, Arcade.Test.GoldenIo.u64(seed), config_of(antes, scale, tickets, frames), List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)), Tickets(0))
       { r with label: label, s: s, p: Skee.Presentation.make(s) }
     end
     Cons("a", Cons(token, Cons(along, Cons(digest, Nil)))) -> do
@@ -453,21 +455,21 @@ mod PresentationGolden do
       Ok(step) -> do
         let checked =
           noted(r, expect_string(int_to_string(RunDigest.run(step.run)), digest, where(r) ++ " state after " ++ token))
-        { checked with s: step.run, p: Skee.Presentation.enqueue(r.p, step, GoldenIo.float_of_bits(along)) }
+        { checked with s: step.run, p: Skee.Presentation.enqueue(r.p, step, Arcade.Test.GoldenIo.float_of_bits(along)) }
       end
       Err(e) -> noted(r, Mismatch(where(r) ++ ": " ++ token ++ " refused: " ++ show(e)))
       end
     end
     Cons("d", Cons(dt, Nil)) -> do
-      { r with p: Skee.Presentation.advance(r.k, r.p, GoldenIo.float_of_bits(dt)) }
+      { r with p: Skee.Presentation.advance(r.k, r.p, Arcade.Test.GoldenIo.float_of_bits(dt)) }
     end
     Cons("x", Nil) -> { r with p: Skee.Presentation.skip(r.k, r.p) }
     Cons("num", Cons(x, Cons(text, Nil))) -> do
-      noted(r, expect_string(Skee.HudState.num(GoldenIo.float_of_bits(x)), text, "num " ++ x))
+      noted(r, expect_string(Skee.HudState.num(Arcade.Test.GoldenIo.float_of_bits(x)), text, "num " ++ x))
     end
     Cons("ps", Cons(reel, Cons(position, Cons(at, Cons(room, Cons(want, Nil)))))) -> do
       let symbol =
-        Skee.Presentation.pull_symbol(GoldenIo.int(reel), GoldenIo.float_of_bits(position), GoldenIo.int(at), List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)))
+        Skee.Presentation.pull_symbol(Arcade.Test.GoldenIo.int(reel), Arcade.Test.GoldenIo.float_of_bits(position), Arcade.Test.GoldenIo.int(at), List.nth(Skee.Rooms.all_rooms(), Arcade.Test.GoldenIo.int(room)))
       noted(r, expect_string(int_to_string(reel_symbol_index(symbol)), want, "pull_symbol " ++ String.join(row, " ")))
     end
     Cons("k", _) -> noted(r, compare_row(tick(r.k, r.p), row, where(r) ++ " presentation"))

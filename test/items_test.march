@@ -3,7 +3,7 @@ mod ItemsTest do
   needs IO.Console
 
   test "items suite" do
-    assert Harness.failures(ItemsSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(ItemsSuite.cases()) == []
   end
 
 end

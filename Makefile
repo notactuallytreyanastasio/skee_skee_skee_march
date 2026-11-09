@@ -11,7 +11,7 @@ GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 # Native: every test block, plus the purity guard.
 test: check-purity
 	$(FORGE) test
-	@pending=$$(grep -l 'Harness.pending' test/mains/*_main.march | xargs -n1 basename | sed 's/_main.march//' | tr '\n' ' '); \
+	@pending=$$(grep -l 'Arcade.Test.Harness.pending' test/mains/*_main.march | xargs -n1 basename | sed 's/_main.march//' | tr '\n' ' '); \
 	  [ -z "$$pending" ] || echo "pending, no tests yet: $$pending"
 
 # The same suites on the shipping target, through node.

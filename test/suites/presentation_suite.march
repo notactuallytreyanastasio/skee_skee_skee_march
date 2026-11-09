@@ -3,7 +3,7 @@ mod PresentationSuite do
   -- Owned by the presentation piece. Swift's PresentationTests, case for case,
   -- then the goldens that tools/golden/Sources/golden-presentation writes from
   -- the real SkeeRender Presentation and SkeeHUD HUDState (PresentationGolden).
-  import Harness
+  import Arcade.Test.Harness
 
   fn consts() : Skee.Consts.Consts do
     Skee.Consts.make()
@@ -359,7 +359,7 @@ mod PresentationSuite do
   end
 
   fn shot_bound_near_zero() : Outcome do
-    let want = GoldenIo.float_of_bits("bf9df72302e6752c")
+    let want = Arcade.Test.GoldenIo.float_of_bits("bf9df72302e6752c")
     let near =
       PresentationGolden.shot_float(want +. 0.00000000000016, "bf9df72302e6752c", "near zero")
     let far =

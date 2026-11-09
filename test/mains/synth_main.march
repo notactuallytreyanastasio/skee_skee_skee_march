@@ -3,7 +3,7 @@ mod SynthMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("synth", SynthSuite.cases())
+    Arcade.Test.Harness.report("synth", SynthSuite.cases())
   end
 
 end

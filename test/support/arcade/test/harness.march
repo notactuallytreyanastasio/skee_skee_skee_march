@@ -1,4 +1,4 @@
-mod Harness do
+mod Arcade.Test.Harness do
 
   -- The test harness shared by forge test (native) and the plain-main runners
   -- (native and JS). `test` blocks do not run on the JS target, so a suite is

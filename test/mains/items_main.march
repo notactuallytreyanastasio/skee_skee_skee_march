@@ -3,7 +3,7 @@ mod ItemsMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("items", ItemsSuite.cases())
+    Arcade.Test.Harness.report("items", ItemsSuite.cases())
   end
 
 end

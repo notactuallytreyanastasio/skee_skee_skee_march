@@ -4,10 +4,10 @@ mod HostSuite do
   -- Skee.Host. Golden rows come from tools/golden_host (golden-host), which
   -- runs the real SkeeCore and SkeeNet. The ported Swift tests are named after
   -- their Swift functions.
-  import Harness
+  import Arcade.Test.Harness
 
   fn rows(kind : String) : List(List(String)) do
-    GoldenIo.of_kind(GoldenIo.rows(Golden.Host.chunks()), kind)
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Golden.Host.chunks()), kind)
   end
 
   -- ---- Text as hex, as the generator writes it ----
@@ -103,7 +103,7 @@ mod HostSuite do
   fn lowermap_row(row : List(String)) : Outcome do
     match row do
     Cons(cp, Cons(want, Nil)) -> do
-      expect_string(ints_csv(Skee.SwiftText.lowercased([GoldenIo.int(cp)])), want, "lowercaseMapping " ++ cp)
+      expect_string(ints_csv(Skee.SwiftText.lowercased([Arcade.Test.GoldenIo.int(cp)])), want, "lowercaseMapping " ++ cp)
     end
     _ -> Mismatch("bad lowermap row")
     end
@@ -116,7 +116,9 @@ mod HostSuite do
 
   fn prop_row(row : List(String)) : Outcome do
     match row do
-    Cons(cp, Cons(want, Nil)) -> expect_string(prop_bits(GoldenIo.int(cp)), want, "properties of " ++ cp)
+    Cons(cp, Cons(want, Nil)) -> do
+      expect_string(prop_bits(Arcade.Test.GoldenIo.int(cp)), want, "properties of " ++ cp)
+    end
     _ -> Mismatch("bad prop row")
     end
   end
@@ -125,8 +127,8 @@ mod HostSuite do
     match row do
     Cons(text, Cons(n, Cons(want, Cons(count, Nil)))) -> do
       let s = unhex(text)
-      let p = Skee.SwiftText.prefix(s, GoldenIo.int(n))
-      all([expect_string(ints_csv(Skee.SwiftText.scalars(p)), ints_csv(unhex_scalars(want)), "prefix " ++ n ++ " of " ++ text), expect_int(Skee.SwiftText.count(s), GoldenIo.int(count), "count of " ++ text)])
+      let p = Skee.SwiftText.prefix(s, Arcade.Test.GoldenIo.int(n))
+      all([expect_string(ints_csv(Skee.SwiftText.scalars(p)), ints_csv(unhex_scalars(want)), "prefix " ++ n ++ " of " ++ text), expect_int(Skee.SwiftText.count(s), Arcade.Test.GoldenIo.int(count), "count of " ++ text)])
     end
     _ -> Mismatch("bad prefix row")
     end
@@ -190,7 +192,7 @@ mod HostSuite do
   fn allows_row(row : List(String)) : Outcome do
     match row do
     Cons(say, Cons(budget, Cons(want, Nil))) -> do
-      expect_string(bit(Skee.HostGuard.allows(unhex(say), GoldenIo.int(budget))), want, "allows " ++ say ++ " under " ++ budget)
+      expect_string(bit(Skee.HostGuard.allows(unhex(say), Arcade.Test.GoldenIo.int(budget))), want, "allows " ++ say ++ " under " ++ budget)
     end
     _ -> Mismatch("bad allows row")
     end
@@ -262,7 +264,7 @@ mod HostSuite do
   fn limits() : Outcome do
     match rows("limits") do
     Cons(Cons(line, Cons(reply, Cons(turns, Cons(patience, Nil)))), Nil) -> do
-      all([expect_int(Skee.HostGuard.max_line(), GoldenIo.int(line), "maxLine"), expect_int(Skee.HostGuard.max_reply(), GoldenIo.int(reply), "maxReply"), expect_int(Skee.HostGuard.max_model_turns(), GoldenIo.int(turns), "maxModelTurns"), expect_int(Skee.Host.max_patience(), GoldenIo.int(patience), "maxPatience")])
+      all([expect_int(Skee.HostGuard.max_line(), Arcade.Test.GoldenIo.int(line), "maxLine"), expect_int(Skee.HostGuard.max_reply(), Arcade.Test.GoldenIo.int(reply), "maxReply"), expect_int(Skee.HostGuard.max_model_turns(), Arcade.Test.GoldenIo.int(turns), "maxModelTurns"), expect_int(Skee.Host.max_patience(), Arcade.Test.GoldenIo.int(patience), "maxPatience")])
     end
     _ -> Mismatch("bad limits rows")
     end
@@ -411,11 +413,11 @@ mod HostSuite do
     {
       say: unhex(say),
       reply_terms: {
-        terms_nights: GoldenIo.int(nights),
-        terms_tickets: GoldenIo.int(tickets),
-        terms_credit: GoldenIo.int(credit)
+        terms_nights: Arcade.Test.GoldenIo.int(nights),
+        terms_tickets: Arcade.Test.GoldenIo.int(tickets),
+        terms_credit: Arcade.Test.GoldenIo.int(credit)
       },
-      mood: GoldenIo.int(mood),
+      mood: Arcade.Test.GoldenIo.int(mood),
       walk: walk == "1",
       off_topic: off_of(off)
     }
@@ -442,9 +444,9 @@ mod HostSuite do
     match row do
     Cons(room, Cons(visit, Cons(seed, Cons(budget, Cons(patience, Cons(hello, Cons(flavor, Nil))))))) -> do
       let h =
-        Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))
+        Skee.Host.new_haggle(k(), room_of(room), Arcade.Test.GoldenIo.u64(seed), visit_of(visit))
       let what = room ++ " " ++ visit ++ " " ++ seed
-      all([expect_int(h.budget, GoldenIo.int(budget), "budget " ++ what), expect_int(h.patience, GoldenIo.int(patience), "patience " ++ what), expect_string(first_text(h), unhex(hello), "hello " ++ what), expect_string(Skee.Host.flavor(h), Option.unwrap_or(List.nth_opt(Skee.Host.flavors(), GoldenIo.int(flavor)), "?"), "flavor " ++ what)])
+      all([expect_int(h.budget, Arcade.Test.GoldenIo.int(budget), "budget " ++ what), expect_int(h.patience, Arcade.Test.GoldenIo.int(patience), "patience " ++ what), expect_string(first_text(h), unhex(hello), "hello " ++ what), expect_string(Skee.Host.flavor(h), Option.unwrap_or(List.nth_opt(Skee.Host.flavors(), Arcade.Test.GoldenIo.int(flavor)), "?"), "flavor " ++ what)])
     end
     _ -> Mismatch("bad haggle row")
     end
@@ -502,7 +504,7 @@ mod HostSuite do
   end
 
   fn msg_check(prompts : List(List(String)), h : Haggle, i : String, role : String, content : String) : Outcome do
-    match List.nth_opt(Skee.Host.messages(h), GoldenIo.int(i)) do
+    match List.nth_opt(Skee.Host.messages(h), Arcade.Test.GoldenIo.int(i)) do
     Some(m) -> do
       let want =
         if role == "system" do
@@ -533,7 +535,7 @@ mod HostSuite do
   fn replay_row(prompts : List(List(String)), r : HaggleReplay, row : List(String)) : HaggleReplay do
     match (row, r.replay_haggle) do
     (Cons("seq", Cons(_, Cons(room, Cons(visit, Cons(seed, Nil))))), _) -> do
-      { r with replay_haggle: Some(Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))) }
+      { r with replay_haggle: Some(Skee.Host.new_haggle(k(), room_of(room), Arcade.Test.GoldenIo.u64(seed), visit_of(visit))) }
     end
     (Cons("do", Cons(_, Cons(_, step))), Some(h)) -> { r with replay_haggle: Some(apply_step(h, step)) }
     (Cons("state", Cons(id, Cons(at, rest))), Some(h)) -> noted(r, label("haggle " ++ id ++ " step " ++ at, state_check(h, rest)))
@@ -563,7 +565,7 @@ mod HostSuite do
   end
 
   fn replays(all_rows : List(List(String))) : Outcome do
-    let prompts = GoldenIo.of_kind(all_rows, "prompt")
+    let prompts = Arcade.Test.GoldenIo.of_kind(all_rows, "prompt")
     let start = { replay_haggle: None, replay_out: [] }
     let done =
       List.fold_left(List.filter(all_rows, is_replay_row), start, fn (r, row) -> replay_row(prompts, r, row))
@@ -613,7 +615,7 @@ mod HostSuite do
       let seated =
         Skee.Host.new_haggle(k(), room_of(room), Arcade.U64.make(0, 5), visit_of(visit))
       let h =
-        List.fold_left(List.range(0, GoldenIo.int(turn)), seated, fn (acc, _) -> Skee.Host.say(acc, "hi"))
+        List.fold_left(List.range(0, Arcade.Test.GoldenIo.int(turn)), seated, fn (acc, _) -> Skee.Host.say(acc, "hi"))
       expect_string(reply_tokens(Skee.Host.deflection(h, concern_of(concern))), String.join(want, " "), "deflection " ++ String.join([room, visit, concern, turn], " "))
     end
     _ -> Mismatch("bad deflection row")
@@ -622,13 +624,13 @@ mod HostSuite do
 
   fn haggle_cases(all_rows : List(List(String))) : List(Case) do
     [
-      case("Host.of for every room", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "hostof"), hostof_row))),
-      case("Haggle.init: budget, patience, hello and flavor", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "haggle"), haggle_row))),
+      case("Host.of for every room", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "hostof"), hostof_row))),
+      case("Haggle.init: budget, patience, hello and flavor", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "haggle"), haggle_row))),
       case("scripted haggles: say, hear, greet, deflect, accept and the messages", fn () -> replays(all_rows)),
-      case("Haggle.standIn", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "standin"), standin_row))),
-      case("Haggle.accepts", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "accepts"), accepts_row))),
-      case("Haggle.json", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "json"), json_row))),
-      case("Haggle.deflection", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "deflection"), deflection_row)))
+      case("Haggle.standIn", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "standin"), standin_row))),
+      case("Haggle.accepts", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "accepts"), accepts_row))),
+      case("Haggle.json", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "json"), json_row))),
+      case("Haggle.deflection", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "deflection"), deflection_row)))
     ]
   end
 
@@ -742,7 +744,7 @@ mod HostSuite do
   end
 
   fn hex_float(x : Float) : String do
-    let bits = GoldenIo.float_bits(x)
+    let bits = Arcade.Test.GoldenIo.float_bits(x)
     Skee.Save.u64_hex(bits)
   end
 
@@ -755,7 +757,7 @@ mod HostSuite do
 
   fn wire_haggle(room : String, visit : String, seed : String, said : String) : Haggle do
     let seated =
-      Skee.Host.new_haggle(k(), room_of(room), GoldenIo.u64(seed), visit_of(visit))
+      Skee.Host.new_haggle(k(), room_of(room), Arcade.Test.GoldenIo.u64(seed), visit_of(visit))
     let lines = if said == "-" do [] else String.split(said, ",") end
     List.fold_left(lines, seated, fn (h, l) -> Skee.Host.say(h, unhex(l)))
   end
@@ -795,7 +797,7 @@ mod HostSuite do
         if status == "net" do
           Skee.Host.call_failed(w.wire_session, c.call_id, "offline")
         else
-          Skee.Host.deliver(w.wire_session, c.call_id, GoldenIo.int(status), unhex(body))
+          Skee.Host.deliver(w.wire_session, c.call_id, Arcade.Test.GoldenIo.int(status), unhex(body))
         end
       {
         wire_session: s,
@@ -879,12 +881,12 @@ mod HostSuite do
   fn wire_case(all_rows : List(List(String)), wire : List(String)) : Outcome do
     match wire do
     Cons(id, Cons(ask, Cons(room, Cons(visit, Cons(seed, Cons(said, Nil)))))) -> do
-      let answers = rows_of(GoldenIo.of_kind(all_rows, "answer"), id)
-      let sent_rows = rows_of(GoldenIo.of_kind(all_rows, "sent"), id)
+      let answers = rows_of(Arcade.Test.GoldenIo.of_kind(all_rows, "answer"), id)
+      let sent_rows = rows_of(Arcade.Test.GoldenIo.of_kind(all_rows, "sent"), id)
       let ran =
         List.fold_left(answers, wire_start(ask, wire_haggle(room, visit, seed, said)), fn (w, a) -> wire_answer(sent_rows, w, a))
       let result =
-        match rows_of(GoldenIo.of_kind(all_rows, "result"), id) do
+        match rows_of(Arcade.Test.GoldenIo.of_kind(all_rows, "result"), id) do
         Cons(r, Nil) -> wire_result(ask, ran, r)
         _ -> Mismatch("no result row")
         end
@@ -896,8 +898,8 @@ mod HostSuite do
 
   fn net_cases(all_rows : List(List(String))) : List(Case) do
     [
-      case("DeepSeek.parse over the corpus", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "parse"), parse_row))),
-      case("DeepSeek.guardedReply and greeting against a scripted relay", fn () -> all(List.map(GoldenIo.of_kind(all_rows, "wire"), fn w -> wire_case(all_rows, w))))
+      case("DeepSeek.parse over the corpus", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "parse"), parse_row))),
+      case("DeepSeek.guardedReply and greeting against a scripted relay", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "wire"), fn w -> wire_case(all_rows, w))))
     ]
   end
 
@@ -1435,7 +1437,7 @@ mod HostSuite do
   end
 
   fn cases() : List(Case) do
-    let all_rows = GoldenIo.rows(Golden.Host.chunks())
+    let all_rows = Arcade.Test.GoldenIo.rows(Golden.Host.chunks())
     List.concat([text_cases(), guard_cases(), haggle_cases(all_rows), net_cases(all_rows), swift_cases(), table_cases()])
   end
 

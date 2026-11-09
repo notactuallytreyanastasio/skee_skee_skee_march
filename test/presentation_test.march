@@ -3,7 +3,7 @@ mod PresentationTest do
   needs IO.Console
 
   test "presentation suite" do
-    assert Harness.failures(PresentationSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(PresentationSuite.cases()) == []
   end
 
 end

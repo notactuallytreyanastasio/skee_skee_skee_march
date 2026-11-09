@@ -3,7 +3,7 @@ mod SynthTest do
   needs IO.Console
 
   test "synth suite" do
-    assert Harness.failures(SynthSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(SynthSuite.cases()) == []
   end
 
 end

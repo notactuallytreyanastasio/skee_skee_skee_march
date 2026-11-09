@@ -3,7 +3,7 @@ mod BotsTest do
   needs IO.Console
 
   test "bots suite" do
-    assert Harness.failures(BotsSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(BotsSuite.cases()) == []
   end
 
 end

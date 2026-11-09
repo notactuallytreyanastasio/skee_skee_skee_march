@@ -3,7 +3,7 @@ mod PhysicsTest do
   needs IO.Console
 
   test "physics suite" do
-    assert Harness.failures(PhysicsSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(PhysicsSuite.cases()) == []
   end
 
 end

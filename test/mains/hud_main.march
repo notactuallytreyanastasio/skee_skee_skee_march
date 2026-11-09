@@ -3,7 +3,7 @@ mod HudMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("hud", HudSuite.cases())
+    Arcade.Test.Harness.report("hud", HudSuite.cases())
   end
 
 end

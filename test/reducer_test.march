@@ -3,7 +3,7 @@ mod ReducerTest do
   needs IO.Console
 
   test "reducer suite" do
-    assert Harness.failures(ReducerSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(ReducerSuite.cases()) == []
   end
 
 end

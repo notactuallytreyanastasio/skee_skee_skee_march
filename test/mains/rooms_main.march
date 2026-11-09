@@ -3,7 +3,7 @@ mod RoomsMain do
   needs IO.Console
 
   fn main(_c : Cap(IO.Console)) : () do
-    Harness.report("rooms", RoomsSuite.cases())
+    Arcade.Test.Harness.report("rooms", RoomsSuite.cases())
   end
 
 end

@@ -3,7 +3,7 @@ mod HudTest do
   needs IO.Console
 
   test "hud suite" do
-    assert Harness.failures(HudSuite.cases()) == []
+    assert Arcade.Test.Harness.failures(HudSuite.cases()) == []
   end
 
 end
