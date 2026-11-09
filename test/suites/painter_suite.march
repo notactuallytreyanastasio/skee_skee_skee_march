@@ -66,7 +66,7 @@ mod PainterSuite do
     Harness.expect_string(String.join(List.map(got, describe), " | "), String.join(want, " | "), what)
   end
 
-  fn v(x : Float, y : Float) : Skee.Maths.Vec2 do
+  fn v(x : Float, y : Float) : Arcade.Vec2.Vec2 do
     Skee.Maths.vec2(x, y)
   end
 
@@ -91,7 +91,7 @@ mod PainterSuite do
     end
   end
 
-  fn triangle() : List(Skee.Maths.Vec2) do
+  fn triangle() : List(Arcade.Vec2.Vec2) do
     [v(1.0, 2.0), v(3.0, 4.0), v(5.0, 2.0)]
   end
 

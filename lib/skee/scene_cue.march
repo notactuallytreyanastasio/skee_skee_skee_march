@@ -11,7 +11,7 @@ mod Skee.SceneCue do
   The frame's cue from the presentation. `held` is the waiting ball under
   the thumb while a stroke is in progress (Skee.Camera.waiting_ball).
   """
-  fn frame_cue(k : Skee.Consts.Consts, p : Skee.Presentation.Presentation, held : Option(Skee.World.Vec3)) : Skee.Scene.FrameCue needs () do
+  fn frame_cue(k : Skee.Consts.Consts, p : Skee.Presentation.Presentation, held : Option(Arcade.Vec3.Vec3)) : Skee.Scene.FrameCue needs () do
     let shown = p.shown
     let busy = Skee.Presentation.is_busy(p)
     let throwing = is_throwing(shown.phase)

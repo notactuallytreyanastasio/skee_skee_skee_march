@@ -149,7 +149,7 @@ mod Skee.Painter do
     end
   end
 
-  pfn ring(p : Painting, ps : List(Skee.Maths.Vec2)) : Painting needs () do
+  pfn ring(p : Painting, ps : List(Arcade.Vec2.Vec2)) : Painting needs () do
     match ps do
     Nil -> p
     Cons(first, rest) -> do
@@ -159,7 +159,7 @@ mod Skee.Painter do
     end
   end
 
-  pfn line_to(p : Painting, v : Skee.Maths.Vec2) : Painting needs () do
+  pfn line_to(p : Painting, v : Arcade.Vec2.Vec2) : Painting needs () do
     push(p, CvLineTo(v.x, v.y))
   end
 

@@ -14,11 +14,11 @@ mod PreviewMain do
     Skee.Scene.css(c)
   end
 
-  fn pt(p : Skee.Maths.Vec2) : String do
+  fn pt(p : Arcade.Vec2.Vec2) : String do
     num(p.x) ++ " " ++ num(p.y)
   end
 
-  fn ring(ps : List(Skee.Maths.Vec2)) : String do
+  fn ring(ps : List(Arcade.Vec2.Vec2)) : String do
     match ps do
     Cons(first, rest) -> "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> " L" ++ pt(p)), "") ++ " Z"
     Nil -> ""
@@ -106,11 +106,11 @@ mod PreviewMain do
     "\"" ++ colour(c) ++ "\""
   end
 
-  fn jpt(p : Skee.Maths.Vec2) : String do
+  fn jpt(p : Arcade.Vec2.Vec2) : String do
     "[" ++ jnum(p.x) ++ "," ++ jnum(p.y) ++ "]"
   end
 
-  fn jring(ps : List(Skee.Maths.Vec2)) : String do
+  fn jring(ps : List(Arcade.Vec2.Vec2)) : String do
     "[" ++ String.join(List.map(ps, jpt), ",") ++ "]"
   end
 

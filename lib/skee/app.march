@@ -175,7 +175,7 @@ mod Skee.App do
     trail : List(TrailPoint),
     line : Float,
     aiming : Bool,
-    held : Option(Skee.World.Vec3),
+    held : Option(Arcade.Vec3.Vec3),
     last_render : Option(Float),
     now : Float,
     last_ball : Option(BallMark),

@@ -1,0 +1,55 @@
+mod Arcade.Num do
+
+  -- Small Float and Int helpers with Swift's semantics: the tie order of
+  -- max and min (which decides the sign of a zero), a clamp that keeps NaN,
+  -- and a division that gives IEEE results for a zero divisor.
+  cap pure
+
+  doc """Swift's max(x, y): y on a tie, which decides the sign of a zero."""
+  fn max_float(x : Float, y : Float) : Float needs () do
+    if y >= x do y else x end
+  end
+
+  doc """Swift's min(x, y): x on a tie."""
+  fn min_float(x : Float, y : Float) : Float needs () do
+    if y < x do y else x end
+  end
+
+  doc """Swift's min(max(x, lo), hi). NaN stays NaN."""
+  fn clamp(x : Float, lo : Float, hi : Float) : Float needs () do
+    min_float(max_float(x, lo), hi)
+  end
+
+  doc """Swift's min(max(x, lo), hi) on Ints: hi wins when hi < lo, unlike Math.clamp_int."""
+  fn clamp_int(x : Int, lo : Int, hi : Int) : Int needs () do
+    Math.min_int(Math.max_int(x, lo), hi)
+  end
+
+  doc """Whether x is below zero, counting -0.0 as negative. atan2 is the
+  portable way to see a zero's sign: 1 /. x panics natively."""
+  fn is_negative(x : Float) : Bool needs () do
+    if x == 0.0 do Math.atan2(x, -1.0) < 0.0 else x < 0.0 end
+  end
+
+  doc """
+  a / b with IEEE results for b == 0: `/.` panics on zero natively, while Swift
+  and JS give an infinity or NaN. Use it for any divisor that can reach zero.
+  """
+  fn ieee_div(n : Arcade.Numerics.Numerics, a : Float, b : Float) : Float needs () do
+    if b != 0.0 do
+      a /. b
+    else
+      if a == 0.0 || a != a do
+        n.nan
+      else
+        if is_negative(a) == is_negative(b) do n.infinity else -n.infinity end
+      end
+    end
+  end
+
+  doc """Degrees to radians, in Swift's order: d * pi / 180."""
+  fn degrees(n : Arcade.Numerics.Numerics, d : Float) : Float needs () do
+    d *. n.pi /. 180.0
+  end
+
+end

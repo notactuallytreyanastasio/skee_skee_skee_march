@@ -178,7 +178,7 @@ mod PhysicsSuite do
     }
   end
 
-  fn vec(r : List(String), i : Int) : Skee.Maths.Vec2 do
+  fn vec(r : List(String), i : Int) : Arcade.Vec2.Vec2 do
     Skee.Maths.vec2(at(r, i), at(r, i + 1))
   end
 
@@ -414,7 +414,7 @@ mod PhysicsSuite do
     end
   end
 
-  fn landing_check(l : Option(Skee.Maths.Vec2), want_x : String, want_y : String) : ShotCheck do
+  fn landing_check(l : Option(Arcade.Vec2.Vec2), want_x : String, want_y : String) : ShotCheck do
     match l do
     Some(p) -> do
       if want_x == "none" do

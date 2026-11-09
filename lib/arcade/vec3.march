@@ -1,0 +1,58 @@
+mod Arcade.Vec3 do
+
+  -- Plain 3D vectors: a point or a direction.
+  cap pure
+
+  type Vec3 = { x : Float, y : Float, z : Float }
+
+  derive Show for Vec3
+
+  fn vec3(x : Float, y : Float, z : Float) : Vec3 needs () do
+    { x: x, y: y, z: z }
+  end
+
+  fn zero() : Vec3 needs () do
+    vec3(0.0, 0.0, 0.0)
+  end
+
+  fn add(a : Vec3, b : Vec3) : Vec3 needs () do
+    { x: a.x +. b.x, y: a.y +. b.y, z: a.z +. b.z }
+  end
+
+  fn sub(a : Vec3, b : Vec3) : Vec3 needs () do
+    { x: a.x -. b.x, y: a.y -. b.y, z: a.z -. b.z }
+  end
+
+  fn scale(a : Vec3, k : Float) : Vec3 needs () do
+    { x: a.x *. k, y: a.y *. k, z: a.z *. k }
+  end
+
+  fn dot(a : Vec3, b : Vec3) : Float needs () do
+    a.x *. b.x +. a.y *. b.y +. a.z *. b.z
+  end
+
+  fn cross(a : Vec3, b : Vec3) : Vec3 needs () do
+    {
+      x: a.y *. b.z -. a.z *. b.y,
+      y: a.z *. b.x -. a.x *. b.z,
+      z: a.x *. b.y -. a.y *. b.x
+    }
+  end
+
+  fn length(a : Vec3) : Float needs () do
+    Math.sqrt(dot(a, a))
+  end
+
+  doc """simd_normalize: a times 1 / |a|. The zero vector is returned as it
+  is (signs of its zeros kept) rather than becoming NaN."""
+  fn normalized(a : Vec3) : Vec3 needs () do
+    let l = length(a)
+    if l == 0.0 do a else scale(a, 1.0 /. l) end
+  end
+
+  doc """a + (b - a) * t."""
+  fn mix(a : Vec3, b : Vec3, t : Float) : Vec3 needs () do
+    add(a, scale(sub(b, a), t))
+  end
+
+end

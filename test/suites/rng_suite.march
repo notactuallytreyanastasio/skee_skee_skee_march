@@ -85,7 +85,7 @@ mod RngSuite do
     end
   end
 
-  fn expect_vec(v : Skee.Maths.Vec2, x : String, y : String, what : String) : Outcome do
+  fn expect_vec(v : Arcade.Vec2.Vec2, x : String, y : String, what : String) : Outcome do
     all([GoldenIo.expect_float(v.x, x, what ++ ".x"), GoldenIo.expect_float(v.y, y, what ++ ".y")])
   end
 

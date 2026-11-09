@@ -1,0 +1,53 @@
+mod Arcade.Vec2 do
+
+  -- Plain 2D vectors.
+  cap pure
+
+  type Vec2 = { x : Float, y : Float }
+
+  derive Show for Vec2
+
+  doc """Equality. Vec2 is a record, and records do not derive Eq."""
+  fn equal(a : Vec2, b : Vec2) : Bool needs () do
+    a.x == b.x && a.y == b.y
+  end
+
+  fn vec2(x : Float, y : Float) : Vec2 needs () do
+    { x: x, y: y }
+  end
+
+  fn zero() : Vec2 needs () do
+    { x: 0.0, y: 0.0 }
+  end
+
+  fn add(a : Vec2, b : Vec2) : Vec2 needs () do
+    { x: a.x +. b.x, y: a.y +. b.y }
+  end
+
+  fn sub(a : Vec2, b : Vec2) : Vec2 needs () do
+    { x: a.x -. b.x, y: a.y -. b.y }
+  end
+
+  fn scale(a : Vec2, k : Float) : Vec2 needs () do
+    { x: a.x *. k, y: a.y *. k }
+  end
+
+  fn neg(a : Vec2) : Vec2 needs () do
+    { x: -a.x, y: -a.y }
+  end
+
+  fn dot(a : Vec2, b : Vec2) : Float needs () do
+    a.x *. b.x +. a.y *. b.y
+  end
+
+  fn length(a : Vec2) : Float needs () do
+    Math.sqrt(a.x *. a.x +. a.y *. a.y)
+  end
+
+  doc """Unit vector; the zero vector becomes +0 zero rather than NaN."""
+  fn normalized(a : Vec2) : Vec2 needs () do
+    let l = length(a)
+    if l == 0.0 do zero() else { x: a.x /. l, y: a.y /. l } end
+  end
+
+end

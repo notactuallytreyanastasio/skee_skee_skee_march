@@ -14,11 +14,6 @@ mod Skee.World do
 
   import Skee.Maths
 
-  -- A point or direction in scene space.
-  type Vec3 = { x : Float, y : Float, z : Float }
-
-  derive Show for Vec3
-
   -- The drawing constants of World.swift, with the sines and cosines of the
   -- two angles worked out once, since every mapping needs them.
   type World = {
@@ -33,51 +28,45 @@ mod Skee.World do
     tilt_cos : Float
   }
 
+  -- Vec3 lives in Arcade.Vec3; these forward to it while call sites migrate.
   fn v3(x : Float, y : Float, z : Float) : Vec3 needs () do
-    { x: x, y: y, z: z }
+    Arcade.Vec3.vec3(x, y, z)
   end
 
   fn origin() : Vec3 needs () do
-    v3(0.0, 0.0, 0.0)
+    Arcade.Vec3.zero()
   end
 
   fn plus(a : Vec3, b : Vec3) : Vec3 needs () do
-    { x: a.x +. b.x, y: a.y +. b.y, z: a.z +. b.z }
+    Arcade.Vec3.add(a, b)
   end
 
   fn minus(a : Vec3, b : Vec3) : Vec3 needs () do
-    { x: a.x -. b.x, y: a.y -. b.y, z: a.z -. b.z }
+    Arcade.Vec3.sub(a, b)
   end
 
   fn times(a : Vec3, k : Float) : Vec3 needs () do
-    { x: a.x *. k, y: a.y *. k, z: a.z *. k }
+    Arcade.Vec3.scale(a, k)
   end
 
   fn dot3(a : Vec3, b : Vec3) : Float needs () do
-    a.x *. b.x +. a.y *. b.y +. a.z *. b.z
+    Arcade.Vec3.dot(a, b)
   end
 
   fn cross(a : Vec3, b : Vec3) : Vec3 needs () do
-    {
-      x: a.y *. b.z -. a.z *. b.y,
-      y: a.z *. b.x -. a.x *. b.z,
-      z: a.x *. b.y -. a.y *. b.x
-    }
+    Arcade.Vec3.cross(a, b)
   end
 
   fn length3(a : Vec3) : Float needs () do
-    Math.sqrt(dot3(a, a))
+    Arcade.Vec3.length(a)
   end
 
-  doc """simd_normalize. The zero vector stays zero rather than becoming NaN."""
   fn unit(a : Vec3) : Vec3 needs () do
-    let l = length3(a)
-    if l == 0.0 do a else times(a, 1.0 /. l) end
+    Arcade.Vec3.normalized(a)
   end
 
-  doc """a + (b - a) * t."""
   fn mix3(a : Vec3, b : Vec3, t : Float) : Vec3 needs () do
-    plus(a, times(minus(b, a), t))
+    Arcade.Vec3.mix(a, b, t)
   end
 
   doc """World(table:) with World.swift's defaults."""
