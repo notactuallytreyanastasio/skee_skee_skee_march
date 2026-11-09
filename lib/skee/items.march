@@ -297,7 +297,7 @@ mod Skee.Items do
   The table tightens as the run goes on: smaller 50 hole and pockets, wider lips,
   holes that only catch slower balls. Each knob moves linearly from ante 1 to the
   last ante and stops there. Swift's defaults are `Skee.Types.standard_table(k)`
-  and 8 antes.
+  and 12 antes.
   """
   fn difficulty_table(ante : Int, base : Table, antes : Int) : Table needs () do
     let t =

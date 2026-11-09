@@ -272,7 +272,7 @@ async function run(browser, name, viewport, touch) {
   await press(page, "TapSkipWalkthrough", touch);
   let m = await waitFor(page, (m) => m.layer === "LayerBase" && m.busy === "0" && m.live.includes("TapPull"), "the machine");
   await dealInRun(page);
-  await shows(page, ["ANTE 1/8", "WARM-UP", "SPIN", "FRAME 1/3 · 9 BALLS", "NEW GAME", "GUIDE"], "machine");
+  await shows(page, ["ANTE 1/12", "WARM-UP", "SPIN", "FRAME 1/3 · 9 BALLS", "NEW GAME", "GUIDE"], "machine");
   await shot(page, name, 6, "machine");
 
   await press(page, "TapOpenGuide", touch);

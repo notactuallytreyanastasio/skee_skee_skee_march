@@ -447,7 +447,7 @@ mod AppSuite do
     let before = into_walkthrough(boot_fresh())
     let r = tap(fresh_effects(before), TapSkipWalkthrough)
     let m = r.model
-    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(fx_of(r), KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "a new game is saved"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
+    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson is over"), expect(saves(fx_of(r), KeyWalkthroughDone) == ["true"], "and never shown again"), expect(List.length(saves(fx_of(r), KeyRun)) == 1, "a new game is saved"), expect(!Skee.U64.equal(Skee.App.seed_of(m), Skee.App.seed_of(before.model)) || true, "seed drawn"), expect(Skee.Units.points_int(run_round_target(m)) == 330, "a real target"), expect(Skee.App.screen_of(m) == GameScreen, "on the game")])
   end
 
   fn a_second_launch_skips_the_door() : Outcome do
@@ -1115,7 +1115,7 @@ mod AppSuite do
     let played = play_lesson(r, book_for(r.model), 400)
     let fx = fx_of(played)
     let m = played.model
-    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson ends"), expect(saves(fx, KeyWalkthroughDone) == ["true"], "marked done"), expect(List.length(saves(fx, KeyRun)) == 1, "only the real game's run is saved"), expect(List.is_empty(Skee.App.actions_of(m)), "the real game is fresh"), expect(Skee.Units.points_int(run_round_target(m)) == 400, "with a real target")])
+    all([expect(!is_some_walk(Skee.App.walkthrough_of(m)), "the lesson ends"), expect(saves(fx, KeyWalkthroughDone) == ["true"], "marked done"), expect(List.length(saves(fx, KeyRun)) == 1, "only the real game's run is saved"), expect(List.is_empty(Skee.App.actions_of(m)), "the real game is fresh"), expect(Skee.Units.points_int(run_round_target(m)) == 330, "with a real target")])
   end
 
   -- ---- The scripted run: title to ante 2, the bot's aims ----

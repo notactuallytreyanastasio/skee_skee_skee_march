@@ -179,7 +179,9 @@ function visibility() {
 // serve: SynthEngine.serve, for the fallback. ready: called once the synth
 // is up, so March can restore the levels it kept.
 export function audio_install(url, serve, ready) {
-  workletUrl = url;
+  // Next to this module, not the page: the blog serves the page at /skee and
+  // the modules from /static/skee/<build>/.
+  workletUrl = new URL(url, import.meta.url).href;
   serveFn = serve;
   readyFn = ready;
   try {

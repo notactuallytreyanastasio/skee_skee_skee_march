@@ -370,7 +370,7 @@ for ball in [BallKind.marshmallow, .classic] {
 let windowAims = Array(stride(from: -0.8, through: 0.8, by: 0.2))
 g.line(["window_aims"] + windowAims.map(f64))
 for boss in Boss.allCases {
-    let t = boss.modify(difficultyTable(ante: 8))
+    let t = boss.modify(difficultyTable(ante: RunConfig.standard.antes))
     var best = 0.0
     for aim in windowAims {
         var hits = 0

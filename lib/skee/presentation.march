@@ -129,10 +129,12 @@ mod Skee.Presentation do
   -- ---- Tuning ----
   doc """
   Seconds of screen time per recorded second of a shot. At real time the whole
-  throw read as a flick of light; 1.4 gives the roll a second to watch.
+  throw read as a flick of light, and 1.4 gave the roll a second to watch. But
+  at 1.4 only the comet (released 1.3x faster) felt alive, so every ball now
+  plays at the comet's old screen pace: 1.4 / 1.3. Same paths, same holes.
   """
   fn roll_speed() : Float needs () do
-    1.4
+    1.4 /. 1.3
   end
 
   doc """Seconds per revealed tally step."""

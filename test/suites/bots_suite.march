@@ -83,7 +83,8 @@ mod BotsSuite do
       let kind = List.nth(Skee.Items.all_balls(), GoldenIo.int(ball))
       let base =
         Skee.Rooms.table(k, List.nth(Skee.Rooms.all_rooms(), GoldenIo.int(room)))
-      let tight = Skee.Items.difficulty_table(GoldenIo.int(ante), base, 8)
+      let cfg = Skee.Types.standard_config()
+      let tight = Skee.Items.difficulty_table(GoldenIo.int(ante), base, cfg.antes)
       let bossed =
         if boss == "n" do
           tight
