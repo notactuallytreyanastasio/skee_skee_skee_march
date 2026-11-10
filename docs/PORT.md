@@ -41,6 +41,8 @@ foundation: ask before changing it.
 | `Arcade.Html` | `arcade/lib/arcade/html.march` | HTML as data (`Prop`, `Html`: `Tag` or `Words`), `escape`, `render` |
 | `Arcade.Svg` | `arcade/lib/arcade/svg.march` | DrawOps as SVG elements in `Html` (`ops_svg(prefix, ops)`), clips as `<clipPath>` groups |
 | `Arcade.Web.Paint`, `Arcade.Web.Canvas2d` | `arcade/lib/arcade/web/paint.march`, `canvas2d.march`, `arcade_canvas2d.mjs` | JS only (not core): executes a `CanvasCall` list; the Canvas 2D calls Js.Canvas lacks. march copies the .mjs beside the build |
+| `Arcade.Camera` | `arcade/lib/arcade/camera.march` | `Pose` (eye, target, up), `Lens` (`Perspective(fov)` or `Orthographic(extent)`), `Rig`, `Viewport`, `Projection`, `Seen`; projection to fractions and pixels, `ray`, `ray_plane`, `pixels_per_metre`, `lean_step`, `lean_toward`, `shake_jolt` |
+| `Arcade.CameraFit` | `arcade/lib/arcade/camera_fit.march` | Grid fitter: `FitGrid`, `FitTarget` (point, wanted screen y, weight), `FitPlan`, lexicographic `FitBest`; the game passes `pose_at` and the targets |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
 
@@ -331,6 +333,13 @@ HUD's hole positions are `Skee.Scene.hole_on_screen` (the fitted rig, as
 GameModel does), the stroke's geometry `Skee.Scene.flick_geometry`, the aiming
 guide `Skee.Camera.guide`, the held ball `Skee.Camera.waiting_ball` and a board
 tap `Skee.Camera.tapped_hole`.
+
+The camera types are the engine's (`Arcade.Camera.Rig`, `Viewport`,
+`Projection`, `Seen`). `Skee.Camera` is a client: it keeps the cabinet's
+framing points, the fit's grids, targets (84%, 50% weighted 8, 23%) and lens
+penalty, the initial rig, the lean and shake rates, and everything about the
+lane and board, and hands them to `Arcade.CameraFit.fit` and
+`Arcade.Camera`. Skee's rigs are always `Perspective`.
 
 `DrawOp` is `ClearTo`, `FillShape(shape, paint, blend)`, `StrokeShape(shape, pen,
 blend)`, `DrawText` (centred, in the coordinates of its `frame`, an affine map

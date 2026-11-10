@@ -208,7 +208,7 @@ mod PreviewMain do
     Some((_, s)) -> s
     None -> panic("no stage")
     end
-    let scene = { pick with viewport: Skee.Camera.viewport(w, h) }
+    let scene = { pick with viewport: Arcade.Camera.viewport(w, h) }
     let ops = Skee.Scene.draw(k, scene)
     if nth_arg(argv, 3) == "json" do
       do

@@ -212,8 +212,8 @@ mod Skee.Scene do
   type Scenery = {
     world : World,
     palette : Skee.Rooms.CabinetPalette,
-    viewport : Skee.Camera.Viewport,
-    camera : Skee.Camera.Rig,
+    viewport : Arcade.Camera.Viewport,
+    camera : Arcade.Camera.Rig,
     ball : BallView,
     waiting : Int,
     reels : PerReel(ReelLook),
@@ -884,12 +884,12 @@ mod Skee.Scene do
   Where each hole is on screen, in pixels, for HUDState's popups and board
   taps: GameModel's holeOnScreen, through the fitted rig.
   """
-  fn hole_on_screen(k : Skee.Consts.Consts, w : World, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport) : PerHole(Vec2) needs () do
+  fn hole_on_screen(k : Skee.Consts.Consts, w : World, rig : Arcade.Camera.Rig, v : Arcade.Camera.Viewport) : PerHole(Vec2) needs () do
     Skee.Camera.hole_on_screen(k, w, rig, v)
   end
 
   doc """ScenePresenter.flickGeometry: crease y, lane centre x and half width in pixels."""
-  fn flick_geometry(k : Skee.Consts.Consts, w : World, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport) : FlickGeometry needs () do
+  fn flick_geometry(k : Skee.Consts.Consts, w : World, rig : Arcade.Camera.Rig, v : Arcade.Camera.Viewport) : FlickGeometry needs () do
     Skee.Camera.flick_geometry(k, w, rig, v)
   end
 
@@ -1262,7 +1262,7 @@ mod Skee.Scene do
   ScenePresenter.update: one frame. Returns the scene to draw and what to
   keep for the next frame. `rig` is the fitted camera (Skee.Camera.fit_world).
   """
-  fn present(w : World, palette : Skee.Rooms.CabinetPalette, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport, keep : Keep, c : FrameCue, dt : Float) : (Scenery, Keep) needs () do
+  fn present(w : World, palette : Skee.Rooms.CabinetPalette, rig : Arcade.Camera.Rig, v : Arcade.Camera.Viewport, keep : Keep, c : FrameCue, dt : Float) : (Scenery, Keep) needs () do
     let bc = c.ball_cue
     let place = place_ball(w, bc)
     let moved = roll_on(w, keep.motion, place, dt)
@@ -1311,33 +1311,33 @@ mod Skee.Scene do
   -- thick * height / (40 * tan(fov / 2)).
   type Brush = {
     k : Skee.Consts.Consts,
-    lens : Skee.Camera.Lens,
+    lens : Arcade.Camera.Projection,
     eye : Vec3,
     ink_px : Float
   }
 
   fn brush(k : Skee.Consts.Consts, s : Scenery) : Brush needs () do
-    let l = Skee.Camera.lens(k, s.camera, s.viewport)
+    let l = Arcade.Camera.projection(k.num, s.camera, s.viewport)
     {
       k: k,
       lens: l,
-      eye: s.camera.eye,
-      ink_px: l.height /. (40.0 *. l.tan_half)
+      eye: s.camera.pose.eye,
+      ink_px: l.height /. (40.0 *. l.half)
     }
   end
 
   pfn px(b : Brush, p : Vec3) : Vec2 needs () do
-    Skee.Camera.pixel(b.k, b.lens, p)
+    Arcade.Camera.pixel(b.k.num, b.lens, p)
   end
 
   pfn depth(b : Brush, p : Vec3) : Float needs () do
-    let s = Skee.Camera.seen(b.lens, p)
+    let s = Arcade.Camera.seen(b.lens, p)
     s.depth
   end
 
   doc """Pixels per metre at a scene point."""
   fn scale_at(b : Brush, p : Vec3) : Float needs () do
-    Skee.Camera.pixels_per_metre(b.lens, depth(b, p))
+    Arcade.Camera.pixels_per_metre(b.lens, depth(b, p))
   end
 
   pfn to_eye(b : Brush, p : Vec3) : Vec3 needs () do
@@ -1350,7 +1350,7 @@ mod Skee.Scene do
   end
 
   -- Sutherland-Hodgman against the near plane, in camera space.
-  pfn clip_edge(a : Skee.Camera.Seen, c : Skee.Camera.Seen) : List(Skee.Camera.Seen) needs () do
+  pfn clip_edge(a : Arcade.Camera.Seen, c : Arcade.Camera.Seen) : List(Arcade.Camera.Seen) needs () do
     let n = z_near()
     let a_in = a.depth >= n
     let c_in = c.depth >= n
@@ -1367,7 +1367,7 @@ mod Skee.Scene do
 
   -- Where an edge crosses the near plane. Only called when it does, so the
   -- depths differ.
-  pfn near_cut(a : Skee.Camera.Seen, c : Skee.Camera.Seen) : Skee.Camera.Seen needs () do
+  pfn near_cut(a : Arcade.Camera.Seen, c : Arcade.Camera.Seen) : Arcade.Camera.Seen needs () do
     let n = z_near()
     let t = (n -. a.depth) /. (c.depth -. a.depth)
     {
@@ -1386,17 +1386,17 @@ mod Skee.Scene do
 
   doc """A scene polygon in pixels, clipped to what is in front of the camera."""
   fn polygon(b : Brush, pts : List(Vec3)) : List(Vec2) needs () do
-    let seen = List.map(pts, fn p -> Skee.Camera.seen(b.lens, p))
+    let seen = List.map(pts, fn p -> Arcade.Camera.seen(b.lens, p))
     let clipped =
       if List.all(seen, fn s -> s.depth >= z_near()) do
         seen
       else
         List.flat_map(ring_pairs(seen), fn e -> clip_pair(e))
       end
-    List.map(clipped, fn s -> Skee.Camera.pixel_of_seen(b.k, b.lens, s))
+    List.map(clipped, fn s -> Arcade.Camera.pixel_of_seen(b.k.num, b.lens, s))
   end
 
-  pfn clip_pair(e : (Skee.Camera.Seen, Skee.Camera.Seen)) : List(Skee.Camera.Seen) needs () do
+  pfn clip_pair(e : (Arcade.Camera.Seen, Arcade.Camera.Seen)) : List(Arcade.Camera.Seen) needs () do
     match e do
     (a, c) -> clip_edge(a, c)
     end

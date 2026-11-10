@@ -145,8 +145,8 @@ mod Skee.App do
     k : Skee.Consts.Consts,
     world : Skee.World.World,
     palette : Skee.Rooms.CabinetPalette,
-    rig : Skee.Camera.Rig,
-    viewport : Skee.Camera.Viewport,
+    rig : Arcade.Camera.Rig,
+    viewport : Arcade.Camera.Viewport,
     keep : Skee.Scene.Keep,
     scenery : Skee.Scene.Scenery,
     pres : Skee.Presentation.Presentation,
@@ -623,7 +623,7 @@ mod Skee.App do
   end
 
   -- ---- Boot ----
-  pfn fresh_scene(k : Skee.Consts.Consts, w : Skee.World.World, palette : Skee.Rooms.CabinetPalette, rig : Skee.Camera.Rig, v : Skee.Camera.Viewport, p : Skee.Presentation.Presentation) : (Skee.Scene.Scenery, Skee.Scene.Keep) needs () do
+  pfn fresh_scene(k : Skee.Consts.Consts, w : Skee.World.World, palette : Skee.Rooms.CabinetPalette, rig : Arcade.Camera.Rig, v : Arcade.Camera.Viewport, p : Skee.Presentation.Presentation) : (Skee.Scene.Scenery, Skee.Scene.Keep) needs () do
     let cue = Skee.SceneCue.frame_cue(k, p, None)
     Skee.Scene.present(w, palette, rig, v, Skee.Scene.keep_fresh(), cue, 0.0)
   end
@@ -687,7 +687,7 @@ mod Skee.App do
     carry_tips : List(Tip),
     carry_walk_done : Bool,
     carry_arrival_done : Bool,
-    carry_viewport : Skee.Camera.Viewport,
+    carry_viewport : Arcade.Camera.Viewport,
     carry_seeds : Arcade.Rng.Rng,
     carry_now : Float
   }
@@ -769,7 +769,7 @@ mod Skee.App do
         carry_tips: Skee.Save.load_tips(saved.saved_tips),
         carry_walk_done: Skee.Save.load_flag(saved.saved_walk_done),
         carry_arrival_done: Skee.Save.load_flag(saved.saved_arrival_done),
-        carry_viewport: Skee.Camera.viewport(width, height),
+        carry_viewport: Arcade.Camera.viewport(width, height),
         carry_seeds: Arcade.Rng.seed(seed),
         carry_now: 0.0
       }
@@ -800,7 +800,7 @@ mod Skee.App do
 
   pfn resized(m : Model, w : Float, h : Float) : Model needs () do
     if w > 0.0 && h > 0.0 do
-      { m with viewport: Skee.Camera.viewport(w, h) }
+      { m with viewport: Arcade.Camera.viewport(w, h) }
     else
       m
     end

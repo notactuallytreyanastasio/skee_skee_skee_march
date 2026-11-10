@@ -1,0 +1,9 @@
+mod Arcade.Main.Camera do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("camera", Arcade.Suite.Camera.cases())
+  end
+
+end

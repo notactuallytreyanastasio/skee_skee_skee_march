@@ -162,12 +162,25 @@ mod SceneSuite do
     world_of("boardwalk")
   end
 
-  fn fitted() : Skee.Camera.Rig do
+  fn fitted() : Arcade.Camera.Rig do
     Skee.Camera.fit_world(k(), boardwalk())
   end
 
-  fn view_of(w : String, h : String) : Skee.Camera.Viewport do
-    Skee.Camera.viewport(int_to_float(Arcade.Test.GoldenIo.int(w)), int_to_float(Arcade.Test.GoldenIo.int(h)))
+  fn kn() : Arcade.Numerics.Numerics do
+    let c = k()
+    c.num
+  end
+
+  -- Skee's rigs are all perspective; an orthographic one has no field of view.
+  fn fov_of(r : Arcade.Camera.Rig) : Float do
+    match r.lens do
+    Perspective(fov) -> fov
+    Orthographic(_) -> panic("skee rig with an orthographic lens")
+    end
+  end
+
+  fn view_of(w : String, h : String) : Arcade.Camera.Viewport do
+    Arcade.Camera.viewport(int_to_float(Arcade.Test.GoldenIo.int(w)), int_to_float(Arcade.Test.GoldenIo.int(h)))
   end
 
   fn framing_row(row : List(String)) : Outcome do
@@ -180,11 +193,11 @@ mod SceneSuite do
     end
   end
 
-  fn fit_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn fit_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(ex, Cons(ey, Cons(ez, Cons(tx, Cons(ty, Cons(tz, Cons(fov, Nil))))))))) -> do
       let what = "fit " ++ w ++ "x" ++ h
-      all([near3(rig.eye, ex, ey, ez, metres_tol(), what ++ " eye"), near3(rig.target, tx, ty, tz, metres_tol(), what ++ " target"), near(rig.fov, fov, unit_tol(), what ++ " fov")])
+      all([near3(rig.pose.eye, ex, ey, ez, metres_tol(), what ++ " eye"), near3(rig.pose.target, tx, ty, tz, metres_tol(), what ++ " target"), near(fov_of(rig), fov, unit_tol(), what ++ " fov")])
     end
     _ -> Mismatch("bad fit row")
     end
@@ -254,18 +267,18 @@ mod SceneSuite do
     end
   end
 
-  fn proj_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn proj_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
       let world = boardwalk()
-      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
-      near2(Skee.Camera.pixel(k(), l, proj_point(world, name)), px, py, pixels_tol(), w ++ "x" ++ h ++ " " ++ name)
+      let l = Arcade.Camera.projection(kn(), rig, view_of(w, h))
+      near2(Arcade.Camera.pixel(kn(), l, proj_point(world, name)), px, py, pixels_tol(), w ++ "x" ++ h ++ " " ++ name)
     end
     _ -> Mismatch("bad proj row")
     end
   end
 
-  fn holes_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn holes_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
       let spots = Skee.Camera.hole_on_screen(k(), boardwalk(), rig, view_of(w, h))
@@ -279,7 +292,7 @@ mod SceneSuite do
     end
   end
 
-  fn flick_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn flick_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(crease, Cons(cx, Cons(half, Cons(give, Nil)))))) -> do
       let g = Skee.Camera.flick_geometry(k(), boardwalk(), rig, view_of(w, h))
@@ -290,7 +303,7 @@ mod SceneSuite do
     end
   end
 
-  fn guide_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn guide_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(line, coords))) -> do
       let pts = Skee.Camera.guide(k(), boardwalk(), rig, view_of(w, h), fl(line))
@@ -314,7 +327,7 @@ mod SceneSuite do
     end
   end
 
-  fn lane_point_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn lane_point_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(fx, Cons(fy, Cons(hit, Cons(x, Cons(y, Cons(z, Nil)))))))) -> do
       let got =
@@ -350,11 +363,11 @@ mod SceneSuite do
     end
   end
 
-  fn ray_row(rig : Skee.Camera.Rig, row : List(String)) : Outcome do
+  fn ray_row(rig : Arcade.Camera.Rig, row : List(String)) : Outcome do
     match row do
     Cons(w, Cons(h, Cons(ox, Cons(oy, Cons(oz, Cons(dx, Cons(dy, Cons(dz, Nil)))))))) -> do
-      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
-      let (o, d) = Skee.Camera.ray(l, vec2(0.3, 0.6))
+      let l = Arcade.Camera.projection(kn(), rig, view_of(w, h))
+      let (o, d) = Arcade.Camera.ray(l, vec2(0.3, 0.6))
       all([near3(o, ox, oy, oz, metres_tol(), "ray origin"), near3(d, dx, dy, dz, unit_tol(), "ray direction")])
     end
     _ -> Mismatch("bad ray row")
@@ -365,7 +378,7 @@ mod SceneSuite do
     match row do
     Cons(_, Cons(x, Cons(y, Cons(z, Cons(fov, Nil))))) -> do
       let r = Skee.Camera.initial()
-      all([near3(r.eye, x, y, z, metres_tol(), "initial camera"), near(r.fov, fov, 0.0, "initial fov")])
+      all([near3(r.pose.eye, x, y, z, metres_tol(), "initial camera"), near(fov_of(r), fov, 0.0, "initial fov")])
     end
     _ -> Mismatch("bad camera0 row")
     end
@@ -374,7 +387,7 @@ mod SceneSuite do
   fn tap_case() : Outcome do
     let w = boardwalk()
     let rig = fitted()
-    let v = Skee.Camera.viewport(390.0, 844.0)
+    let v = Arcade.Camera.viewport(390.0, 844.0)
     let spots = Skee.Camera.hole_on_screen(k(), w, rig, v)
     let at50 = spots.ring50
     let near50 =
@@ -391,7 +404,7 @@ mod SceneSuite do
     let up = Skee.Camera.lean_step(0.0, 1.0, 0.1)
     let down = Skee.Camera.lean_step(1.0, 0.0, 0.1)
     let big = Skee.Camera.lean_step(0.2, 1.0, 1.0)
-    all([expect(Skee.World.length3(Skee.World.minus(still.eye, rig.eye)) == 0.0, "no lean, no shake: the fitted rig"), expect(Math.abs(up -. 0.5) < 0.0000001, "lean eases in at 5 per second"), expect(Math.abs(down -. 0.75) < 0.0000001, "lean eases out at 2.5 per second"), expect(big == 1.0, "a long frame lands on the target")])
+    all([expect(Skee.World.length3(Skee.World.minus(still.pose.eye, rig.pose.eye)) == 0.0, "no lean, no shake: the fitted rig"), expect(Math.abs(up -. 0.5) < 0.0000001, "lean eases in at 5 per second"), expect(Math.abs(down -. 0.75) < 0.0000001, "lean eases out at 2.5 per second"), expect(big == 1.0, "a long frame lands on the target")])
   end
 
   fn world_cases() : List(Case) do
@@ -403,7 +416,7 @@ mod SceneSuite do
     ]
   end
 
-  fn camera_cases(rig : Skee.Camera.Rig) : List(Case) do
+  fn camera_cases(rig : Arcade.Camera.Rig) : List(Case) do
     [
       case("Cabinet.framingPoints", fn () -> all(List.map(rows("framing"), framing_row))),
       case("Cabinet.fit, every viewport", fn () -> all(List.map(rows("fit"), fn r -> fit_row(rig, r)))),
@@ -454,7 +467,7 @@ mod SceneSuite do
     {
       world: w,
       palette: Skee.Rooms.palette(r),
-      viewport: Skee.Camera.viewport(390.0, 844.0),
+      viewport: Arcade.Camera.viewport(390.0, 844.0),
       camera: Skee.Camera.initial(),
       ball: { place: place, motion: motion, kind: ClassicBall, shadow: shadow },
       waiting: 12,
@@ -804,7 +817,7 @@ mod SceneSuite do
     let size = drawn_ball_scale(s)
     let sh = b.shadow
     let sq = Skee.Scene.quat_between(v3(0.0, 0.0, 1.0), sh.facing)
-    let cam = s.camera.eye
+    let cam = s.camera.pose.eye
     let got =
       [
         b.place.centre.x,
@@ -843,7 +856,7 @@ mod SceneSuite do
   -- and are counted instead. A gutter sink moves along the board's normal,
   -- not the lane's, so it rolls in both and is compared.
   type SceneReplay = {
-    rig : Skee.Camera.Rig,
+    rig : Arcade.Camera.Rig,
     kept : Skee.Scene.Keep,
     outcomes : List(Outcome),
     worst_spin : Float,
@@ -860,7 +873,7 @@ mod SceneSuite do
   fn replay_step(acc : SceneReplay, row : List(String)) : SceneReplay do
     let w = boardwalk()
     let (scene, kept) =
-      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), acc.rig, Arcade.Camera.viewport(390.0, 844.0), acc.kept, frame_cue(row), 1.0 /. 60.0)
     let q = scene.ball.motion.orientation
     let sinking =
       match acc.kept.motion.last do
@@ -1064,7 +1077,7 @@ mod SceneSuite do
 
   fn look_check(s : Skee.Scene.Scenery, row : List(String), bulbs : List(String), waves : List(String)) : Outcome do
     let what = "look " ++ String.join(List.take(row, 2), " ")
-    let cam = s.camera
+    let cam = s.camera.pose
     let front = unit(minus(cam.target, cam.eye))
     let reels =
       List.map(List.enumerate(Skee.HoleMap.reel_holes()), fn e -> reel_check(s, row, what, e))
@@ -1093,7 +1106,7 @@ mod SceneSuite do
 
   type LookReplay = {
     world : World,
-    rig : Skee.Camera.Rig,
+    rig : Arcade.Camera.Rig,
     kept : Skee.Scene.Keep,
     outcomes : List(Outcome),
     seen : LookSeen
@@ -1141,7 +1154,7 @@ mod SceneSuite do
     (row, (bulbs, waves)) -> do
       let cue = look_cue(row)
       let (scene, kept) =
-        Skee.Scene.present(acc.world, Skee.Rooms.palette(Boardwalk), acc.rig, Skee.Camera.viewport(390.0, 844.0), acc.kept, cue, 1.0 /. 60.0)
+        Skee.Scene.present(acc.world, Skee.Rooms.palette(Boardwalk), acc.rig, Arcade.Camera.viewport(390.0, 844.0), acc.kept, cue, 1.0 /. 60.0)
       {
         world: acc.world,
         rig: acc.rig,
@@ -1312,7 +1325,7 @@ mod SceneSuite do
         }
       }
     let (scene, _) =
-      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Arcade.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
     scene
   end
 
@@ -1346,7 +1359,7 @@ mod SceneSuite do
         }
       }
     let (scene, _) =
-      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Arcade.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
     scene
   end
 
@@ -1446,7 +1459,7 @@ mod SceneSuite do
     let cue = Skee.SceneCue.frame_cue(k(), p, None)
     let w = boardwalk()
     let (scene, _) =
-      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Skee.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
+      Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), fitted(), Arcade.Camera.viewport(390.0, 844.0), Skee.Scene.keep_fresh(), cue, 1.0 /. 60.0)
     let spot = plus(lane(w, 0.0, 0.12), times(lane_normal(w), ball_radius(w)))
     let ops = Skee.Scene.draw(k(), scene)
     all([expect(scene.ball.place.visible, "the waiting ball shows"), expect(length3(minus(scene.ball.place.centre, spot)) < 0.000001, "at the release spot"), expect_int(scene.waiting, Skee.Reducer.balls_left(run.round) - 1, "the rest wait in the trough"), expect(List.length(cue.sparks) == 0, "no sparks yet"), expect(List.length(ops) > 300, "the cabinet draws")])
@@ -1634,11 +1647,11 @@ mod SceneSuite do
     List.fold_left(xs, 0.0, fn (a, b) -> if b > a do b else a end)
   end
 
-  fn proj_off(rig : Skee.Camera.Rig, row : List(String)) : List(Float) do
+  fn proj_off(rig : Arcade.Camera.Rig, row : List(String)) : List(Float) do
     match row do
     Cons(w, Cons(h, Cons(name, Cons(px, Cons(py, Nil))))) -> do
-      let l = Skee.Camera.lens(k(), rig, view_of(w, h))
-      let p = Skee.Camera.pixel(k(), l, proj_point(boardwalk(), name))
+      let l = Arcade.Camera.projection(kn(), rig, view_of(w, h))
+      let p = Arcade.Camera.pixel(kn(), l, proj_point(boardwalk(), name))
       [off(p.x, px), off(p.y, py)]
     end
     _ -> []

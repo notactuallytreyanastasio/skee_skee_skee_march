@@ -6,14 +6,14 @@ mod BenchMain do
   needs IO.Console
   needs IO.Clock
 
-  fn frame_ops(rig : Skee.Camera.Rig, keep : Skee.Scene.Keep, row : List(String)) : (Int, Skee.Scene.Keep) do
+  fn frame_ops(rig : Arcade.Camera.Rig, keep : Skee.Scene.Keep, row : List(String)) : (Int, Skee.Scene.Keep) do
     let k = Skee.Consts.make()
     let w = Skee.World.make(k, Skee.Rooms.table(k, Boardwalk))
-    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), rig, Skee.Camera.viewport(390.0, 844.0), keep, SceneSuite.frame_cue(row), 1.0 /. 60.0)
+    let (scene, kept) = Skee.Scene.present(w, Skee.Rooms.palette(Boardwalk), rig, Arcade.Camera.viewport(390.0, 844.0), keep, SceneSuite.frame_cue(row), 1.0 /. 60.0)
     (List.length(Skee.Scene.draw(k, scene)), kept)
   end
 
-  fn run(rig : Skee.Camera.Rig, rows : List(List(String)), keep : Skee.Scene.Keep, most : Int) : Int do
+  fn run(rig : Arcade.Camera.Rig, rows : List(List(String)), keep : Skee.Scene.Keep, most : Int) : Int do
     match rows do
     Nil -> most
     Cons(row, rest) -> do

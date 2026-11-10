@@ -1,0 +1,208 @@
+mod Arcade.Suite.Camera do
+
+  -- Arcade.Camera and Arcade.CameraFit on small, hand-solvable rigs: an
+  -- orthographic top-down camera (the 2D case) whose numbers are exact, and
+  -- a 90-degree perspective camera, checked to 1e-9 because tan(pi / 4) is
+  -- one ulp under 1. The game's own suites pin the perspective path against
+  -- their goldens.
+  import Arcade.Test.Harness
+
+  fn n() : Arcade.Numerics.Numerics do
+    Arcade.Numerics.make()
+  end
+
+  fn v(x : Float, y : Float, z : Float) : Arcade.Vec3.Vec3 do
+    Arcade.Vec3.vec3(x, y, z)
+  end
+
+  fn near(a : Float, b : Float, what : String) : Outcome do
+    expect(Math.abs(a -. b) < 0.000000001, what ++ ": got " ++ float_to_string(a) ++ ", want " ++ float_to_string(b))
+  end
+
+  fn near2(p : Arcade.Vec2.Vec2, x : Float, y : Float, what : String) : Outcome do
+    all([near(p.x, x, what ++ ".x"), near(p.y, y, what ++ ".y")])
+  end
+
+  fn near3(p : Arcade.Vec3.Vec3, x : Float, y : Float, z : Float, what : String) : Outcome do
+    all([near(p.x, x, what ++ ".x"), near(p.y, y, what ++ ".y"), near(p.z, z, what ++ ".z")])
+  end
+
+  -- Ten units above the origin looking straight down, screen up = world -z,
+  -- seeing 20 units top to bottom on a 200 x 100 viewport.
+  fn top_down() : Arcade.Camera.Rig do
+    {
+      pose: {
+        eye: v(0.0, 10.0, 0.0),
+        target: v(0.0, 0.0, 0.0),
+        up: v(0.0, 0.0, -1.0)
+      },
+      lens: Orthographic(20.0)
+    }
+  end
+
+  fn wide() : Arcade.Camera.Viewport do
+    Arcade.Camera.viewport(200.0, 100.0)
+  end
+
+  fn ortho_project() : Outcome do
+    let l = Arcade.Camera.projection(n(), top_down(), wide())
+    let s = Arcade.Camera.seen(l, v(5.0, 0.0, -5.0))
+    all([expect(l.half == 10.0, "half is half the extent"), expect(l.aspect == 2.0, "aspect"), near3(l.right, 1.0, 0.0, 0.0, "right"), near3(l.up, 0.0, 0.0, -1.0, "up"), near(s.across, 5.0, "across"), near(s.rise, 5.0, "rise"), near(s.depth, 10.0, "depth"), near2(Arcade.Camera.fraction(n(), l, v(5.0, 0.0, -5.0)), 0.625, 0.25, "fraction"), near2(Arcade.Camera.pixel(n(), l, v(5.0, 0.0, -5.0)), 125.0, 25.0, "pixel"), near2(Arcade.Camera.pixel(n(), l, v(5.0, -30.0, -5.0)), 125.0, 25.0, "depth does not move an orthographic pixel"), near2(Arcade.Camera.pixel(n(), l, v(0.0, 0.0, 0.0)), 100.0, 50.0, "the target is the centre")])
+  end
+
+  fn ortho_scale() : Outcome do
+    let l = Arcade.Camera.projection(n(), top_down(), wide())
+    all([expect(Arcade.Camera.pixels_per_metre(l, 1.0) == 5.0, "5 px per unit"), expect(Arcade.Camera.pixels_per_metre(l, 100.0) == 5.0, "at any depth"), expect(Arcade.Camera.pixels_per_metre(l, 0.0) == 5.0, "even at the eye")])
+  end
+
+  fn ortho_ray() : Outcome do
+    let l = Arcade.Camera.projection(n(), top_down(), wide())
+    let (o, d) = Arcade.Camera.ray(l, Arcade.Vec2.vec2(0.625, 0.25))
+    let hit = Arcade.Camera.ray_plane(o, d, v(0.0, 0.0, 0.0), v(0.0, 1.0, 0.0))
+    let back =
+      match hit do
+      Some(p) -> near3(p, 5.0, 0.0, -5.0, "hit")
+      None -> Mismatch("the ray missed the ground")
+      end
+    all([near3(o, 5.0, 10.0, -5.0, "origin on the eye plane"), near3(d, 0.0, -1.0, 0.0, "every ray runs along forward"), back])
+  end
+
+  -- At the origin looking down -z with a 90-degree lens on a square viewport.
+  fn straight() : Arcade.Camera.Rig do
+    {
+      pose: Arcade.Camera.pose(v(0.0, 0.0, 0.0), v(0.0, 0.0, -1.0)),
+      lens: Perspective(90.0)
+    }
+  end
+
+  fn square() : Arcade.Camera.Viewport do
+    Arcade.Camera.viewport(100.0, 100.0)
+  end
+
+  fn perspective_project() : Outcome do
+    let l = Arcade.Camera.projection(n(), straight(), square())
+    all([near(l.half, 1.0, "tan(45 degrees)"), near2(Arcade.Camera.pixel(n(), l, v(1.0, 0.0, -2.0)), 75.0, 50.0, "right of centre"), near2(Arcade.Camera.pixel(n(), l, v(0.0, 1.0, -2.0)), 50.0, 25.0, "above centre"), near2(Arcade.Camera.pixel(n(), l, v(2.0, 0.0, -4.0)), 75.0, 50.0, "twice as far, twice as wide"), near(Arcade.Camera.pixels_per_metre(l, 2.0), 25.0, "25 px per metre at 2 m"), expect(Arcade.Camera.pixels_per_metre(l, 0.0) == 0.0, "0 at the eye")])
+  end
+
+  fn perspective_ray() : Outcome do
+    let l = Arcade.Camera.projection(n(), straight(), square())
+    let p = v(1.5, -0.5, -3.0)
+    let f = Arcade.Camera.fraction(n(), l, p)
+    let (o, d) = Arcade.Camera.ray(l, f)
+    let hit =
+      match Arcade.Camera.ray_plane(o, d, v(0.0, 0.0, -3.0), v(0.0, 0.0, 1.0)) do
+      Some(h) -> near3(h, 1.5, -0.5, -3.0, "the ray through a point's pixel finds it")
+      None -> Mismatch("the ray missed its plane")
+      end
+    all([near3(o, 0.0, 0.0, 0.0, "rays leave the eye"), near(Arcade.Vec3.length(d), 1.0, "unit direction"), hit])
+  end
+
+  fn ray_plane_misses() : Outcome do
+    let along =
+      Arcade.Camera.ray_plane(v(0.0, 1.0, 0.0), v(1.0, 0.0, 0.0), v(0.0, 0.0, 0.0), v(0.0, 1.0, 0.0))
+    let behind =
+      Arcade.Camera.ray_plane(v(0.0, 1.0, 0.0), v(0.0, 1.0, 0.0), v(0.0, 0.0, 0.0), v(0.0, 1.0, 0.0))
+    let loose =
+      Arcade.Camera.ray_plane_within(v(0.0, 1.0, 0.0), v(1.0, -0.001, 0.0), v(0.0, 0.0, 0.0), v(0.0, 1.0, 0.0), 0.01)
+    all([expect(Option.is_none(along), "a parallel ray misses"), expect(Option.is_none(behind), "a plane behind the ray misses"), expect(Option.is_none(loose), "within the tolerance counts as parallel")])
+  end
+
+  fn motion() : Outcome do
+    let p = Arcade.Camera.pose(v(0.0, 0.0, 0.0), v(0.0, 0.0, -10.0))
+    let leaned = Arcade.Camera.lean_toward(p, v(0.0, 10.0, -10.0), 0.5, 0.25)
+    let still = Arcade.Camera.shake_jolt(0.0, 3.0)
+    let j = Arcade.Camera.shake_jolt(2.0, 0.0)
+    let moved = Arcade.Camera.jolted(p, v(1.0, 2.0, 3.0))
+    all([expect(Arcade.Camera.lean_step(0.0, 1.0, 0.1, 5.0, 2.5) == 0.5, "eases in at the rise rate"), expect(Arcade.Camera.lean_step(1.0, 0.0, 0.1, 5.0, 2.5) == 0.75, "eases out at the fall rate"), expect(Arcade.Camera.lean_step(0.2, 1.0, 1.0, 5.0, 2.5) == 1.0, "never overshoots"), near3(leaned.eye, 0.0, 5.0, -5.0, "eye leans half way"), near3(leaned.target, 0.0, 2.5, -10.0, "target leans a quarter"), near3(still, 0.0, 0.0, 0.0, "no amplitude, no jolt"), near3(j, 0.0, 2.0, 0.0, "cos at clock 0"), near3(moved.eye, 1.0, 2.0, 3.0, "jolt moves the eye"), near3(moved.target, 0.0, 0.0, -10.0, "not the target")])
+  end
+
+  -- ---- Arcade.CameraFit ----
+  -- Top-down at height `h`, sliding along z by `a`.
+  fn slide_pose(h : Float, a : Float, _b : Float, _c : Float) : Arcade.Camera.Pose do
+    { eye: v(0.0, h, a), target: v(0.0, 0.0, a), up: v(0.0, 0.0, -1.0) }
+  end
+
+  fn one() : Arcade.CameraFit.FitGrid do
+    Arcade.CameraFit.grid(0.0, 1.0, 1)
+  end
+
+  fn ortho_plan(weight : Float) : Arcade.CameraFit.FitPlan do
+    {
+      family: OrthographicFamily,
+      lens_grid: Arcade.CameraFit.grid(10.0, 2.0, 6),
+      lens_weight: weight,
+      grid_a: Arcade.CameraFit.grid(-2.0, 1.0, 5),
+      grid_b: one(),
+      grid_c: one()
+    }
+  end
+
+  -- z = -4 at a quarter down the screen, z = 4 at three quarters: centred
+  -- (a = 0) with 16 units in view.
+  fn ortho_fit() : Outcome do
+    let ts =
+      [
+        Arcade.CameraFit.target(v(0.0, 0.0, -4.0), 0.25, 1.0),
+        Arcade.CameraFit.target(v(0.0, 0.0, 4.0), 0.75, 1.0)
+      ]
+    let b = Arcade.CameraFit.fit_best(10.0, n(), slide_pose, ortho_plan(0.0), ts)
+    let r = Arcade.CameraFit.fit(10.0, n(), slide_pose, ortho_plan(0.0), ts)
+    let lens_ok =
+      match r.lens do
+      Orthographic(e) -> expect(e == 16.0, "extent 16")
+      Perspective(_) -> Mismatch("an orthographic plan fitted a perspective lens")
+      end
+    all([expect(b.err == 0.0, "an exact fit"), expect_int(b.li, 3, "lens index"), expect_int(b.ai, 2, "a index"), lens_ok, near3(r.pose.eye, 0.0, 10.0, 0.0, "centred eye")])
+  end
+
+  -- With nothing to fit every candidate ties at the lens penalty: no penalty
+  -- keeps the first grid point, and a penalty still prefers the smallest lens.
+  fn fit_ties() : Outcome do
+    let first = Arcade.CameraFit.fit_best(10.0, n(), slide_pose, ortho_plan(0.0), [])
+    let small = Arcade.CameraFit.fit_best(10.0, n(), slide_pose, ortho_plan(0.5), [])
+    all([expect_int(first.li, 0, "first lens"), expect_int(first.ai, 0, "first a"), expect(first.err == 0.0, "no error"), expect_int(small.li, 0, "smallest lens"), expect(small.err == 5.0, "penalty 10 * 0.5")])
+  end
+
+  -- Looking down -z from (0, 0, a).
+  fn back_pose(_h : Float, a : Float, _b : Float, _c : Float) : Arcade.Camera.Pose do
+    Arcade.Camera.pose(v(0.0, 0.0, a), v(0.0, 0.0, a -. 1.0))
+  end
+
+  -- (0, 1, -2) a quarter down the screen: rise / (depth * tan) = 1/2, which
+  -- only fov 90 at a = 0 meets on this grid.
+  fn perspective_fit() : Outcome do
+    let plan =
+      {
+        family: PerspectiveFamily,
+        lens_grid: Arcade.CameraFit.grid(60.0, 30.0, 3),
+        lens_weight: 0.0,
+        grid_a: Arcade.CameraFit.grid(-1.0, 1.0, 3),
+        grid_b: one(),
+        grid_c: one()
+      }
+    let r =
+      Arcade.CameraFit.fit(0.0, n(), back_pose, plan, [Arcade.CameraFit.target(v(0.0, 1.0, -2.0), 0.25, 1.0)])
+    let lens_ok =
+      match r.lens do
+      Perspective(fov) -> expect(fov == 90.0, "fov 90")
+      Orthographic(_) -> Mismatch("a perspective plan fitted an orthographic lens")
+      end
+    all([lens_ok, near3(r.pose.eye, 0.0, 0.0, 0.0, "eye at the origin")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("orthographic projection", fn () -> ortho_project()),
+      case("orthographic pixels per metre", fn () -> ortho_scale()),
+      case("orthographic ray and ray_plane", fn () -> ortho_ray()),
+      case("perspective projection", fn () -> perspective_project()),
+      case("perspective ray round trip", fn () -> perspective_ray()),
+      case("ray_plane misses", fn () -> ray_plane_misses()),
+      case("lean, shake and jolt", fn () -> motion()),
+      case("CameraFit, orthographic", fn () -> ortho_fit()),
+      case("CameraFit, ties and the lens penalty", fn () -> fit_ties()),
+      case("CameraFit, perspective", fn () -> perspective_fit())
+    ]
+  end
+
+end

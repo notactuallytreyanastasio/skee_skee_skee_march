@@ -1,0 +1,198 @@
+mod Arcade.CameraFit do
+
+  -- A grid search for a camera: try every lens value against every pose on a
+  -- three-parameter grid, and keep the rig that puts each target nearest the
+  -- screen height it wants. The game says what the three pose parameters
+  -- mean (`pose_at`), which points matter (targets) and how much each one
+  -- counts (weights); the fitter only walks the grid.
+  --
+  -- Only screen heights (fractions, y down) enter the error, so the answer
+  -- does not depend on the viewport's size.
+  cap pure
+
+  import Arcade.Num
+  import Arcade.Vec3
+
+  -- `count` values first, first + stride, first + 2 * stride, ... Each value
+  -- is first + i * stride (not a running sum), so a grid is exact per index.
+  type FitGrid = { first : Float, stride : Float, count : Int }
+
+  -- A point that should land at screen height `want_y` (a fraction, y down),
+  -- with its squared miss counted `weight` times.
+  type FitTarget = { spot : Vec3, want_y : Float, weight : Float }
+
+  -- Which lens the lens grid holds: fields of view in degrees, or
+  -- orthographic extents in world units.
+  type LensFamily = PerspectiveFamily | OrthographicFamily
+
+  -- The whole search. Each lens value also costs `lens_weight` times itself,
+  -- so of two equal fits the narrower lens wins.
+  type FitPlan = {
+    family : LensFamily,
+    lens_grid : FitGrid,
+    lens_weight : Float,
+    grid_a : FitGrid,
+    grid_b : FitGrid,
+    grid_c : FitGrid
+  }
+
+  -- The best candidate so far and its grid indices. Ties go to the earliest
+  -- in lexicographic (lens, a, b, c) order, whatever order the walk visits.
+  type FitBest = { err : Float, li : Int, ai : Int, bi : Int, ci : Int }
+
+  fn grid(first : Float, stride : Float, count : Int) : FitGrid needs () do
+    { first: first, stride: stride, count: count }
+  end
+
+  fn grid_at(g : FitGrid, i : Int) : Float needs () do
+    g.first +. int_to_float(i) *. g.stride
+  end
+
+  fn target(spot : Vec3, want_y : Float, weight : Float) : FitTarget needs () do
+    { spot: spot, want_y: want_y, weight: weight }
+  end
+
+  doc """The lens at an index of the plan's lens grid."""
+  fn lens_at(plan : FitPlan, i : Int) : Lens needs () do
+    match plan.family do
+    PerspectiveFamily -> Perspective(grid_at(plan.lens_grid, i))
+    OrthographicFamily -> Orthographic(grid_at(plan.lens_grid, i))
+    end
+  end
+
+  -- Each lens index with its projection `half`, worked out once.
+  pfn halves(n : Arcade.Numerics.Numerics, plan : FitPlan, i : Int, acc : List((Int, Float))) : List((Int, Float)) needs () do
+    if i < 0 do
+      acc
+    else
+      halves(n, plan, i - 1, Cons((i, Arcade.Camera.half_of(n, lens_at(plan, i))), acc))
+    end
+  end
+
+  -- Rise and depth of every target from one pose. The lens only enters
+  -- afterwards, so it is the inner loop.
+  pfn sights(eye : Vec3, f : Vec3, u : Vec3, ts : List(FitTarget)) : List((Float, Float)) needs () do
+    match ts do
+    Nil -> []
+    Cons(t, rest) -> do
+      let d = sub(t.spot, eye)
+      Cons((dot(d, u), dot(d, f)), sights(eye, f, u, rest))
+    end
+    end
+  end
+
+  pfn screen_y(n : Arcade.Numerics.Numerics, family : LensFamily, rise : Float, depth : Float, half : Float) : Float needs () do
+    match family do
+    PerspectiveFamily -> (1.0 -. ieee_div(n, rise, depth *. half)) /. 2.0
+    OrthographicFamily -> (1.0 -. ieee_div(n, rise, half)) /. 2.0
+    end
+  end
+
+  pfn miss(n : Arcade.Numerics.Numerics, family : LensFamily, s : (Float, Float), t : FitTarget, half : Float) : Float needs () do
+    let (rise, depth) = s
+    let e = screen_y(n, family, rise, depth, half) -. t.want_y
+    t.weight *. e *. e
+  end
+
+  -- The weighted misses summed left to right, starting from the first.
+  pfn add_misses(n : Arcade.Numerics.Numerics, family : LensFamily, acc : Float, ss : List((Float, Float)), ts : List(FitTarget), half : Float) : Float needs () do
+    match (ss, ts) do
+    (Cons(s, srest), Cons(t, trest)) -> do
+      add_misses(n, family, acc +. miss(n, family, s, t, half), srest, trest, half)
+    end
+    _ -> acc
+    end
+  end
+
+  pfn misses(n : Arcade.Numerics.Numerics, family : LensFamily, ss : List((Float, Float)), ts : List(FitTarget), half : Float) : Float needs () do
+    match (ss, ts) do
+    (Cons(s, srest), Cons(t, trest)) -> add_misses(n, family, miss(n, family, s, t, half), srest, trest, half)
+    _ -> 0.0
+    end
+  end
+
+  pfn earlier(a : FitBest, b : FitBest) : Bool needs () do
+    if a.li != b.li do
+      a.li < b.li
+    else
+      if a.ai != b.ai do
+        a.ai < b.ai
+      else
+        if a.bi != b.bi do a.bi < b.bi else a.ci < b.ci end
+      end
+    end
+  end
+
+  pfn better(a : FitBest, b : FitBest) : Bool needs () do
+    a.err < b.err || a.err == b.err && earlier(a, b)
+  end
+
+  pfn try_lenses(n : Arcade.Numerics.Numerics, plan : FitPlan, ts : List(FitTarget), ss : List((Float, Float)), hs : List((Int, Float)), ai : Int, bi : Int, ci : Int, best : FitBest) : FitBest needs () do
+    match hs do
+    Nil -> best
+    Cons((li, half), rest) -> do
+      let e =
+        misses(n, plan.family, ss, ts, half) +. grid_at(plan.lens_grid, li) *. plan.lens_weight
+      let cand = { err: e, li: li, ai: ai, bi: bi, ci: ci }
+      try_lenses(n, plan, ts, ss, rest, ai, bi, ci, if better(cand, best) do cand else best end)
+    end
+    end
+  end
+
+  pfn pose_of(cx : c, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ai : Int, bi : Int, ci : Int) : Pose needs () do
+    pose_at(cx, grid_at(plan.grid_a, ai), grid_at(plan.grid_b, bi), grid_at(plan.grid_c, ci))
+  end
+
+  pfn try_cs(cx : c, n : Arcade.Numerics.Numerics, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ts : List(FitTarget), hs : List((Int, Float)), ai : Int, bi : Int, ci : Int, best : FitBest) : FitBest needs () do
+    if ci >= plan.grid_c.count do
+      best
+    else
+      do
+        let p = pose_of(cx, pose_at, plan, ai, bi, ci)
+        let (f, _, u) = Arcade.Camera.basis(p)
+        let b = try_lenses(n, plan, ts, sights(p.eye, f, u, ts), hs, ai, bi, ci, best)
+        try_cs(cx, n, pose_at, plan, ts, hs, ai, bi, ci + 1, b)
+      end
+    end
+  end
+
+  pfn try_bs(cx : c, n : Arcade.Numerics.Numerics, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ts : List(FitTarget), hs : List((Int, Float)), ai : Int, bi : Int, best : FitBest) : FitBest needs () do
+    if bi >= plan.grid_b.count do
+      best
+    else
+      try_bs(cx, n, pose_at, plan, ts, hs, ai, bi + 1, try_cs(cx, n, pose_at, plan, ts, hs, ai, bi, 0, best))
+    end
+  end
+
+  pfn try_as(cx : c, n : Arcade.Numerics.Numerics, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ts : List(FitTarget), hs : List((Int, Float)), ai : Int, best : FitBest) : FitBest needs () do
+    if ai >= plan.grid_a.count do
+      best
+    else
+      try_as(cx, n, pose_at, plan, ts, hs, ai + 1, try_bs(cx, n, pose_at, plan, ts, hs, ai, 0, best))
+    end
+  end
+
+  doc """
+  The best grid point: lowest error, the earliest (lens, a, b, c) on a tie.
+  With no candidate better than infinity, err is infinity and li is the lens
+  grid's count.
+  """
+  fn fit_best(cx : c, n : Arcade.Numerics.Numerics, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ts : List(FitTarget)) : FitBest needs () do
+    let hs = halves(n, plan, plan.lens_grid.count - 1, [])
+    let start = { err: n.infinity, li: plan.lens_grid.count, ai: 0, bi: 0, ci: 0 }
+    try_as(cx, n, pose_at, plan, ts, hs, 0, start)
+  end
+
+  doc """
+  The fitted rig: `pose_at(cx, a, b, c)` gives the pose for one point of the
+  three pose grids, and the lens comes from the lens grid.
+  """
+  fn fit(cx : c, n : Arcade.Numerics.Numerics, pose_at : c -> Float -> Float -> Float -> Pose, plan : FitPlan, ts : List(FitTarget)) : Rig needs () do
+    let b = fit_best(cx, n, pose_at, plan, ts)
+    {
+      pose: pose_of(cx, pose_at, plan, b.ai, b.bi, b.ci),
+      lens: lens_at(plan, b.li)
+    }
+  end
+
+end

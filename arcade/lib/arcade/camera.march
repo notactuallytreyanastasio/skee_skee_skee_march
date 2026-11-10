@@ -1,0 +1,249 @@
+mod Arcade.Camera do
+
+  -- A camera as plain numbers: where it stands (a Pose), how it sees (a Lens,
+  -- perspective or orthographic), and the surface it draws on (a Viewport).
+  -- A Rig on a Viewport gives a Projection, the basis worked out once, which
+  -- takes world points to camera space (Seen), screen fractions and pixels,
+  -- and screen positions back to rays. Nothing here draws.
+  --
+  -- Screen fractions run 0...1 with y down. Pixels are fractions times the
+  -- viewport size. Camera space is across (right), rise (up) and depth (along
+  -- the view, positive in front).
+  cap pure
+
+  import Arcade.Num
+  import Arcade.Vec3
+
+  -- Where the camera stands, what it looks at, and which way is up. `up` only
+  -- has to be off the line of sight; the basis squares it up.
+  type Pose = { eye : Vec3, target : Vec3, up : Vec3 }
+
+  -- How the camera sees. Perspective takes the vertical field of view in
+  -- degrees; Orthographic takes the visible height in world units at every
+  -- depth (a top-down 2D game uses this one).
+  type Lens = Perspective(Float) | Orthographic(Float)
+
+  -- A pose seen through a lens.
+  type Rig = { pose : Pose, lens : Lens }
+
+  -- The drawing surface, in CSS pixels.
+  type Viewport = { width : { Float | _ > 0.0 }, height : { Float | _ > 0.0 } }
+
+  -- A rig ready to project onto one viewport: its basis, worked out once.
+  -- `half` is tan(fov / 2) for a perspective lens and half the visible height
+  -- for an orthographic one: either way the camera-space rise that reaches
+  -- the top edge is `half` per unit of depth (perspective) or `half` (ortho).
+  type Projection = {
+    eye : Vec3,
+    forward : Vec3,
+    right : Vec3,
+    up : Vec3,
+    lens : Lens,
+    half : Float,
+    aspect : Float,
+    width : Float,
+    height : Float
+  }
+
+  -- A point in camera space: across, up, and depth along the view.
+  type Seen = { across : Float, rise : Float, depth : Float }
+
+  doc """+y: the up of a pose made with `pose`."""
+  fn world_up() : Vec3 needs () do
+    vec3(0.0, 1.0, 0.0)
+  end
+
+  doc """A pose with +y up."""
+  fn pose(eye : Vec3, target : Vec3) : Pose needs () do
+    { eye: eye, target: target, up: world_up() }
+  end
+
+  doc """Width over height."""
+  fn aspect(v : Viewport) : Float needs () do
+    v.width /. v.height
+  end
+
+  doc """Viewport sizes are positive; anything else falls back to one pixel."""
+  fn viewport(width : Float, height : Float) : Viewport needs () do
+    if width > 0.0 do
+      if height > 0.0 do
+        { width: width, height: height }
+      else
+        { width: width, height: 1.0 }
+      end
+    else
+      if height > 0.0 do
+        { width: 1.0, height: height }
+      else
+        { width: 1.0, height: 1.0 }
+      end
+    end
+  end
+
+  doc """tan(fov / 2) for a vertical field of view in degrees."""
+  fn tan_half(n : Arcade.Numerics.Numerics, fov : Float) : Float needs () do
+    Math.tan(fov *. n.pi /. 360.0)
+  end
+
+  doc """A lens's `half`: tan(fov / 2), or half the orthographic extent."""
+  fn half_of(n : Arcade.Numerics.Numerics, lens : Lens) : Float needs () do
+    match lens do
+    Perspective(fov) -> tan_half(n, fov)
+    Orthographic(extent) -> extent /. 2.0
+    end
+  end
+
+  doc """The look-at basis of a pose: forward, right, up (unit, right-handed)."""
+  fn basis(p : Pose) : (Vec3, Vec3, Vec3) needs () do
+    let f = normalized(sub(p.target, p.eye))
+    let r = normalized(cross(f, p.up))
+    (f, r, cross(r, f))
+  end
+
+  doc """The rig's projection onto one viewport."""
+  fn projection(n : Arcade.Numerics.Numerics, rig : Rig, v : Viewport) : Projection needs () do
+    let (f, r, u) = basis(rig.pose)
+    {
+      eye: rig.pose.eye,
+      forward: f,
+      right: r,
+      up: u,
+      lens: rig.lens,
+      half: half_of(n, rig.lens),
+      aspect: aspect(v),
+      width: v.width,
+      height: v.height
+    }
+  end
+
+  doc """A world point in camera space."""
+  fn seen(l : Projection, p : Vec3) : Seen needs () do
+    let d = sub(p, l.eye)
+    { across: dot(d, l.right), rise: dot(d, l.up), depth: dot(d, l.forward) }
+  end
+
+  doc """
+  Where a camera-space point lands on screen, as fractions with y down. Under
+  a perspective lens a point at zero depth goes to infinity (IEEE division).
+  """
+  fn fraction_of_seen(n : Arcade.Numerics.Numerics, l : Projection, s : Seen) : Arcade.Vec2.Vec2 needs () do
+    match l.lens do
+    Perspective(_) -> do
+      let x = (ieee_div(n, s.across, s.depth *. l.half *. l.aspect) +. 1.0) /. 2.0
+      let y = (1.0 -. ieee_div(n, s.rise, s.depth *. l.half)) /. 2.0
+      Arcade.Vec2.vec2(x, y)
+    end
+    Orthographic(_) -> do
+      let x = (ieee_div(n, s.across, l.half *. l.aspect) +. 1.0) /. 2.0
+      let y = (1.0 -. ieee_div(n, s.rise, l.half)) /. 2.0
+      Arcade.Vec2.vec2(x, y)
+    end
+    end
+  end
+
+  doc """A world point to screen fractions, y down."""
+  fn fraction(n : Arcade.Numerics.Numerics, l : Projection, p : Vec3) : Arcade.Vec2.Vec2 needs () do
+    fraction_of_seen(n, l, seen(l, p))
+  end
+
+  doc """A camera-space point to pixels."""
+  fn pixel_of_seen(n : Arcade.Numerics.Numerics, l : Projection, s : Seen) : Arcade.Vec2.Vec2 needs () do
+    let f = fraction_of_seen(n, l, s)
+    Arcade.Vec2.vec2(f.x *. l.width, f.y *. l.height)
+  end
+
+  doc """A world point to pixels."""
+  fn pixel(n : Arcade.Numerics.Numerics, l : Projection, p : Vec3) : Arcade.Vec2.Vec2 needs () do
+    pixel_of_seen(n, l, seen(l, p))
+  end
+
+  doc """
+  Pixels per world unit at a depth: how big a thing that size looks there.
+  Perspective: 0 at or behind the eye. Orthographic: the same at every depth.
+  """
+  fn pixels_per_metre(l : Projection, depth : Float) : Float needs () do
+    match l.lens do
+    Perspective(_) -> if depth <= 0.0 do 0.0 else l.height /. (2.0 *. l.half *. depth) end
+    Orthographic(_) -> l.height /. (2.0 *. l.half)
+    end
+  end
+
+  doc """
+  The ray through a screen position (fractions, y down): origin and unit
+  direction. Perspective rays leave the eye; orthographic rays leave the
+  point on the eye's plane under that position, all along `forward`.
+  """
+  fn ray(l : Projection, f : Arcade.Vec2.Vec2) : (Vec3, Vec3) needs () do
+    let x = (f.x *. 2.0 -. 1.0) *. l.half *. l.aspect
+    let y = (1.0 -. f.y *. 2.0) *. l.half
+    match l.lens do
+    Perspective(_) -> do
+      (l.eye, normalized(add(add(l.forward, scale(l.right, x)), scale(l.up, y))))
+    end
+    Orthographic(_) -> (add(add(l.eye, scale(l.right, x)), scale(l.up, y)), l.forward)
+    end
+  end
+
+  doc """
+  Where a ray meets the plane through `point` with normal `normal`, in front
+  of the origin. None when the ray runs within 0.00001 of parallel or the
+  plane is behind it.
+  """
+  fn ray_plane(origin : Vec3, dir : Vec3, point : Vec3, normal : Vec3) : Option(Vec3) needs () do
+    ray_plane_within(origin, dir, point, normal, 0.00001)
+  end
+
+  doc """ray_plane with a chosen parallel tolerance on dot(dir, normal)."""
+  fn ray_plane_within(origin : Vec3, dir : Vec3, point : Vec3, normal : Vec3, eps : Float) : Option(Vec3) needs () do
+    let denom = dot(dir, normal)
+    if Math.abs(denom) > eps do
+      do
+        let t = dot(sub(point, origin), normal) /. denom
+        if t > 0.0 do Some(add(origin, scale(dir, t))) else None end
+      end
+    else
+      None
+    end
+  end
+
+  -- ---- Motion: easing, leaning and shaking ----
+  doc """
+  Ease a value toward `want`: a share min(1, dt * rate) of the gap per step,
+  with `rise_rate` while climbing and `fall_rate` while falling.
+  """
+  fn lean_step(cur : Float, want : Float, dt : Float, rise_rate : Float, fall_rate : Float) : Float needs () do
+    let rate = if want > cur do rise_rate else fall_rate end
+    cur +. (want -. cur) *. min_float(1.0, dt *. rate)
+  end
+
+  doc """
+  A pose leaned toward a focus point: the eye moves `eye_share` of the way
+  there and the target `target_share` of the way. Up is kept.
+  """
+  fn lean_toward(p : Pose, focus : Vec3, eye_share : Float, target_share : Float) : Pose needs () do
+    {
+      eye: add(p.eye, scale(sub(focus, p.eye), eye_share)),
+      target: add(p.target, scale(sub(focus, p.target), target_share)),
+      up: p.up
+    }
+  end
+
+  doc """
+  A shake offset at a clock time: sin and cos of the clock at 71 and 53
+  radians per second on world x and y, `amplitude` world units.
+  """
+  fn shake_jolt(amplitude : Float, clock : Float) : Vec3 needs () do
+    shake_jolt_at(amplitude, clock, 71.0, 53.0)
+  end
+
+  doc """shake_jolt with chosen x and y rates."""
+  fn shake_jolt_at(amplitude : Float, clock : Float, x_rate : Float, y_rate : Float) : Vec3 needs () do
+    vec3(Math.sin(clock *. x_rate) *. amplitude, Math.cos(clock *. y_rate) *. amplitude, 0.0)
+  end
+
+  doc """The pose with its eye moved by an offset (a jolt); the target stays."""
+  fn jolted(p : Pose, offset : Vec3) : Pose needs () do
+    { eye: add(p.eye, offset), target: p.target, up: p.up }
+  end
+
+end
