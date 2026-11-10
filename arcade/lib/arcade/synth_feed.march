@@ -1,0 +1,74 @@
+mod Arcade.SynthFeed do
+
+  -- What the audio callback runs, on the audio thread or a fallback on the
+  -- main thread: the commands that arrived since the last block, in order,
+  -- then one block of Arcade.Synth.render. A Swift SoundEngine does the same
+  -- under its lock: play, setRumble and setDrumRoll change the one Synth, and
+  -- the audio node's callback renders from it.
+  --
+  -- The cue type is the game's. Every function that may meet a CmdPlay takes
+  -- `voices`, the game's cue table: the voices one cue starts, given the
+  -- synth's consts. A cue plays as Arcade.Synth.add(s, voices(s.c, cue)).
+  -- Depends on Arcade.Synth alone, so an audio worklet's build carries only
+  -- the synth, this feed and the game's cue table.
+  cap pure
+
+  -- One SoundEngine call. CmdPlay is `play(cue)`, CmdRumble `setRumble`,
+  -- CmdDrum `setDrumRoll`.
+  type AudioCmd(cue) = CmdPlay(cue) | CmdRumble(Float) | CmdDrum(Bool)
+
+  -- The rumble and drum levels last asked for: what a synth started late
+  -- must be set to, so the beds come up with the speakers.
+  type Levels = { lvl_rumble : Float, lvl_drum : Bool }
+
+  doc """One SoundEngine call on the synth. A cue starts voices(s.c, cue)."""
+  fn obey(voices : SynthConsts -> cue -> List(SynthVoice), s : Synth, cmd : AudioCmd(cue)) : Synth needs () do
+    match cmd do
+    CmdPlay(c) -> Arcade.Synth.add(s, voices(s.c, c))
+    CmdRumble(level) -> Arcade.Synth.set_rumble(s, level)
+    CmdDrum(on_) -> Arcade.Synth.set_drum(s, on_)
+    end
+  end
+
+  doc """The calls in the order they were made."""
+  fn obey_all(voices : SynthConsts -> cue -> List(SynthVoice), s : Synth, cmds : List(AudioCmd(cue))) : Synth needs () do
+    match cmds do
+    Nil -> s
+    Cons(cmd, rest) -> obey_all(voices, obey(voices, s, cmd), rest)
+    end
+  end
+
+  doc """Samples per audio callback: Web Audio's render quantum. The shell renders in blocks of this size whatever its device asks for."""
+  fn quantum() : Int needs () do
+    128
+  end
+
+  doc """One audio callback: the commands since the last one, then n samples."""
+  fn block(voices : SynthConsts -> cue -> List(SynthVoice), s : Synth, cmds : List(AudioCmd(cue)), n : Int) : (List(Float), Synth) needs () do
+    Arcade.Synth.render(obey_all(voices, s, cmds), n)
+  end
+
+  doc """A new synth's levels: no rumble, no drum roll."""
+  fn quiet() : Levels needs () do
+    { lvl_rumble: 0.0, lvl_drum: false }
+  end
+
+  fn track_one(l : Levels, cmd : AudioCmd(cue)) : Levels needs () do
+    match cmd do
+    CmdPlay(_) -> l
+    CmdRumble(level) -> { l with lvl_rumble: level }
+    CmdDrum(on_) -> { l with lvl_drum: on_ }
+    end
+  end
+
+  doc """The levels after these commands. A cue leaves them as they were."""
+  fn track(l : Levels, cmds : List(AudioCmd(cue))) : Levels needs () do
+    List.fold_left(cmds, l, fn (acc, cmd) -> track_one(acc, cmd))
+  end
+
+  doc """The commands that bring a new synth to these levels. No cue: one sent before the speakers existed would only play late."""
+  fn restore(l : Levels) : List(AudioCmd(cue)) needs () do
+    [CmdRumble(l.lvl_rumble), CmdDrum(l.lvl_drum)]
+  end
+
+end

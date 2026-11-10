@@ -4,7 +4,7 @@ mod Audio do
   -- The synth renders in real time in an AudioWorklet (shell/synth_worklet.march),
   -- or on the main thread where worklets are missing; web/skee_audio.mjs is
   -- the plumbing. This module only routes: an update's audio effects become
-  -- Skee.SynthFeed commands (Skee.SoundOut), which go to the synth in order.
+  -- Arcade.SynthFeed commands (Skee.SoundOut), which go to the synth in order.
   --
   -- The speakers exist only after the first user gesture (autoplay rules).
   -- Until then a cue is dropped, as it would only play late, but the rumble
@@ -21,8 +21,8 @@ mod Audio do
   type AudioHandle = { audio_started : Bool }
 
   extern "./skee_audio.mjs" : Cap(IO.Foreign) do
-    fn audio_install(worklet_url : String, serve : List(AudioCmd) -> List(Float), ready : () -> ()) : Unit
-    fn audio_send(cmds : List(AudioCmd)) : Unit
+    fn audio_install(worklet_url : String, serve : List(AudioCmd(Sound)) -> List(Float), ready : () -> ()) : Unit
+    fn audio_send(cmds : List(AudioCmd(Sound))) : Unit
     fn audio_levels_get() : Levels
     fn audio_levels_put(l : Levels) : Unit
   end
@@ -34,21 +34,21 @@ mod Audio do
 
   fn start() : AudioHandle do
     SynthEngine.reset()
-    audio_levels_put(Skee.SynthFeed.quiet())
+    audio_levels_put(Arcade.SynthFeed.quiet())
     audio_install(worklet_url(), fn cmds -> SynthEngine.serve(cmds), fn () -> came_up())
     { audio_started: true }
   end
 
   -- The synth is up: bring it to the levels asked for so far.
   fn came_up() : () do
-    audio_send(Skee.SynthFeed.restore(audio_levels_get()))
+    audio_send(Arcade.SynthFeed.restore(audio_levels_get()))
   end
 
-  fn route(cmds : List(AudioCmd)) : () do
+  fn route(cmds : List(AudioCmd(Sound))) : () do
     match cmds do
     Nil -> ()
     Cons(_, _) -> do
-      audio_levels_put(Skee.SynthFeed.track(audio_levels_get(), cmds))
+      audio_levels_put(Arcade.SynthFeed.track(audio_levels_get(), cmds))
       audio_send(cmds)
     end
     end

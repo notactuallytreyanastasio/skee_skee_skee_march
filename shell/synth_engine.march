@@ -3,7 +3,7 @@ mod SynthEngine do
   -- The synth the speakers hear, in one cell per JS realm
   -- (web/skee_synth_cell.mjs): the audio worklet's, or the main thread's when
   -- the fallback plays. `serve` is the whole audio callback, one
-  -- Skee.SynthFeed.block; the glue only copies its samples out.
+  -- Arcade.SynthFeed.block; the glue only copies its samples out.
   needs IO.Foreign
 
   extern "./skee_synth_cell.mjs" : Cap(IO.Foreign) do
@@ -17,8 +17,9 @@ mod SynthEngine do
   end
 
   doc """The commands that arrived since the last block, then one quantum of samples."""
-  fn serve(cmds : List(AudioCmd)) : List(Float) do
-    let (out, next) = Skee.SynthFeed.block(synth_cell_get(), cmds, Skee.SynthFeed.quantum())
+  fn serve(cmds : List(AudioCmd(Sound))) : List(Float) do
+    let (out, next) =
+      Arcade.SynthFeed.block(Skee.Cues.voices_for, synth_cell_get(), cmds, Arcade.SynthFeed.quantum())
     synth_cell_put(next)
     out
   end

@@ -61,7 +61,7 @@ foundation: ask before changing it.
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
 | painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Arcade.Web.Canvas2d`); the shell: `shell/game.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
-| audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
+| audio | `arcade/lib/arcade/synth_feed.march` (`Arcade.SynthFeed`: `AudioCmd(cue)`, `Levels`; every call that may play a cue takes the game's `voices`, here `Skee.Cues.voices_for`); `lib/skee/sound_out.march` (`Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 | host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
@@ -599,14 +599,14 @@ the rumble low-pass and drum clock always running, the clip on the mix), so
 only one live synth sounds like Swift's.
 
 ```
-update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
+update -> effects -> Skee.SoundOut.commands -> List(AudioCmd(Sound))  main thread
   -> port.postMessage (a structured clone of March's plain-object values)
-  -> each quantum: Skee.SynthFeed.block(synth, cmds since last, 128)   worklet
+  -> each quantum: Arcade.SynthFeed.block(Skee.Cues.voices_for, synth, cmds since last, 128)   worklet
   -> Float32 mono -> gain 0.8 (mainMixerNode.outputVolume) -> speakers
 ```
 
 - `make web` builds a second entry, `shell/synth_worklet.march`, into
-  `dist/skee_synth_worklet.mjs` (340 KB: Arcade.Synth, Skee.Cues and Skee.SynthFeed, no
+  `dist/skee_synth_worklet.mjs` (340 KB: Arcade.Synth, Arcade.SynthFeed and Skee.Cues, no
   game), which `audioWorklet.addModule` loads. It imports
   `march_runtime.mjs` in the worklet's realm; nothing in the runtime touches
   `window` or `document` at load. Each processor starts from a silent synth
@@ -617,7 +617,7 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
   `latencyHint: "interactive"`, and resumed on later gestures while not
   running. Hidden page: suspended; shown: resumed. Before the speakers are
   up a cue is dropped (it would play late) and the rumble and drum levels are
-  tracked (`Skee.SynthFeed.track`), then restored (`restore`) the moment the
+  tracked (`Arcade.SynthFeed.track`), then restored (`restore`) the moment the
   synth comes up. A browser that ignores `sampleRate` gets linear
   resampling in the pump (`web/skee_synth_cell.mjs`).
 - No AudioWorklet (an insecure context such as a phone on plain http over

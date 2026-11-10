@@ -1,6 +1,6 @@
 // skee_audio.mjs: the speakers for shell/audio.march. Web Audio plumbing only;
 // which commands to send, and what to restore when the speakers come up, is
-// decided in March (Skee.SoundOut, Skee.SynthFeed).
+// decided in March (Skee.SoundOut, Arcade.SynthFeed).
 //
 //   - The AudioContext is made on the first user gesture (autoplay rules),
 //     at the synth's 44100 Hz, and resumed on every later gesture while it
@@ -46,7 +46,7 @@ function mark() {
   } catch (e) { }
 }
 
-// ---- The levels cell (Skee.SynthFeed.Levels), kept by shell/audio.march ----
+// ---- The levels cell (Arcade.SynthFeed.Levels), kept by shell/audio.march ----
 export function audio_levels_get() { return levels; }
 export function audio_levels_put(l) { levels = l; }
 

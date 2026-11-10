@@ -1,7 +1,7 @@
 // skee_worklet.mjs: the AudioWorkletProcessor around SynthEngine.serve, for
 // the audio worklet's build (shell/synth_worklet.march). Runs in the
 // AudioWorkletGlobalScope: sampleRate, currentFrame, registerProcessor.
-// Commands come in on the port as March lists of Skee.SynthFeed.AudioCmd
+// Commands come in on the port as March lists of Arcade.SynthFeed.AudioCmd
 // (structured clones of March's plain-object values), or as
 // processorOptions.cmds before the first block. A new processor starts from
 // a silent synth (reset: SynthEngine.reset); each quantum takes what has

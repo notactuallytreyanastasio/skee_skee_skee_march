@@ -2,7 +2,7 @@ mod AudioSuite do
 
   -- The audio piece: what the shell's speakers are fed. Skee.SoundOut picks
   -- the audio effects out of an update's effects, in order, as Sound.swift's
-  -- SoundEngine is called (play, setRumble, setDrumRoll). Skee.SynthFeed is
+  -- SoundEngine is called (play, setRumble, setDrumRoll). Arcade.SynthFeed is
   -- what the audio callback runs: the commands that arrived since the last
   -- block, then one block of Arcade.Synth.render. Arcade.Synth with Skee.Cues is checked
   -- against the real Swift by the synth suite, so these cases hold the feed
@@ -44,12 +44,12 @@ mod AudioSuite do
   -- ---- Feeding in blocks ----
   -- Blocks of n samples; `script` gives the commands that arrive before
   -- block i. The audio callback's view of the synth.
-  fn feed(s : Synth, script : Int -> List(Skee.SynthFeed.AudioCmd), i : Int, blocks : Int, n : Int, acc : List(List(Float))) : List(Float) do
+  fn feed(s : Synth, script : Int -> List(AudioCmd(Sound)), i : Int, blocks : Int, n : Int, acc : List(List(Float))) : List(Float) do
     if i >= blocks do
       List.concat(List.reverse(acc))
     else
       do
-        let (out, next) = Skee.SynthFeed.block(s, script(i), n)
+        let (out, next) = Arcade.SynthFeed.block(Skee.Cues.voices_for, s, script(i), n)
         feed(next, script, i + 1, blocks, n, Cons(out, acc))
       end
     end
@@ -59,7 +59,7 @@ mod AudioSuite do
     Arcade.Synth.new()
   end
 
-  -- ---- Skee.SynthFeed ----
+  -- ---- Arcade.SynthFeed, with Skee.Cues as its cue table ----
   fn a_play_is_synth_play() : Outcome do
     let sounds =
       [
@@ -76,7 +76,7 @@ mod AudioSuite do
   end
 
   fn play_matches(snd : Sound) : Outcome do
-    let by_feed = Skee.SynthFeed.obey(fresh(), CmdPlay(snd))
+    let by_feed = Arcade.SynthFeed.obey(Skee.Cues.voices_for, fresh(), CmdPlay(snd))
     let by_synth = Skee.Cues.play(fresh(), snd)
     let (got, _) = Arcade.Synth.render(by_feed, 2048)
     let (want, _) = Arcade.Synth.render(by_synth, 2048)
@@ -84,7 +84,8 @@ mod AudioSuite do
   end
 
   fn rumble_and_drum_set_the_synth() : Outcome do
-    let s = Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.7), CmdDrum(true)])
+    let s =
+      Arcade.SynthFeed.obey_all(Skee.Cues.voices_for, fresh(), [CmdRumble(0.7), CmdDrum(true)])
     let want = Arcade.Synth.set_drum(Arcade.Synth.set_rumble(fresh(), 0.7), true)
     let (got_out, _) = Arcade.Synth.render(s, 4096)
     let (want_out, _) = Arcade.Synth.render(want, 4096)
@@ -93,13 +94,13 @@ mod AudioSuite do
 
   fn commands_apply_in_order() : Outcome do
     let s =
-      Skee.SynthFeed.obey_all(fresh(), [CmdRumble(0.9), CmdDrum(true), CmdRumble(0.2), CmdDrum(false)])
+      Arcade.SynthFeed.obey_all(Skee.Cues.voices_for, fresh(), [CmdRumble(0.9), CmdDrum(true), CmdRumble(0.2), CmdDrum(false)])
     all([expect(s.rumble_target == Arcade.Synth.f32(s.c, 0.2), "last rumble wins"), expect(!s.drum, "last drum wins")])
   end
 
   -- A cue that arrives before block i plays from the start of block i: the
   -- same samples as Arcade.Synth playing it after i blocks.
-  fn script_hump_at_3(i : Int) : List(Skee.SynthFeed.AudioCmd) do
+  fn script_hump_at_3(i : Int) : List(AudioCmd(Sound)) do
     if i == 0 do
       [CmdRumble(0.6)]
     else
@@ -132,7 +133,7 @@ mod AudioSuite do
     all([expect(loud(want), "the script sounds"), same_samples(got, want, 0, "blocks")])
   end
 
-  fn no_commands(_i : Int) : List(Skee.SynthFeed.AudioCmd) do
+  fn no_commands(_i : Int) : List(AudioCmd(Sound)) do
     []
   end
 
@@ -150,12 +151,14 @@ mod AudioSuite do
   -- One block per Web Audio render quantum: a worklet callback is exactly
   -- one block, so a command lands on the first sample after it arrives.
   fn quantum_is_the_render_quantum() : Outcome do
-    let (out, _) = Skee.SynthFeed.block(fresh(), [], Skee.SynthFeed.quantum())
-    all([expect_int(Skee.SynthFeed.quantum(), 128, "quantum"), expect_int(List.length(out), 128, "block")])
+    let (out, _) =
+      Arcade.SynthFeed.block(Skee.Cues.voices_for, fresh(), [], Arcade.SynthFeed.quantum())
+    all([expect_int(Arcade.SynthFeed.quantum(), 128, "quantum"), expect_int(List.length(out), 128, "block")])
   end
 
   fn an_empty_block_is_empty() : Outcome do
-    let (out, s) = Skee.SynthFeed.block(fresh(), [CmdPlay(SndLaunch)], 0)
+    let (out, s) =
+      Arcade.SynthFeed.block(Skee.Cues.voices_for, fresh(), [CmdPlay(SndLaunch)], 0)
     all([expect_int(List.length(out), 0, "samples"), expect_int(Arcade.Synth.voice_count(s), Arcade.Synth.voice_count(Skee.Cues.play(fresh(), SndLaunch)), "the cue is queued")])
   end
 
@@ -163,25 +166,27 @@ mod AudioSuite do
   -- Before the first gesture there are no speakers. A cue then is dropped (it
   -- would play late), but the rumble and drum levels are kept and restored.
   fn quiet_is_a_fresh_synth() : Outcome do
-    let l = Skee.SynthFeed.quiet()
-    let s = Skee.SynthFeed.obey_all(fresh(), Skee.SynthFeed.restore(l))
+    let l = Arcade.SynthFeed.quiet()
+    let s =
+      Arcade.SynthFeed.obey_all(Skee.Cues.voices_for, fresh(), Arcade.SynthFeed.restore(l))
     let f = fresh()
     all([expect(s.rumble_target == f.rumble_target, "rumble"), expect(s.drum == f.drum, "drum")])
   end
 
   fn track_keeps_the_last_levels() : Outcome do
     let l =
-      Skee.SynthFeed.track(Skee.SynthFeed.quiet(), [CmdPlay(SndLaunch), CmdRumble(0.4), CmdDrum(true), CmdPlay(SndHump), CmdRumble(0.25)])
-    let l2 = Skee.SynthFeed.track(l, [CmdPlay(SndLip)])
-    let l3 = Skee.SynthFeed.track(l2, [CmdDrum(false)])
+      Arcade.SynthFeed.track(Arcade.SynthFeed.quiet(), [CmdPlay(SndLaunch), CmdRumble(0.4), CmdDrum(true), CmdPlay(SndHump), CmdRumble(0.25)])
+    let l2 = Arcade.SynthFeed.track(l, [CmdPlay(SndLip)])
+    let l3 = Arcade.SynthFeed.track(l2, [CmdDrum(false)])
     all([expect(l2.lvl_rumble == 0.25, "rumble kept"), expect(l2.lvl_drum, "drum kept"), expect(l3.lvl_rumble == 0.25, "rumble unchanged by drum"), expect(!l3.lvl_drum, "drum off")])
   end
 
   fn restore_brings_the_levels_back() : Outcome do
     let cmds = [CmdRumble(0.8), CmdPlay(SndLaunch), CmdDrum(true), CmdRumble(0.55)]
-    let tracked = Skee.SynthFeed.track(Skee.SynthFeed.quiet(), cmds)
-    let late = Skee.SynthFeed.obey_all(fresh(), Skee.SynthFeed.restore(tracked))
-    let on_time = Skee.SynthFeed.obey_all(fresh(), cmds)
+    let tracked = Arcade.SynthFeed.track(Arcade.SynthFeed.quiet(), cmds)
+    let late =
+      Arcade.SynthFeed.obey_all(Skee.Cues.voices_for, fresh(), Arcade.SynthFeed.restore(tracked))
+    let on_time = Arcade.SynthFeed.obey_all(Skee.Cues.voices_for, fresh(), cmds)
     all([expect(late.rumble_target == on_time.rumble_target, "rumble"), expect(late.drum == on_time.drum, "drum"), expect_int(Arcade.Synth.voice_count(late), 0, "no cue replayed")])
   end
 
@@ -231,7 +236,7 @@ mod AudioSuite do
     end
   end
 
-  fn describe(c : Skee.SynthFeed.AudioCmd) : String do
+  fn describe(c : AudioCmd(Sound)) : String do
     match c do
     CmdPlay(s) -> "play " ++ sound_name(s)
     CmdRumble(x) -> "rumble " ++ int_to_string(float_round(x *. 1000.0))
@@ -256,7 +261,7 @@ mod AudioSuite do
     let (_, fx) =
       Skee.App.boot(Skee.Consts.make(), Skee.App.nothing_saved(), 390.0, 844.0, Arcade.U64.of_int(7))
     let cmds = Skee.SoundOut.commands(fx)
-    let (got, _) = Skee.SynthFeed.block(fresh(), cmds, 512)
+    let (got, _) = Arcade.SynthFeed.block(Skee.Cues.voices_for, fresh(), cmds, 512)
     let by_hand = List.fold_left(fx, fresh(), fn (s, e) -> by_hand_effect(s, e))
     let (want, _) = Arcade.Synth.render(by_hand, 512)
     same_samples(got, want, 0, "boot")

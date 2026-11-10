@@ -5,7 +5,7 @@ mod Skee.SoundOut do
   -- haptics are the shell's other effects and are not audio.
   cap pure
 
-  fn command(e : Skee.App.Effect) : Option(Skee.SynthFeed.AudioCmd) needs () do
+  fn command(e : Skee.App.Effect) : Option(AudioCmd(Skee.Cues.Sound)) needs () do
     match e do
     FxSound(snd) -> Some(CmdPlay(snd))
     FxRumble(level) -> Some(CmdRumble(level))
@@ -16,7 +16,7 @@ mod Skee.SoundOut do
   end
 
   doc """The audio commands among these effects, in order."""
-  fn commands(effects : List(Skee.App.Effect)) : List(Skee.SynthFeed.AudioCmd) needs () do
+  fn commands(effects : List(Skee.App.Effect)) : List(AudioCmd(Skee.Cues.Sound)) needs () do
     List.filter_map(effects, command)
   end
 
