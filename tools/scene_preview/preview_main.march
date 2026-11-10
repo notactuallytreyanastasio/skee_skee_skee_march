@@ -10,8 +10,8 @@ mod PreviewMain do
     float_to_string(int_to_float(float_round(x *. 100.0)) /. 100.0)
   end
 
-  fn colour(c : Skee.Scene.Rgba) : String do
-    Skee.Scene.css(c)
+  fn colour(c : Arcade.Draw.Rgba) : String do
+    Arcade.Draw.css(c)
   end
 
   fn pt(p : Arcade.Vec2.Vec2) : String do
@@ -25,7 +25,7 @@ mod PreviewMain do
     end
   end
 
-  fn step(s : Skee.Scene.PathStep) : String do
+  fn step(s : Arcade.Draw.PathStep) : String do
     match s do
     MoveTo(a) -> " M" ++ pt(a)
     LineTo(a) -> " L" ++ pt(a)
@@ -35,7 +35,7 @@ mod PreviewMain do
     end
   end
 
-  fn path_d(sh : Skee.Scene.Shape) : String do
+  fn path_d(sh : Arcade.Draw.Shape) : String do
     match sh do
     Poly(ps) -> ring(ps)
     Holed(a, b) -> ring(a) ++ " " ++ ring(b)
@@ -45,25 +45,25 @@ mod PreviewMain do
     end
   end
 
-  fn rule(sh : Skee.Scene.Shape) : String do
+  fn rule(sh : Arcade.Draw.Shape) : String do
     match sh do
     Holed(_, _) -> "evenodd"
     _ -> "nonzero"
     end
   end
 
-  fn matrix(a : Skee.Scene.Affine) : String do
+  fn matrix(a : Arcade.Draw.Affine) : String do
     "matrix(" ++ String.join(List.map([a.a, a.b, a.c, a.d, a.e, a.f], float_to_string), " ") ++ ")"
   end
 
-  fn blend(b : Skee.Scene.Blend) : String do
+  fn blend(b : Arcade.Draw.Blend) : String do
     match b do
     Over -> ""
     Lighter -> " style=\"mix-blend-mode:plus-lighter\""
     end
   end
 
-  fn cap(p : Skee.Scene.Pen) : String do
+  fn cap(p : Arcade.Draw.Pen) : String do
     let c = match p.ends do
     ButtEnd -> "butt"
     RoundEnd -> "round"
@@ -75,7 +75,7 @@ mod PreviewMain do
     " stroke-linecap=\"" ++ c ++ "\" stroke-linejoin=\"" ++ j ++ "\""
   end
 
-  fn op_svg(i : Int, op : Skee.Scene.DrawOp) : String do
+  fn op_svg(i : Int, op : Arcade.Draw.DrawOp) : String do
     match op do
     ClearTo(c) -> "<rect x=\"-10\" y=\"-10\" width=\"5000\" height=\"5000\" fill=\"" ++ colour(c) ++ "\"/>"
     FillShape(sh, Flat(c), b) -> "<path d=\"" ++ path_d(sh) ++ "\" fill=\"" ++ colour(c) ++ "\" fill-rule=\"" ++ rule(sh) ++ "\"" ++ blend(b) ++ "/>"
@@ -102,7 +102,7 @@ mod PreviewMain do
     num(x)
   end
 
-  fn jcolour(c : Skee.Scene.Rgba) : String do
+  fn jcolour(c : Arcade.Draw.Rgba) : String do
     "\"" ++ colour(c) ++ "\""
   end
 
@@ -114,7 +114,7 @@ mod PreviewMain do
     "[" ++ String.join(List.map(ps, jpt), ",") ++ "]"
   end
 
-  fn jstep(s : Skee.Scene.PathStep) : String do
+  fn jstep(s : Arcade.Draw.PathStep) : String do
     match s do
     MoveTo(a) -> "[\"M\"," ++ jpt(a) ++ "]"
     LineTo(a) -> "[\"L\"," ++ jpt(a) ++ "]"
@@ -124,7 +124,7 @@ mod PreviewMain do
     end
   end
 
-  fn jshape(sh : Skee.Scene.Shape) : String do
+  fn jshape(sh : Arcade.Draw.Shape) : String do
     match sh do
     Poly(ps) -> "{\"poly\":" ++ jring(ps) ++ "}"
     Holed(a, b) -> "{\"holed\":[" ++ jring(a) ++ "," ++ jring(b) ++ "]}"
@@ -134,11 +134,11 @@ mod PreviewMain do
     end
   end
 
-  fn jaffine(a : Skee.Scene.Affine) : String do
+  fn jaffine(a : Arcade.Draw.Affine) : String do
     "[" ++ String.join(List.map([a.a, a.b, a.c, a.d, a.e, a.f], float_to_string), ",") ++ "]"
   end
 
-  fn jpen(p : Skee.Scene.Pen) : String do
+  fn jpen(p : Arcade.Draw.Pen) : String do
     let c = match p.ends do
     ButtEnd -> "butt"
     RoundEnd -> "round"
@@ -150,21 +150,21 @@ mod PreviewMain do
     "{\"ink\":" ++ jcolour(p.ink) ++ ",\"width\":" ++ jnum(p.width) ++ ",\"cap\":\"" ++ c ++ "\",\"join\":\"" ++ j ++ "\"}"
   end
 
-  fn jblend(b : Skee.Scene.Blend) : String do
+  fn jblend(b : Arcade.Draw.Blend) : String do
     match b do
     Over -> "\"source-over\""
     Lighter -> "\"lighter\""
     end
   end
 
-  fn jpaint(p : Skee.Scene.Paint) : String do
+  fn jpaint(p : Arcade.Draw.Paint) : String do
     match p do
     Flat(c) -> "{\"flat\":" ++ jcolour(c) ++ "}"
     RadialPaint(g) -> "{\"radial\":{\"inner\":" ++ jpt(g.inner) ++ ",\"r0\":" ++ jnum(g.inner_radius) ++ ",\"outer\":" ++ jpt(g.outer) ++ ",\"r1\":" ++ jnum(g.outer_radius) ++ ",\"frame\":" ++ jaffine(g.frame) ++ ",\"stops\":[" ++ String.join(List.map(g.stops, fn s -> "[" ++ float_to_string(s.offset) ++ "," ++ jcolour(s.colour) ++ "]"), ",") ++ "]}}"
     end
   end
 
-  fn op_json(op : Skee.Scene.DrawOp) : String do
+  fn op_json(op : Arcade.Draw.DrawOp) : String do
     match op do
     ClearTo(c) -> "{\"op\":\"clear\",\"colour\":" ++ jcolour(c) ++ "}"
     FillShape(sh, p, b) -> "{\"op\":\"fill\",\"shape\":" ++ jshape(sh) ++ ",\"paint\":" ++ jpaint(p) ++ ",\"blend\":" ++ jblend(b) ++ "}"
@@ -221,7 +221,7 @@ mod PreviewMain do
     end
   end
 
-  fn svg_out(ops : List(Skee.Scene.DrawOp), w : Float, h : Float) : () do
+  fn svg_out(ops : List(Arcade.Draw.DrawOp), w : Float, h : Float) : () do
     println("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" ++ num(w) ++ "\" height=\"" ++ num(h) ++ "\" viewBox=\"0 0 " ++ num(w) ++ " " ++ num(h) ++ "\">")
     List.each(List.enumerate(ops), fn e -> println(op_svg(Tuple.first(e), Tuple.second(e))))
     println("</svg>")

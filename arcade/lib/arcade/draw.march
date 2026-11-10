@@ -1,0 +1,173 @@
+mod Arcade.Draw do
+
+  -- A 2D drawing vocabulary: what a pure game hands its shell to paint.
+  -- Pixels, y down. Arcade.Canvas-style back ends turn a DrawOp list into
+  -- calls on a real surface; nothing here touches one.
+  cap pure
+
+  import Arcade.Vec2
+
+  -- A colour as the canvas takes it: 0-255 channels and an alpha 0...1.
+  type Rgba = { red : Int, green : Int, blue : Int, alpha : Float }
+
+  derive Show for Rgba
+
+  type LineEnd = ButtEnd | RoundEnd
+
+  derive Show for LineEnd
+
+  type Corner = MitreCorner | RoundCorner
+
+  derive Show for Corner
+
+  -- Canvas globalCompositeOperation: source-over, or "lighter" for glows.
+  type Blend = Over | Lighter
+
+  derive Show for Blend
+
+  type PathStep =
+    MoveTo(Vec2)
+    | LineTo(Vec2)
+    | QuadTo(Vec2, Vec2)
+    | CubicTo(Vec2, Vec2, Vec2)
+    | ClosePath
+
+  derive Show for PathStep
+
+  -- Holed fills its outer ring minus the inner one (even-odd). Polys is a
+  -- union of rings wound the same way (non-zero).
+  type Shape =
+    Poly(List(Vec2))
+    | Holed(List(Vec2), List(Vec2))
+    | Polys(List(List(Vec2)))
+    | Disc(Vec2, Float)
+    | Outline(List(PathStep))
+
+  derive Show for Shape
+
+  -- Canvas setTransform(a, b, c, d, e, f): x' = a x + c y + e, y' = b x + d y + f.
+  type Affine = {
+    a : Float,
+    b : Float,
+    c : Float,
+    d : Float,
+    e : Float,
+    f : Float
+  }
+
+  derive Show for Affine
+
+  type GradientStop = { offset : Float, colour : Rgba }
+
+  derive Show for GradientStop
+
+  -- createRadialGradient in the coordinates of `frame`. The shell builds the
+  -- path in pixels, then sets `frame` before filling.
+  type Radial = {
+    inner : Vec2,
+    inner_radius : Float,
+    outer : Vec2,
+    outer_radius : Float,
+    stops : List(GradientStop),
+    frame : Affine
+  }
+
+  derive Show for Radial
+
+  type Paint = Flat(Rgba) | RadialPaint(Radial)
+
+  derive Show for Paint
+
+  type Pen = { ink : Rgba, width : Float, ends : LineEnd, corners : Corner }
+
+  derive Show for Pen
+
+  -- Text centred on `middle` (textAlign center, textBaseline middle) in the
+  -- coordinates of `frame`. `edge` is stroked first, under the fill.
+  type Lettering = {
+    words : String,
+    font : String,
+    middle : Vec2,
+    fill : Rgba,
+    edge : Option(Pen),
+    frame : Affine
+  }
+
+  derive Show for Lettering
+
+  type DrawOp =
+    ClearTo(Rgba)
+    | FillShape(Shape, Paint, Blend)
+    | StrokeShape(Shape, Pen, Blend)
+    | DrawText(Lettering)
+    | PushClip(Shape)
+    | PopClip
+
+  derive Show for DrawOp
+
+  -- ===================================================================
+  -- Colours
+  -- ===================================================================
+  doc """A 0xRRGGBB colour, opaque."""
+  fn hex(packed : Int) : Rgba needs () do
+    {
+      red: packed / 65536 % 256,
+      green: packed / 256 % 256,
+      blue: packed % 256,
+      alpha: 1.0
+    }
+  end
+
+  fn with_alpha(c : Rgba, a : Float) : Rgba needs () do
+    { c with alpha: a }
+  end
+
+  doc """
+  The colour as CSS, e.g. rgba(58,35,70,0.55). float_to_string prints 1.0 as
+  "1.", which CSS rejects, so the alpha goes out in thousandths.
+  """
+  fn css(c : Rgba) : String needs () do
+    let milli = Math.clamp_int(float_round(c.alpha *. 1000.0), 0, 1000)
+    let alpha =
+      if milli >= 1000 do
+        "1"
+      else
+        "0." ++ String.pad_left(int_to_string(milli), 3, "0")
+      end
+    "rgba(" ++ int_to_string(c.red) ++ "," ++ int_to_string(c.green) ++ "," ++ int_to_string(c.blue) ++ "," ++ alpha ++ ")"
+  end
+
+  doc """A 0...255 channel from a float: rounded, then clamped."""
+  fn channel(x : Float) : Int needs () do
+    Math.clamp_int(float_round(x), 0, 255)
+  end
+
+  doc """A straight sRGB blend toward another colour, keeping c's alpha."""
+  fn mix(c : Rgba, o : Rgba, t : Float) : Rgba needs () do
+    let r = int_to_float(c.red) +. (int_to_float(o.red) -. int_to_float(c.red)) *. t
+    let g =
+      int_to_float(c.green) +. (int_to_float(o.green) -. int_to_float(c.green)) *. t
+    let b =
+      int_to_float(c.blue) +. (int_to_float(o.blue) -. int_to_float(c.blue)) *. t
+    { red: channel(r), green: channel(g), blue: channel(b), alpha: c.alpha }
+  end
+
+  doc """Blend toward white by t."""
+  fn lighter(c : Rgba, t : Float) : Rgba needs () do
+    mix(c, hex(16777215), t)
+  end
+
+  doc """A number for CSS: two decimals at most, never float_to_string's "112."."""
+  fn css_number(x : Float) : String needs () do
+    let hundredths = float_round(Math.abs(x) *. 100.0)
+    let sign = if x < 0.0 && hundredths > 0 do "-" else "" end
+    let whole = hundredths / 100
+    let frac = hundredths % 100
+    if frac == 0 do
+      sign ++ int_to_string(whole)
+    else
+      sign ++ int_to_string(whole) ++ "." ++ String.pad_left(int_to_string(frac), 2, "0")
+    end
+  end
+
+end

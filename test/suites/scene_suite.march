@@ -488,7 +488,7 @@ mod SceneSuite do
     end
   end
 
-  fn colour_token(c : Option(Skee.Scene.Rgba)) : String do
+  fn colour_token(c : Option(Arcade.Draw.Rgba)) : String do
     match c do
     Some(x) -> int_to_string(x.red * 65536 + x.green * 256 + x.blue)
     None -> "-"
@@ -1228,7 +1228,7 @@ mod SceneSuite do
     x == x && x < 100000000.0 && x > -100000000.0
   end
 
-  fn shape_points(sh : Skee.Scene.Shape) : List(Vec2) do
+  fn shape_points(sh : Arcade.Draw.Shape) : List(Vec2) do
     match sh do
     Poly(ps) -> ps
     Holed(a, b) -> List.append(a, b)
@@ -1238,7 +1238,7 @@ mod SceneSuite do
     end
   end
 
-  fn step_pts(s : Skee.Scene.PathStep) : List(Vec2) do
+  fn step_pts(s : Arcade.Draw.PathStep) : List(Vec2) do
     match s do
     MoveTo(a) -> [a]
     LineTo(a) -> [a]
@@ -1248,7 +1248,7 @@ mod SceneSuite do
     end
   end
 
-  fn op_points(op : Skee.Scene.DrawOp) : List(Vec2) do
+  fn op_points(op : Arcade.Draw.DrawOp) : List(Vec2) do
     match op do
     ClearTo(_) -> []
     FillShape(sh, _, _) -> shape_points(sh)
@@ -1259,18 +1259,18 @@ mod SceneSuite do
     end
   end
 
-  fn polys_ok(op : Skee.Scene.DrawOp) : Bool do
+  fn polys_ok(op : Arcade.Draw.DrawOp) : Bool do
     match op do
     FillShape(Poly(ps), _, _) -> List.length(ps) >= 3
     _ -> true
     end
   end
 
-  fn clip_depth(ops : List(Skee.Scene.DrawOp)) : (Int, Bool) do
+  fn clip_depth(ops : List(Arcade.Draw.DrawOp)) : (Int, Bool) do
     List.fold_left(ops, (0, true), fn (acc, op) -> clip_step(acc, op))
   end
 
-  fn clip_step(acc : (Int, Bool), op : Skee.Scene.DrawOp) : (Int, Bool) do
+  fn clip_step(acc : (Int, Bool), op : Arcade.Draw.DrawOp) : (Int, Bool) do
     match acc do
     (d, ok) -> do
       match op do
@@ -1392,11 +1392,11 @@ mod SceneSuite do
     all([expect(clip_count(sunk) > clip_count(rolling), "a sinking ball is clipped to its hole")])
   end
 
-  fn clip_count(ops : List(Skee.Scene.DrawOp)) : Int do
+  fn clip_count(ops : List(Arcade.Draw.DrawOp)) : Int do
     List.length(List.filter(ops, is_push))
   end
 
-  fn is_push(op : Skee.Scene.DrawOp) : Bool do
+  fn is_push(op : Arcade.Draw.DrawOp) : Bool do
     match op do
     PushClip(_) -> true
     _ -> false
@@ -1407,7 +1407,7 @@ mod SceneSuite do
     let up = v3(0.0, 1.0, 0.0)
     let l = Skee.Scene.light(up, up)
     let down = Skee.Scene.light(v3(0.0, -1.0, 0.0), v3(0.0, -1.0, 0.0))
-    let grey = Skee.Scene.hex(8421504)
+    let grey = Arcade.Draw.hex(8421504)
     let lit_up = Skee.Scene.shade(grey, l)
     let lit_down = Skee.Scene.shade(grey, down)
     let unlit = Skee.Scene.shade(grey, Skee.Scene.unlit())
@@ -1416,8 +1416,8 @@ mod SceneSuite do
     all([expect(edge_on.rim > 0.27, "a face seen edge-on gets the rim band"), expect(l.rim == 0.0, "a face seen square-on gets none"), expect(lit_up.red > lit_down.red, "faces toward the sun are brighter"), expect(unlit.red == 128 && unlit.green == 128 && unlit.blue == 128, "unlit keeps the colour"), expect(l.lb > l.lg && down.lb > down.lr, "the sky fill is pink-white, the ground fill lilac"), expect(white.red == 255, "white saturates")])
   end
 
-  fn white_lit(l : Skee.Scene.Light) : Skee.Scene.Rgba do
-    Skee.Scene.shade(Skee.Scene.hex(16777215), l)
+  fn white_lit(l : Skee.Scene.Light) : Arcade.Draw.Rgba do
+    Skee.Scene.shade(Arcade.Draw.hex(16777215), l)
   end
 
   fn symbol_case() : Outcome do
@@ -1427,8 +1427,8 @@ mod SceneSuite do
   end
 
   fn css_case() : Outcome do
-    let c = Skee.Scene.with_alpha(Skee.Scene.hex(3810118), 0.55)
-    all([expect_string(Skee.Scene.css(c), "rgba(58,35,70,0.550)", "css colour"), expect_string(Skee.Scene.css(Skee.Scene.hex(16777215)), "rgba(255,255,255,1)", "opaque css colour"), expect_string(Skee.Scene.css_number(112.0), "112", "whole css number"), expect_string(Skee.Scene.css_number(-3.456), "-3.46", "css number")])
+    let c = Arcade.Draw.with_alpha(Arcade.Draw.hex(3810118), 0.55)
+    all([expect_string(Arcade.Draw.css(c), "rgba(58,35,70,0.550)", "css colour"), expect_string(Arcade.Draw.css(Arcade.Draw.hex(16777215)), "rgba(255,255,255,1)", "opaque css colour"), expect_string(Arcade.Draw.css_number(112.0), "112", "whole css number"), expect_string(Arcade.Draw.css_number(-3.456), "-3.46", "css number")])
   end
 
   fn hull_case() : Outcome do
@@ -1460,7 +1460,7 @@ mod SceneSuite do
     all(Cons(expect_int(List.length(tones), List.length(want), "nine boards"), List.zip_with(tones, want, lane_tone_row)))
   end
 
-  fn lane_tone_row(c : Skee.Scene.Rgba, row : List(String)) : Outcome do
+  fn lane_tone_row(c : Arcade.Draw.Rgba, row : List(String)) : Outcome do
     match row do
     Cons(i, Cons(r, Cons(g, Cons(b, Nil)))) -> do
       let what = "board " ++ i
@@ -1597,8 +1597,8 @@ mod SceneSuite do
   end
 
   -- The transparent pixel the ball and wave textures start from.
-  fn clear() : Skee.Scene.Rgba do
-    Skee.Scene.with_alpha(Skee.Scene.hex(0), 0.0)
+  fn clear() : Arcade.Draw.Rgba do
+    Arcade.Draw.with_alpha(Arcade.Draw.hex(0), 0.0)
   end
 
   fn wave_texture_case() : Outcome do

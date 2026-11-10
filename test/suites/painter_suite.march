@@ -70,21 +70,21 @@ mod PainterSuite do
     Arcade.Vec2.vec2(x, y)
   end
 
-  fn red() : Skee.Scene.Rgba do
+  fn red() : Arcade.Draw.Rgba do
     { red: 255, green: 0, blue: 0, alpha: 1.0 }
   end
 
-  fn ink() : Skee.Scene.Rgba do
+  fn ink() : Arcade.Draw.Rgba do
     { red: 10, green: 20, blue: 30, alpha: 0.5 }
   end
 
-  fn identity() : Skee.Scene.Affine do
+  fn identity() : Arcade.Draw.Affine do
     { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
   end
 
   -- A frame of these ops on a 100x50 CSS-pixel canvas at devicePixelRatio 2,
   -- without the frame's opening transform.
-  fn body(ops : List(Skee.Scene.DrawOp)) : List(Skee.Painter.CanvasCall) do
+  fn body(ops : List(Arcade.Draw.DrawOp)) : List(Skee.Painter.CanvasCall) do
     match Skee.Painter.calls(k(), 2.0, 100.0, 50.0, ops) do
     Cons(_, rest) -> rest
     Nil -> []

@@ -36,6 +36,7 @@ foundation: ask before changing it.
 | `Arcade.Num` | `arcade/lib/arcade/num.march` | Swift-tie max/min, NaN-keeping clamp, clamp_int, `ieee_div`, degrees, is_negative |
 | `Arcade.Vec2`, `Arcade.Vec3` | `arcade/lib/arcade/vec2.march`, `vec3.march` | The `Vec2` and `Vec3` types and their algebra |
 | `Arcade.Rng` | `arcade/lib/arcade/rng.march` | SplitMix64; `next_unit` and `next_gaussian` take `Numerics` |
+| `Arcade.Draw` | `arcade/lib/arcade/draw.march` | The DrawOp vocabulary (`Rgba`, `Shape`, `Paint`, `Pen`, `Lettering`, `Affine`, ...) and colour helpers (`hex`, `with_alpha`, `css`, `css_number`, `mix`, `lighter`) |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
 
@@ -334,7 +335,7 @@ Shapes: `Poly`, `Holed` (even-odd), `Polys` (non-zero union), `Disc`, `Outline`
 (path steps). `Blend` is `Over` or `Lighter` (`globalCompositeOperation =
 "lighter"`). A `RadialPaint`'s centres and radii are in its `frame`: build the
 path in pixels, then set the frame before `fill`. Colours go to CSS through
-`Skee.Scene.css`, sizes in fonts through `css_number`: `float_to_string(1.0)` is
+`Arcade.Draw.css`, sizes in fonts through `css_number`: `float_to_string(1.0)` is
 `"1."`, which CSS rejects. `tools/scene_preview/paint.html` is a complete
 reference painter in 60 lines of JS.
 

@@ -310,55 +310,55 @@ mod Skee.HudView do
   -- The cel look: SkeeHUD's Ink
   -- ===================================================================
   fn ink() : Rgba needs () do
-    Skee.Scene.hex(3810118)
+    Arcade.Draw.hex(3810118)
   end
 
   fn cream() : Rgba needs () do
-    Skee.Scene.hex(16775404)
+    Arcade.Draw.hex(16775404)
   end
 
   fn pink() : Rgba needs () do
-    Skee.Scene.hex(16740261)
+    Arcade.Draw.hex(16740261)
   end
 
   fn lilac() : Rgba needs () do
-    Skee.Scene.hex(10191858)
+    Arcade.Draw.hex(10191858)
   end
 
   fn violet() : Rgba needs () do
-    Skee.Scene.hex(7296470)
+    Arcade.Draw.hex(7296470)
   end
 
   fn butter() : Rgba needs () do
-    Skee.Scene.hex(16767053)
+    Arcade.Draw.hex(16767053)
   end
 
   fn sky() : Rgba needs () do
-    Skee.Scene.hex(6277375)
+    Arcade.Draw.hex(6277375)
   end
 
   fn mint() : Rgba needs () do
-    Skee.Scene.hex(8313978)
+    Arcade.Draw.hex(8313978)
   end
 
   fn chips_blue() : Rgba needs () do
-    Skee.Scene.hex(4033535)
+    Arcade.Draw.hex(4033535)
   end
 
   fn mult_red() : Rgba needs () do
-    Skee.Scene.hex(16731501)
+    Arcade.Draw.hex(16731501)
   end
 
   pfn alpha(c : Rgba, a : Float) : Rgba needs () do
-    Skee.Scene.with_alpha(c, a)
+    Arcade.Draw.with_alpha(c, a)
   end
 
   pfn css(c : Rgba) : String needs () do
-    Skee.Scene.css(c)
+    Arcade.Draw.css(c)
   end
 
   pfn num(x : Float) : String needs () do
-    Skee.Scene.css_number(x)
+    Arcade.Draw.css_number(x)
   end
 
   pfn px(x : Float) : String needs () do
@@ -838,11 +838,11 @@ mod Skee.HudView do
   end
 
   pfn prize_shadow() : Rgba needs () do
-    Skee.Scene.hex(8022668)
+    Arcade.Draw.hex(8022668)
   end
 
   pfn darker(c : Rgba, t : Float) : Rgba needs () do
-    Skee.Scene.mix(c, Skee.Scene.hex(0), t)
+    Arcade.Draw.mix(c, Arcade.Draw.hex(0), t)
   end
 
   pfn ellipse_d(cx : Float, cy : Float, rx : Float, ry : Float) : List(Seg) needs () do
@@ -942,7 +942,7 @@ mod Skee.HudView do
       ellipse_d(b.bx0 +. w *. 0.14 +. w *. 0.17, b.by0 +. h *. 0.1 +. h *. 0.12, w *. 0.17, h *. 0.12)
     [
       Tag("clipPath", [Prop("id", id)], [Tag("path", [Prop("d", d)], [])]),
-      Tag("path", [Prop("d", segs_d(spot)), Prop("fill", css(Skee.Scene.lighter(col, 0.45))), Prop("clip-path", "url(#" ++ id ++ ")")], [])
+      Tag("path", [Prop("d", segs_d(spot)), Prop("fill", css(Arcade.Draw.lighter(col, 0.45))), Prop("clip-path", "url(#" ++ id ++ ")")], [])
     ]
   end
 
@@ -968,7 +968,7 @@ mod Skee.HudView do
   end
 
   pfn hx(n : Int) : Rgba needs () do
-    Skee.Scene.hex(n)
+    Arcade.Draw.hex(n)
   end
 
   pfn prize_def(k : Skee.Consts.Consts, p : Prize, owned : Bool) : Html needs () do
@@ -1361,10 +1361,10 @@ mod Skee.HudView do
   pfn ball_colour(b : BallKind) : Rgba needs () do
     match b do
     Marshmallow -> cream()
-    ClassicBall -> Skee.Scene.hex(16740207)
+    ClassicBall -> Arcade.Draw.hex(16740207)
     JumpingBean -> mint()
     Wobbler -> lilac()
-    Comet -> Skee.Scene.hex(16751150)
+    Comet -> Arcade.Draw.hex(16751150)
     end
   end
 

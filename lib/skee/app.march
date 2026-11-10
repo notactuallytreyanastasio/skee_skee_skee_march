@@ -1344,7 +1344,7 @@ mod Skee.App do
 
   -- ---- Views ----
   doc """The alley this frame, as Canvas 2D operations, back to front."""
-  fn scene_ops(m : Model) : List(Skee.Scene.DrawOp) needs () do
+  fn scene_ops(m : Model) : List(Arcade.Draw.DrawOp) needs () do
     Skee.Scene.draw(m.k, { m.scenery with viewport: m.viewport })
   end
 

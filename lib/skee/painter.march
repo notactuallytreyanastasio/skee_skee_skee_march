@@ -71,7 +71,7 @@ mod Skee.Painter do
   nothing, and clips left open are restored at the end, so the context's
   state stack is balanced after every frame.
   """
-  fn calls(k : Skee.Consts.Consts, dpr : Float, width : Float, height : Float, ops : List(Skee.Scene.DrawOp)) : List(CanvasCall) needs () do
+  fn calls(k : Skee.Consts.Consts, dpr : Float, width : Float, height : Float, ops : List(Arcade.Draw.DrawOp)) : List(CanvasCall) needs () do
     let start =
       {
         rev: [CvSetTransform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)],
@@ -97,10 +97,10 @@ mod Skee.Painter do
     List.fold_left(cs, p, push)
   end
 
-  pfn paint_op(p : Painting, op : Skee.Scene.DrawOp) : Painting needs () do
+  pfn paint_op(p : Painting, op : Arcade.Draw.DrawOp) : Painting needs () do
     match op do
     ClearTo(c) -> do
-      push_all(p, [CvComposite("source-over"), CvFillStyle(Skee.Scene.css(c)), CvFillRect(0.0, 0.0, p.view_w, p.view_h)])
+      push_all(p, [CvComposite("source-over"), CvFillStyle(Arcade.Draw.css(c)), CvFillRect(0.0, 0.0, p.view_w, p.view_h)])
     end
     FillShape(sh, paint, b) -> fill(push(path(p, sh), CvComposite(blend(b))), sh, paint)
     StrokeShape(sh, pen, b) -> stroke(push(path(p, sh), CvComposite(blend(b))), pen)
@@ -119,7 +119,7 @@ mod Skee.Painter do
     end
   end
 
-  pfn blend(b : Skee.Scene.Blend) : String needs () do
+  pfn blend(b : Arcade.Draw.Blend) : String needs () do
     match b do
     Over -> "source-over"
     Lighter -> "lighter"
@@ -127,7 +127,7 @@ mod Skee.Painter do
   end
 
   doc """Holed shapes fill and clip even-odd; every other shape non-zero."""
-  fn rule(sh : Skee.Scene.Shape) : FillRule needs () do
+  fn rule(sh : Arcade.Draw.Shape) : FillRule needs () do
     match sh do
     Holed(_, _) -> RuleEvenOdd
     Poly(_) -> RuleNonZero
@@ -138,7 +138,7 @@ mod Skee.Painter do
   end
 
   -- ---- Paths ----
-  pfn path(p : Painting, sh : Skee.Scene.Shape) : Painting needs () do
+  pfn path(p : Painting, sh : Arcade.Draw.Shape) : Painting needs () do
     let begun = push(p, CvBeginPath)
     match sh do
     Poly(ps) -> ring(begun, ps)
@@ -163,7 +163,7 @@ mod Skee.Painter do
     push(p, CvLineTo(v.x, v.y))
   end
 
-  pfn path_step(p : Painting, s : Skee.Scene.PathStep) : Painting needs () do
+  pfn path_step(p : Painting, s : Arcade.Draw.PathStep) : Painting needs () do
     match s do
     MoveTo(a) -> push(p, CvMoveTo(a.x, a.y))
     LineTo(a) -> push(p, CvLineTo(a.x, a.y))
@@ -176,9 +176,9 @@ mod Skee.Painter do
   -- ---- Fills, strokes and lettering ----
   -- A radial paint's geometry is in its frame: the path is already built in
   -- pixels, so the frame is set after it, for the gradient alone.
-  pfn fill(p : Painting, sh : Skee.Scene.Shape, paint : Skee.Scene.Paint) : Painting needs () do
+  pfn fill(p : Painting, sh : Arcade.Draw.Shape, paint : Arcade.Draw.Paint) : Painting needs () do
     match paint do
-    Flat(c) -> push_all(p, [CvFillStyle(Skee.Scene.css(c)), CvFill(rule(sh))])
+    Flat(c) -> push_all(p, [CvFillStyle(Arcade.Draw.css(c)), CvFill(rule(sh))])
     RadialPaint(g) -> do
       let framed = push(push(p, CvSave), framed_by(p.dpr, g.frame))
       push_all(framed, [CvRadialStyle(g.inner.x, g.inner.y, g.inner_radius, g.outer.x, g.outer.y, g.outer_radius, List.map(g.stops, colour_stop)), CvFill(rule(sh)), CvRestore])
@@ -186,45 +186,45 @@ mod Skee.Painter do
     end
   end
 
-  pfn colour_stop(s : Skee.Scene.GradientStop) : ColourStop needs () do
-    { stop_at: s.offset, stop_css: Skee.Scene.css(s.colour) }
+  pfn colour_stop(s : Arcade.Draw.GradientStop) : ColourStop needs () do
+    { stop_at: s.offset, stop_css: Arcade.Draw.css(s.colour) }
   end
 
   doc """setTransform for an affine frame under the device-pixel base: dpr times the frame."""
-  fn framed_by(dpr : Float, f : Skee.Scene.Affine) : CanvasCall needs () do
+  fn framed_by(dpr : Float, f : Arcade.Draw.Affine) : CanvasCall needs () do
     CvSetTransform(dpr *. f.a, dpr *. f.b, dpr *. f.c, dpr *. f.d, dpr *. f.e, dpr *. f.f)
   end
 
-  pfn ends(e : Skee.Scene.LineEnd) : String needs () do
+  pfn ends(e : Arcade.Draw.LineEnd) : String needs () do
     match e do
     ButtEnd -> "butt"
     RoundEnd -> "round"
     end
   end
 
-  pfn corners(c : Skee.Scene.Corner) : String needs () do
+  pfn corners(c : Arcade.Draw.Corner) : String needs () do
     match c do
     MitreCorner -> "miter"
     RoundCorner -> "round"
     end
   end
 
-  pfn stroke(p : Painting, pen : Skee.Scene.Pen) : Painting needs () do
-    push_all(p, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineCap(ends(pen.ends)), CvLineJoin(corners(pen.corners)), CvStroke])
+  pfn stroke(p : Painting, pen : Arcade.Draw.Pen) : Painting needs () do
+    push_all(p, [CvStrokeStyle(Arcade.Draw.css(pen.ink)), CvLineWidth(pen.width), CvLineCap(ends(pen.ends)), CvLineJoin(corners(pen.corners)), CvStroke])
   end
 
   -- The edge is stroked first, round-joined, under the fill.
-  pfn letter(p : Painting, t : Skee.Scene.Lettering) : Painting needs () do
+  pfn letter(p : Painting, t : Arcade.Draw.Lettering) : Painting needs () do
     let ready =
       push_all(p, [CvSave, framed_by(p.dpr, t.frame), CvFont(t.font), CvTextCentred])
     let edged =
       match t.edge do
       Some(pen) -> do
-        push_all(ready, [CvStrokeStyle(Skee.Scene.css(pen.ink)), CvLineWidth(pen.width), CvLineJoin("round"), CvStrokeText(t.words, t.middle.x, t.middle.y)])
+        push_all(ready, [CvStrokeStyle(Arcade.Draw.css(pen.ink)), CvLineWidth(pen.width), CvLineJoin("round"), CvStrokeText(t.words, t.middle.x, t.middle.y)])
       end
       None -> ready
       end
-    push_all(edged, [CvFillStyle(Skee.Scene.css(t.fill)), CvFillText(t.words, t.middle.x, t.middle.y), CvRestore])
+    push_all(edged, [CvFillStyle(Arcade.Draw.css(t.fill)), CvFillText(t.words, t.middle.x, t.middle.y), CvRestore])
   end
 
 end
