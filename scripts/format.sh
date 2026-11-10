@@ -1,5 +1,5 @@
 #!/bin/sh
-# Format lib/, test/ and shell/ safely. Never run bare `forge format`: it
+# Format lib/, test/, shell/ and arcade/ safely. Never run bare `forge format`: it
 # silently replaces `match do` blocks, and multi-line lambdas inside list
 # literals, with a literal `...`. This wrapper formats each file through
 # --stdin and refuses any result with more `...` than the input had.
@@ -13,7 +13,7 @@ export PATH="$HOME/.march/bin:$PATH"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 bad=0
-for f in $(find lib test shell -name '*.march' -not -path 'test/golden/*' | sort); do
+for f in $(find lib test shell arcade -name '*.march' -not -path 'test/golden/*' -not -path '*/.march/*' -not -path '*/node_modules/*' | sort); do
   if ! forge format --stdin <"$f" >"$tmp" 2>/dev/null; then
     echo "format: cannot parse $f"
     bad=1

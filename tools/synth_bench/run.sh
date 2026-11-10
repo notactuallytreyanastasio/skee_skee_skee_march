@@ -5,7 +5,7 @@ set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 export PATH="$HOME/.march/bin:$PATH"
-export MARCH_LIB_PATH="lib:test/support:test/suites:test/golden"
+export MARCH_LIB_PATH="arcade/lib:arcade/testkit/lib:lib:test/support:test/suites:test/golden"
 out=dist/bench/synth
 mkdir -p "$out"
 march --compile -o "$out/bench" tools/synth_bench/synth_bench.march >"$out/build-native.log" 2>&1 || { cat "$out/build-native.log"; exit 1; }

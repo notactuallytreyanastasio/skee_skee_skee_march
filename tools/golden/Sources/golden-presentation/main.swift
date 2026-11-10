@@ -20,7 +20,7 @@ import GoldenSupport
 //   num <x> <text>                       HUDState.num(x), written as is (no spaces)
 //   ps <reel> <position> <row> <room> <symbol>   Presentation.pullSymbol
 //
-// digest.swift is a symlink to golden-run's, mirrored by test/support/arcade/test/digest.march and run_digest.march.
+// digest.swift is a symlink to golden-run's, mirrored by arcade/testkit/lib/arcade/test/digest.march and run_digest.march.
 // Strings are written as their Digest.text hash, so spaces never reach a token.
 
 var g = GoldenFile(module: "Presentation")

@@ -9,3 +9,7 @@ author = ""
 license = ""
 
 [deps]
+arcade = { path = "arcade" }
+
+[dev-deps]
+arcade_testkit = { path = "arcade/testkit" }

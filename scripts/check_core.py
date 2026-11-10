@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
 """Rules the compiler cannot enforce, as a script. Exit 1 on any violation.
 
-    scripts/check_core.py [--root DIR]
+    scripts/check_core.py [--root DIR] [--core DIR ...] [--other DIR ...] [--engine DIR ...]
 
-Purity (under lib/): the compiler misses Js.* and System.* from a module with no
+Roots are relative to --root. The defaults are this repository's: core is
+lib/ and arcade/lib/ (the game's pure core and the engine's), other is shell/,
+test/ (generated goldens aside) and the engine's test kit, and the engine is
+arcade/. Every core root must hold March files, or the check refuses to pass.
+
+Purity (core roots): the compiler misses Js.* and System.* from a module with no
 needs lines, so this file is the only complete guard. Every rule below that
-says "lib/" exists because a March bug would otherwise silently change
+says "core" exists because a March bug would otherwise silently change
 behaviour on the JS target, or because the formatter would destroy the code.
 See "March gotchas" in docs/PORT.md for each one.
 
-Engine (lib/arcade/** and arcade/**): the arcade engine knows nothing of the
-game that uses it. Its March files and .mjs/.js glue must not name a Skee. module or
-say "skee" anywhere, comments and strings included. See "Arcade engine" in docs/PORT.md.
+Engine (arcade/**): the arcade engine knows nothing of the game that uses it.
+Its March files and .mjs/.js glue must not name a Skee. module or say "skee"
+anywhere, comments and strings included. Engine code lives in arcade/ only:
+a March file under lib/arcade/, where the engine began, is a stale copy. See
+"Arcade engine" in docs/PORT.md.
 """
 import argparse
 import pathlib
@@ -116,10 +123,23 @@ ENGINE_SUFFIXES = (".march", ".mjs", ".js")
 ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
 
 
-def engine_files(root: pathlib.Path) -> list:
-    """Source of the arcade engine (March and JS glue): lib/arcade, later arcade/."""
+DEFAULT_CORE = ["lib", "arcade/lib"]
+DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib"]
+DEFAULT_ENGINE = ["arcade"]
+
+
+def march_files(base: pathlib.Path) -> list:
+    """March source under base, generated goldens and build output aside."""
+    return [
+        p for p in sorted(base.rglob("*.march"))
+        if "golden" not in p.relative_to(base).parts and not ENGINE_SKIP.intersection(p.relative_to(base).parts)
+    ]
+
+
+def engine_files(bases: list) -> list:
+    """Source of the arcade engine (March and JS glue) under the engine roots."""
     found = []
-    for base in (root / "lib" / "arcade", root / "arcade"):
+    for base in bases:
         for path in sorted(base.rglob("*")):
             rel = path.relative_to(base).parts
             if path.is_file() and path.suffix in ENGINE_SUFFIXES and not ENGINE_SKIP.intersection(rel):
@@ -140,26 +160,35 @@ def check_engine(path: pathlib.Path, text: str, report) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
-    root = pathlib.Path(parser.parse_args().root)
+    parser.add_argument("--core", action="append", help="a pure-core root (repeatable)")
+    parser.add_argument("--other", action="append", help="a non-core March root (repeatable)")
+    parser.add_argument("--engine", action="append", help="an engine root (repeatable)")
+    args = parser.parse_args()
+    root = pathlib.Path(args.root)
     problems = []
 
     def report(where: str, message: str) -> None:
         problems.append(f"{where}: {message}")
 
-    core_files = sorted((root / "lib").rglob("*.march"))
-    if not core_files:
-        print(f"no March files under {root / 'lib'}: refusing to pass", file=sys.stderr)
-        return 1
+    core_files = []
+    for rel in args.core or DEFAULT_CORE:
+        found = march_files(root / rel)
+        if not found:
+            print(f"no March files under {root / rel}: refusing to pass", file=sys.stderr)
+            return 1
+        core_files += found
     for path in core_files:
         check_source(path, path.read_text(), True, report)
-    others = sorted((root / "shell").rglob("*.march")) + [
-        p for p in sorted((root / "test").rglob("*.march")) if "golden" not in p.parts
-    ]
+    others = []
+    for rel in args.other or DEFAULT_OTHER:
+        others += march_files(root / rel)
     for path in others:
         check_source(path, path.read_text(), False, report)
-    engine = engine_files(root)
+    engine = engine_files([root / rel for rel in args.engine or DEFAULT_ENGINE])
     for path in engine:
         check_engine(path, path.read_text(), report)
+    for path in sorted((root / "lib" / "arcade").rglob("*.march")):
+        report(str(path), "engine code under lib/arcade/: since the carve-out the engine lives in arcade/lib/arcade/")
 
     # march#1183: a bare type name loads every module on the lib path that defines
     # a type of that name, so two suites sharing one tie their builds together.

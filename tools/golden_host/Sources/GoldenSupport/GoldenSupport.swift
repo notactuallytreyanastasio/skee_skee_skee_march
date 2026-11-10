@@ -2,7 +2,7 @@ import Foundation
 
 /// Golden values cross from Swift to March as text tokens, because neither a
 /// UInt64 nor an exact Double survives a March literal on the JS target.
-/// Every token below has a matching reader in test/support/arcade/test/golden_io.march.
+/// Every token below has a matching reader in arcade/testkit/lib/arcade/test/golden_io.march.
 
 /// A UInt64 as 16 lowercase hex digits. March reads it as two 32-bit limbs.
 public func u64(_ x: UInt64) -> String { hex64(x) }

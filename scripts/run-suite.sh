@@ -13,7 +13,11 @@ cd "$root" || exit 2
 export PATH="$HOME/.march/bin:$PATH"
 # Not plain lib:test: a module holding a `test` block is always loaded (march#1183),
 # so test/*_test.march on the path would tie every suite to every other.
-export MARCH_LIB_PATH="${SKEE_LIB_PATH:-lib:test/support:test/suites:test/golden}"
+# The engine and its test kit come first, as forge orders deps; arcade.mk sets
+# ARCADE_LIB and ARCADE_TESTKIT_LIB when make runs this.
+arcade_lib="${ARCADE_LIB:-arcade/lib}"
+arcade_testkit_lib="${ARCADE_TESTKIT_LIB:-arcade/testkit/lib}"
+export MARCH_LIB_PATH="${SKEE_LIB_PATH:-$arcade_lib:$arcade_testkit_lib:lib:test/support:test/suites:test/golden}"
 entry="test/mains/${suite}_main.march"
 [ -f "$entry" ] || { echo "no such suite: $entry"; exit 2; }
 

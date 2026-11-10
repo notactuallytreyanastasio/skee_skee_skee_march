@@ -14,6 +14,9 @@ reset() {
   rm -rf "$work"
   mkdir -p "$work/test"
   cp -R "$root/lib" "$root/shell" "$root/scripts" "$root/forge.toml" "$root/.march-lint.toml" "$root/.editorconfig" "$work/"
+  # The engine packages, without anything forge or march left in them.
+  mkdir -p "$work/arcade"
+  (cd "$root/arcade" && tar -cf - --exclude .forge --exclude .march --exclude node_modules .) | (cd "$work/arcade" && tar -xf -)
   for d in support golden suites mains; do cp -R "$root/test/$d" "$work/test/"; done
   cp "$root"/test/*_test.march "$work/test/"
 }
@@ -124,6 +127,16 @@ reset
 rm "$work"/lib/skee/*.march
 expect_red "core: an empty lib/ refuses to pass" core
 reset
+rm "$work"/arcade/lib/arcade/*.march
+expect_red "core: an empty arcade/lib/ refuses to pass" core
+reset
+printf 'mod Arcade.Planted do\n  cap pure\n\n  fn f() : () needs () do\n    println("x")\n  end\nend\n' >"$work/arcade/lib/arcade/planted.march"
+expect_red "core: println in arcade/lib/ (the engine core is pure too)" core
+reset
+printf 'mod Arcade.Planted do\n  cap pure\n\n  type Tally = { n : Int }\nend\n' >"$work/arcade/lib/arcade/planted.march"
+printf 'mod Skee.Planted do\n  cap pure\n\n  type Tally = { m : Int }\nend\n' >"$work/lib/skee/planted.march"
+expect_red "core: a type name defined in both the engine and the game (march#1183)" core
+reset
 printf 'mod Skee.Planted do\n  cap pure\n\n  type Tally = { n : Int }\nend\n' >"$work/lib/skee/planted.march"
 printf 'mod Skee.Planted2 do\n  cap pure\n\n  type Tally = { m : Int }\nend\n' >"$work/lib/skee/planted2.march"
 expect_red "core: a type name defined twice (march#1183)" core
@@ -140,18 +153,20 @@ plant_engine() {
   expect_red "engine: $label" core
 }
 reset
-mkdir -p "$work/lib/arcade"
-printf 'mod Arcade.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    1\n  end\nend\n' >"$work/lib/arcade/planted.march"
-expect_green "engine: a clean lib/arcade module passes" core
-plant_engine "Skee. in lib/arcade" lib/arcade '  fn f() : Float needs () do
-    Skee.Consts.consts().pi
+printf 'mod Arcade.Planted do\n  cap pure\n\n  fn f() : Int needs () do\n    1\n  end\nend\n' >"$work/arcade/lib/arcade/planted.march"
+expect_green "engine: a clean arcade/lib/arcade module passes" core
+plant_engine "a clean module left under lib/arcade" lib/arcade '  fn f() : Int needs () do
+    1
   end'
 plant_engine "Skee. in arcade/lib/arcade" arcade/lib/arcade '  fn f() : Float needs () do
     Skee.Consts.consts().pi
   end'
-plant_engine "Skee. in a comment" lib/arcade '  -- mirrors Skee.Physics
+plant_engine "Skee. in a comment" arcade/lib/arcade '  -- mirrors Skee.Physics
   fn f() : Int needs () do
     1
+  end'
+plant_engine "Skee. in the test kit" arcade/testkit/lib/arcade/test '  fn f() : Int needs () do
+    Skee.Units.chips_int(Chips(1))
   end'
 plant_engine "skee in a string" arcade/lib/arcade '  fn f() : String needs () do
     "skee-ball"

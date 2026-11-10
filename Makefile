@@ -2,6 +2,10 @@
 # make 3.81 finds a recipe's first word with its own PATH, not an exported one.
 FORGE := $(HOME)/.march/bin/forge
 
+# The engine: its lib roots and the JS build flags every game shares.
+ARCADE := arcade
+include $(ARCADE)/arcade.mk
+
 SWIFT_FLAGS := -c release -Xswiftc -enable-testing
 GOLDEN_DIR := tools/golden
 GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
@@ -77,11 +81,12 @@ golden-%:
 	cd $(GOLDEN_DIR) && swift build $(SWIFT_FLAGS) --product golden-$*
 	$(GOLDEN_DIR)/.build/release/golden-$* $(CURDIR)
 
-# The browser build. opt.fold must stay off: see docs/PORT.md. forge puts only
-# lib/ on the module path, and the shell's modules are in shell/, so these
-# call march directly with lib:shell.
+# The browser build. opt.fold must stay off (ARCADE_JS_FLAGS): see
+# docs/PORT.md. forge puts only lib/ and the deps on the module path, and the
+# shell's modules are in shell/, so these call march directly with the engine,
+# lib and shell.
 MARCH := $(HOME)/.march/bin/march
-SHELL_LIB := lib:shell
+SHELL_LIB := $(ARCADE_LIB):lib:shell
 WEB_FILES := web/index.html web/style.css web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs
 # The audio worklet's own build: Skee.Synth alone, loaded by AudioWorklet.addModule.
 WORKLET := shell/synth_worklet.march
@@ -89,16 +94,16 @@ PORT ?= 8137
 
 build:
 	mkdir -p .march/build/debug
-	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o .march/build/debug/skee.mjs shell/game.march
-	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o .march/build/debug/skee_synth_worklet.mjs $(WORKLET)
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) $(ARCADE_JS_FLAGS) -o .march/build/debug/skee.mjs shell/game.march
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) $(ARCADE_JS_FLAGS) -o .march/build/debug/skee_synth_worklet.mjs $(WORKLET)
 	cp web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs .march/build/debug/
 
 # The game as a static site in dist/: skee.mjs, March's runtime modules, the
 # glue, index.html and style.css.
 web:
 	mkdir -p dist
-	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o dist/skee.mjs shell/game.march
-	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) --target js --disable-pass opt.fold -o dist/skee_synth_worklet.mjs $(WORKLET)
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) $(ARCADE_JS_FLAGS) -o dist/skee.mjs shell/game.march
+	MARCH_LIB_PATH=$(SHELL_LIB) $(MARCH) $(ARCADE_JS_FLAGS) -o dist/skee_synth_worklet.mjs $(WORKLET)
 	cp $(WEB_FILES) dist/
 	@echo "web: dist/index.html"
 

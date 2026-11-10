@@ -1,7 +1,7 @@
 import GoldenSupport
 @testable import SkeeCore
 
-// A 32-bit digest of a run, mirrored word for word by test/support/arcade/test/digest.march (the generic words) and test/support/run_digest.march (the skee types).
+// A 32-bit digest of a run, mirrored word for word by arcade/testkit/lib/arcade/test/digest.march (the generic words) and test/support/run_digest.march (the skee types).
 // Enums go in as their allCases index. Optionals and lists carry a tag or a
 // count, so two different shapes cannot feed the same words.
 struct Digest {

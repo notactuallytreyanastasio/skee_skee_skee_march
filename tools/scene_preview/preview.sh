@@ -9,7 +9,7 @@ root=$(cd "$(dirname "$0")/../.." && pwd)
 export PATH="$HOME/.march/bin:$PATH"
 out="$4"
 mkdir -p "$out"
-MARCH_LIB_PATH="$root/lib:$root/test/support:$root/test/suites:$root/test/golden" \
+MARCH_LIB_PATH="$root/arcade/lib:$root/arcade/testkit/lib:$root/lib:$root/test/support:$root/test/suites:$root/test/golden" \
   march --target js --disable-pass opt.fold -o "$out/preview.mjs" "$root/tools/scene_preview/preview_main.march" >"$out/build.log" 2>&1 || { cat "$out/build.log"; exit 1; }
 node "$out/preview.mjs" "$1" "$2" "$3" json > "$out/ops.js"
 cp "$root/tools/scene_preview/paint.html" "$out/paint.html"
