@@ -324,7 +324,7 @@ mod PresentationSuite do
     let ball = { bell_ball() with slot_hits: 2, record_combo: 3 }
     let after = { s with round: { s.round with current_balls: [ball] } }
     let shot =
-      Skee.Physics.simulate_shot(k, launch(0.5, 0.0), Skee.Types.standard_table(k), ClassicBall, Arcade.U64.of_int(0))
+      Skee.Physics.simulate_shot(k, launch(0.5, 0.0), Skee.Types.standard_table(k), ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.of_int(0))
     let step = { run: after, step_events: [Shot(shot, ball)] }
     let (_, cues) =
       play_out(Skee.Presentation.enqueue(Skee.Presentation.make(s), step, 0.0), 1.0 /. 60.0, [])

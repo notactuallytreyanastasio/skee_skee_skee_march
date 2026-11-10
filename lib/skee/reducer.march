@@ -120,7 +120,7 @@ mod Skee.Reducer do
   with a typed error, and there is no new state to be half-changed.
   """
   fn apply(k : Skee.Consts.Consts, a : Action, s : RunState) : Result(Step, ActionError) needs () do
-    apply_with(k, fn (l, t, b, seed) -> Skee.Physics.simulate_shot(k, l, t, b, seed), a, s)
+    apply_with(k, fn (l, t, b, seed) -> Skee.Physics.simulate_shot(k, l, t, b, Skee.Items.speed_scale(b), seed), a, s)
   end
 
   doc """

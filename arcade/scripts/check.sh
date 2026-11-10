@@ -28,12 +28,12 @@ scan() {
 # forge's check cache keys on the lib-path string, not on the contents of a
 # path dep, so an edit to the engine would not invalidate the test kit's
 # cached result.
-rm -rf .forge/check-cache testkit/.forge/check-cache
-for pkg in . testkit; do
+rm -rf .forge/check-cache testkit/.forge/check-cache physics/.forge/check-cache
+for pkg in . testkit physics; do
   scan "forge check ($pkg)" sh -c "cd '$pkg' && forge check"
   scan "forge lint ($pkg)" sh -c "cd '$pkg' && forge lint"
 done
-export MARCH_LIB_PATH="lib:testkit/lib:test/suites:test/golden"
+export MARCH_LIB_PATH="lib:physics/lib:testkit/lib:test/suites:test/golden"
 files=$(find testkit/lib test -name '*.march' -not -path 'test/golden/*' | sort)
 for f in $files; do
   scan "march --check $f" march --check "$f"

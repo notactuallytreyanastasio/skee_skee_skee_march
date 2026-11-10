@@ -1,0 +1,42 @@
+mod Arcade.Physics.Trig do
+
+  -- The libm replay seam. A simulation's whole contact with libm is its sines
+  -- and cosines, and libm is the one thing that can tell two runs of the same
+  -- pure code apart: one platform's optimiser may take a pair from a fused
+  -- sincos that now and then differs from sin(), and V8 has a libm of its own.
+  -- A simulation that takes its trig through this module can be handed the
+  -- answers another platform got, and then reproduces that platform's run to
+  -- the last bit.
+  cap pure
+
+  -- The sine and cosine of one angle.
+  type SinCos = { sine : Float, cosine : Float }
+
+  -- Sines already known, by argument: a search tree. Anything else asks libm,
+  -- so NoSines is libm itself.
+  type SineBook = NoSines | SineNode(SineBook, Float, Float, SineBook)
+
+  doc """This target's libm on one angle."""
+  fn sin_cos(x : Float) : SinCos needs () do
+    { sine: Math.sin(x), cosine: Math.cos(x) }
+  end
+
+  doc """The sine of `x`: from the book when it holds `x`, else from libm."""
+  fn sine_of(book : SineBook, x : Float) : Float needs () do
+    match book do
+    NoSines -> Math.sin(x)
+    SineNode(left, arg, value, right) -> do
+      if x < arg do
+        sine_of(left, x)
+      else
+        if arg < x do
+          sine_of(right, x)
+        else
+          if x == arg do value else Math.sin(x) end
+        end
+      end
+    end
+    end
+  end
+
+end

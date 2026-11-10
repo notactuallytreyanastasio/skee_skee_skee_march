@@ -10,6 +10,7 @@ license = ""
 
 [deps]
 arcade = { path = "arcade" }
+arcade_physics = { path = "arcade/physics" }
 
 [dev-deps]
 arcade_testkit = { path = "arcade/testkit" }

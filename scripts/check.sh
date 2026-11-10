@@ -29,11 +29,12 @@ scan() {
 # invalidate the game's cached result. So the cache goes first.
 arcade_lib="${ARCADE_LIB:-arcade/lib}"
 arcade_testkit_lib="${ARCADE_TESTKIT_LIB:-arcade/testkit/lib}"
+arcade_physics_lib="${ARCADE_PHYSICS_LIB:-arcade/physics/lib}"
 arcade=$(dirname "$arcade_lib")
-rm -rf .forge/check-cache "$arcade/.forge/check-cache" "$arcade/testkit/.forge/check-cache"
+rm -rf .forge/check-cache "$arcade/.forge/check-cache" "$arcade/testkit/.forge/check-cache" "$arcade/physics/.forge/check-cache"
 scan "forge check" forge check
 scan "forge lint" forge lint
-export MARCH_LIB_PATH="$arcade_lib:$arcade_testkit_lib:lib:test:shell"
+export MARCH_LIB_PATH="$arcade_lib:$arcade_physics_lib:$arcade_testkit_lib:lib:test:shell"
 files=$(find test shell -name '*.march' -not -path 'test/golden/*' | sort)
 for f in $files; do
   scan "march --check $f" march --check "$f"

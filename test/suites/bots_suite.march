@@ -22,7 +22,7 @@ mod BotsSuite do
       None -> Mismatch("no window for " ++ show(hole))
       Some(w) -> do
         let r =
-          Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Arcade.U64.of_int(0))
+          Skee.Physics.simulate_shot(k, w.launch, t, ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.of_int(0))
         expect(r.hole == hole, "window for " ++ show(hole) ++ " lands in " ++ show(r.hole))
       end
       end
@@ -37,7 +37,8 @@ mod BotsSuite do
     None -> Mismatch("no window for the 50")
     Some(w) -> do
       let (l, _) = perturb(k, perfect(), w.launch, Arcade.Rng.seed(Arcade.U64.of_int(1)))
-      let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.of_int(0))
+      let r =
+        Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.of_int(0))
       expect(r.hole == Ring50, "landed in " ++ show(r.hole))
     end
     end

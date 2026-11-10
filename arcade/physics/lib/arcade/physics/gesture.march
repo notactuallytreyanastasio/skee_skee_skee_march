@@ -1,0 +1,245 @@
+mod Arcade.Physics.Gesture do
+
+  -- A flick measured from touch samples: velocities and accelerations by
+  -- differencing, a three-point smoothing, the speed at lift-off from a
+  -- regression through the last velocities, and the RMS jerk. Screen y grows
+  -- downward, so `diff` reports y as upward speed. Pure.
+  cap pure
+
+  import Arcade.Num
+
+  -- A time with an x and a y: positions, then velocities, then accelerations.
+  type TrackPoint = { gt : Float, gx : Float, gy : Float }
+
+  derive Show for TrackPoint
+
+  -- When a flick counts, and the windows it is read over (seconds, and
+  -- points per second along y).
+  type GestureLimits = {
+    min_velocities : Int,
+    min_peak : Float,
+    sure_peak : Float,
+    min_release : Float,
+    start_fraction : Float,
+    min_duration : Float,
+    release_window : Float,
+    accel_window : Float
+  }
+
+  -- What `measure` read from a flick it accepted. Speeds are upward; `accel_up`
+  -- and `accel_side` are the mean acceleration over the closing window, and
+  -- `norm_jerk` is the RMS jerk scaled by duration squared over peak speed.
+  type GestureMetrics = {
+    top_speed : Float,
+    top_at : Float,
+    began_at : Float,
+    ended_at : Float,
+    duration : Float,
+    lift_speed : Float,
+    accel_up : Float,
+    accel_side : Float,
+    unit_accel : Float,
+    rms_jerk : Float,
+    norm_jerk : Float,
+    began_point : TrackPoint,
+    top_point : TrackPoint
+  }
+
+  doc """The limits a thumb flick on a phone is read with."""
+  fn flick_limits() : GestureLimits needs () do
+    {
+      min_velocities: 3,
+      min_peak: 150.0,
+      sure_peak: 600.0,
+      min_release: 60.0,
+      start_fraction: 0.08,
+      min_duration: 0.03,
+      release_window: 0.06,
+      accel_window: 0.05
+    }
+  end
+
+  fn point(t : Float, x : Float, y : Float) : TrackPoint needs () do
+    { gt: t, gx: x, gy: y }
+  end
+
+  pfn count(xs : List(a)) : Float needs () do
+    int_to_float(List.length(xs))
+  end
+
+  -- Differences of neighbours. Pairs with no time between them drop out.
+  pfn diff_go(a : TrackPoint, xs : List(TrackPoint), acc : List(TrackPoint)) : List(TrackPoint) needs () do
+    match xs do
+    Nil -> List.reverse(acc)
+    Cons(b, rest) -> do
+      let dt = b.gt -. a.gt
+      if dt > 0.0 do
+        diff_go(b, rest, Cons({ gt: (a.gt +. b.gt) /. 2.0, gx: (b.gx -. a.gx) /. dt, gy: (a.gy -. b.gy) /. dt }, acc))
+      else
+        diff_go(b, rest, acc)
+      end
+    end
+    end
+  end
+
+  doc """
+  Rates of change between neighbours, stamped at the midpoint: x as is, y
+  upward (`(a.y - b.y) / dt`). Pairs with no time between them drop out.
+  """
+  fn diff(xs : List(TrackPoint)) : List(TrackPoint) needs () do
+    match xs do
+    Nil -> []
+    Cons(a, rest) -> diff_go(a, rest, [])
+    end
+  end
+
+  fn sum_x(xs : List(TrackPoint)) : Float needs () do
+    List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.gx)
+  end
+
+  fn sum_y(xs : List(TrackPoint)) : Float needs () do
+    List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.gy)
+  end
+
+  fn sum_t(xs : List(TrackPoint)) : Float needs () do
+    List.fold_left(xs, 0.0, fn (acc, e) -> acc +. e.gt)
+  end
+
+  pfn averaged(cur : TrackPoint, window : List(TrackPoint)) : TrackPoint needs () do
+    let n = count(window)
+    { gt: cur.gt, gx: sum_x(window) /. n, gy: sum_y(window) /. n }
+  end
+
+  pfn smooth_go(before : List(TrackPoint), xs : List(TrackPoint), acc : List(TrackPoint)) : List(TrackPoint) needs () do
+    match xs do
+    Nil -> List.reverse(acc)
+    Cons(cur, rest) -> do
+      let window = List.append(before, Cons(cur, List.take(rest, 1)))
+      smooth_go([cur], rest, Cons(averaged(cur, window), acc))
+    end
+    end
+  end
+
+  doc """Each entry becomes the mean of itself and its neighbours."""
+  fn smooth(xs : List(TrackPoint)) : List(TrackPoint) needs () do
+    smooth_go([], xs, [])
+  end
+
+  doc """y negated, so a second `diff` reads upward again."""
+  fn flip(xs : List(TrackPoint)) : List(TrackPoint) needs () do
+    List.map(xs, fn e -> { gt: e.gt, gx: e.gx, gy: -e.gy })
+  end
+
+  doc """The first entry with the greatest y, starting from `v0` (ties keep the earlier)."""
+  fn fastest(v0 : TrackPoint, xs : List(TrackPoint)) : TrackPoint needs () do
+    List.fold_left(xs, v0, fn (best, e) -> if best.gy < e.gy do e else best end)
+  end
+
+  fn last_of(v0 : TrackPoint, xs : List(TrackPoint)) : TrackPoint needs () do
+    List.fold_left(xs, v0, fn (_, e) -> e)
+  end
+
+  doc """When y first passes `fraction` of `peak`, or `fallback` if it never does."""
+  fn start_time(v : List(TrackPoint), peak : Float, fraction : Float, fallback : Float) : Float needs () do
+    match List.find(v, fn e -> e.gy > peak *. fraction) do
+    Some(e) -> e.gt
+    None -> fallback
+    end
+  end
+
+  doc """
+  A least-squares line through `tail`'s y against time, read at `end_t`. With
+  fewer than two points, `last_v`'s y.
+  """
+  fn regression_at_end(tail : List(TrackPoint), last_v : TrackPoint, end_t : Float) : Float needs () do
+    if List.length(tail) >= 2 do
+      do
+        let n = count(tail)
+        let mt = sum_t(tail) /. n
+        let mv = sum_y(tail) /. n
+        let num =
+          List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.gt -. mt) *. (e.gy -. mv))
+        let den =
+          List.fold_left(tail, 0.0, fn (acc, e) -> acc +. (e.gt -. mt) *. (e.gt -. mt))
+        let slope = if den > 0.0 do num /. den else 0.0 end
+        mv +. slope *. (end_t -. mt)
+      end
+    else
+      last_v.gy
+    end
+  end
+
+  fn mean_or_zero(sum : Float, xs : List(TrackPoint)) : Float needs () do
+    if List.is_empty(xs) do 0.0 else sum /. count(xs) end
+  end
+
+  doc """The root mean square of the magnitudes, 0 for none."""
+  fn rms_jerk(jf : List(TrackPoint)) : Float needs () do
+    if List.is_empty(jf) do
+      0.0
+    else
+      Math.sqrt(List.fold_left(jf, 0.0, fn (acc, e) -> acc +. e.gy *. e.gy +. e.gx *. e.gx) /. count(jf))
+    end
+  end
+
+  doc """The last point at or before `t`, starting from `first`."""
+  fn last_at_or_before(first : TrackPoint, points : List(TrackPoint), t : Float) : TrackPoint needs () do
+    List.fold_left(points, first, fn (best, s) -> if s.gt <= t do s else best end)
+  end
+
+  doc """The first point nearest in time to `t`, starting from `first`."""
+  fn nearest_in_time(first : TrackPoint, points : List(TrackPoint), t : Float) : TrackPoint needs () do
+    List.fold_left(points, first, fn (best, s) -> if Math.abs(s.gt -. t) < Math.abs(best.gt -. t) do s else best end)
+  end
+
+  pfn read(points : List(TrackPoint), first : TrackPoint, last : TrackPoint, v0 : TrackPoint, v : List(TrackPoint), lim : GestureLimits) : Option(GestureMetrics) needs () do
+    let a = smooth(diff(flip(v)))
+    let j = diff(flip(a))
+    let top = fastest(v0, v)
+    let peak = top.gy
+    if peak > lim.min_peak do
+      do
+        let start_t = start_time(v, peak, lim.start_fraction, first.gt)
+        let end_t = last.gt
+        let flick_time = max_float(lim.min_duration, end_t -. start_t)
+        let tail = List.filter(v, fn e -> e.gt >= end_t -. lim.release_window)
+        let release = max_float(0.0, regression_at_end(tail, last_of(v0, v), end_t))
+        if release > lim.min_release || peak > lim.sure_peak do
+          do
+            let a_tail = List.filter(a, fn e -> e.gt >= end_t -. lim.accel_window)
+            let rms = rms_jerk(List.filter(j, fn e -> e.gt >= start_t))
+            Some({ top_speed: peak, top_at: top.gt, began_at: start_t, ended_at: end_t, duration: flick_time, lift_speed: release, accel_up: mean_or_zero(sum_y(a_tail), a_tail), accel_side: mean_or_zero(sum_x(a_tail), a_tail), unit_accel: peak /. flick_time, rms_jerk: rms, norm_jerk: rms *. flick_time *. flick_time /. peak, began_point: last_at_or_before(first, points, start_t), top_point: nearest_in_time(first, points, top.gt) })
+          end
+        else
+          None
+        end
+      end
+    else
+      None
+    end
+  end
+
+  doc """
+  A flick's metrics from its positions in time order, or None when it is too
+  short, too slow, or never released fast enough to count.
+  """
+  fn measure(points : List(TrackPoint), lim : GestureLimits) : Option(GestureMetrics) needs () do
+    match points do
+    Nil -> None
+    Cons(first, _) -> do
+      let v = smooth(diff(points))
+      match v do
+      Cons(v0, _) -> do
+        if List.length(v) >= lim.min_velocities do
+          read(points, first, last_of(first, points), v0, v, lim)
+        else
+          None
+        end
+      end
+      Nil -> None
+      end
+    end
+    end
+  end
+
+end

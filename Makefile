@@ -87,7 +87,7 @@ golden-%:
 # shell's modules are in shell/, so these call march directly with the engine,
 # lib and shell.
 MARCH := $(HOME)/.march/bin/march
-SHELL_LIB := $(ARCADE_LIB):lib:shell
+SHELL_LIB := $(ARCADE_LIB):$(ARCADE_PHYSICS_LIB):lib:shell
 WEB_FILES := web/index.html web/style.css web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs
 # The audio worklet's own build: Arcade.Synth and Skee.Cues alone, loaded by AudioWorklet.addModule.
 WORKLET := shell/synth_worklet.march

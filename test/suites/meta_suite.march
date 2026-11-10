@@ -241,7 +241,7 @@ mod MetaSuite do
     let kk = k()
     let launch = Skee.Physics.launch_of_power(kk, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0)
     let shot =
-      Skee.Physics.simulate_shot(kk, launch, Skee.Types.standard_table(kk), ClassicBall, Arcade.U64.of_int(0))
+      Skee.Physics.simulate_shot(kk, launch, Skee.Types.standard_table(kk), ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.of_int(0))
     let ball = Skee.Scoring.ball_record(Ring30, Bell, Chips(30))
     Shot(shot, { ball with hot: hot, slot_hits: slot })
   end

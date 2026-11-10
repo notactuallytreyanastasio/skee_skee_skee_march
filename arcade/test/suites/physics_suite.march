@@ -1,0 +1,204 @@
+mod Arcade.Suite.Physics do
+
+  -- The arcade_physics package on its own: Sim's clock and step loop,
+  -- Kinematics, the Trig seam and Gesture. Every expected value is exact: the
+  -- inputs are dyadic, so each float operation rounds nothing and the answer
+  -- can be checked by hand.
+  import Arcade.Test.Harness
+
+  fn same(actual : Float, expected : Float, what : String) : Outcome do
+    expect(actual == expected, what ++ ": got " ++ float_to_string(actual) ++ ", want " ++ float_to_string(expected))
+  end
+
+  fn same_vec(v : Arcade.Vec2.Vec2, x : Float, y : Float, what : String) : Outcome do
+    all([same(v.x, x, what ++ ".x"), same(v.y, y, what ++ ".y")])
+  end
+
+  -- ---- Sim ----
+  fn clock_ticks() : Outcome do
+    let c =
+      Arcade.Physics.Sim.tick(Arcade.Physics.Sim.tick(Arcade.Physics.Sim.clock(), 0.25), 0.25)
+    all([same(c.t, 0.5, "t"), expect_int(c.step, 2, "step")])
+  end
+
+  fn recording() : Outcome do
+    let kept = Arcade.Physics.Sim.record_every(2, 4, 7, [1])
+    let skipped = Arcade.Physics.Sim.record_every(2, 3, 7, [1])
+    all([expect(Arcade.Physics.Sim.records(0, 2), "step 0 records"), expect(!Arcade.Physics.Sim.records(1, 2), "step 1 does not"), expect_int(List.length(kept), 2, "an even step keeps"), expect_int(List.length(skipped), 1, "an odd step skips"), expect_int(List.length(Arcade.Physics.Sim.chronological([3, 2, 1])), 3, "chronological keeps every entry")])
+  end
+
+  fn events() : Outcome do
+    let evs = Arcade.Physics.Sim.emit(Arcade.Physics.Sim.emit([], 0.25, 1), 0.5, 2)
+    match Arcade.Physics.Sim.chronological(evs) do
+    Cons(a, Cons(b, Nil)) -> do
+      all([same(a.at, 0.25, "first at"), expect_int(a.ev, 1, "first ev"), same(b.at, 0.5, "second at"), expect_int(b.ev, 2, "second ev")])
+    end
+    _ -> Mismatch("expected two events")
+    end
+  end
+
+  fn path() : Outcome do
+    match Arcade.Physics.Sim.sample([], 0.75, 3) do
+    Cons(s, Nil) -> do
+      all([same(s.sampled_at, 0.75, "sampled_at"), expect_int(s.point, 3, "point")])
+    end
+    _ -> Mismatch("expected one sample")
+    end
+  end
+
+  fn time_of(s : Float) : Float do
+    s
+  end
+
+  fn step_on(dt : Float, s : Float) : Arcade.Physics.Sim.Turn(Float, Float) do
+    Arcade.Physics.Sim.TurnOn(s +. dt)
+  end
+
+  fn step_done_at_half(dt : Float, s : Float) : Arcade.Physics.Sim.Turn(Float, Float) do
+    if s >= 0.5 do
+      Arcade.Physics.Sim.TurnDone(100.0 +. s)
+    else
+      Arcade.Physics.Sim.TurnOn(s +. dt)
+    end
+  end
+
+  fn step_stop_at_half(dt : Float, s : Float) : Arcade.Physics.Sim.Turn(Float, Float) do
+    if s >= 0.5 do
+      Arcade.Physics.Sim.TurnStop(s)
+    else
+      Arcade.Physics.Sim.TurnOn(s +. dt)
+    end
+  end
+
+  fn stop(_dt : Float, s : Float) : Float do
+    0.0 -. s
+  end
+
+  fn run_steps_cases() : Outcome do
+    let timed_out = Arcade.Physics.Sim.run_steps(0.25, 1.0, time_of, step_on, stop, 0.0)
+    let done =
+      Arcade.Physics.Sim.run_steps(0.25, 1.0, time_of, step_done_at_half, stop, 0.0)
+    let stopped =
+      Arcade.Physics.Sim.run_steps(0.25, 1.0, time_of, step_stop_at_half, stop, 0.0)
+    let late = Arcade.Physics.Sim.run_steps(0.25, 1.0, time_of, step_on, stop, 2.0)
+    let long = Arcade.Physics.Sim.run_steps(1.0, 200000.0, time_of, step_on, stop, 0.0)
+    all([same(timed_out, -1.0, "out of time at 1.0"), same(done, 100.5, "done carries its result"), same(stopped, -0.5, "stop closes the run"), same(late, -2.0, "a state already out of time is closed"), same(long, -200000.0, "200000 steps: tail-recursive")])
+  end
+
+  -- ---- Kinematics ----
+  fn kinematics() : Outcome do
+    let (p, v) =
+      Arcade.Physics.Kinematics.ballistic(Arcade.Vec2.zero(), Arcade.Vec2.vec2(1.0, 2.0), Arcade.Vec2.vec2(0.0, -4.0), 0.5)
+    let (z, vz) = Arcade.Physics.Kinematics.ballistic_height(1.0, 2.0, 4.0, 0.5)
+    let (fp, fv) =
+      Arcade.Physics.Kinematics.integrate_friction(Arcade.Vec2.zero(), Arcade.Vec2.vec2(3.0, 4.0), Arcade.Vec2.zero(), 10.0, 0.25)
+    let (sp, sv) =
+      Arcade.Physics.Kinematics.integrate_friction(Arcade.Vec2.zero(), Arcade.Vec2.zero(), Arcade.Vec2.vec2(0.0, 2.0), 10.0, 0.5)
+    all([same_vec(p, 0.5, 0.0, "ballistic p"), same_vec(v, 1.0, 0.0, "ballistic v"), same(z, 1.0, "height z"), same(vz, 0.0, "height vz"), same_vec(fp, 0.375, 0.5, "friction p"), same_vec(fv, 1.5, 2.0, "friction v"), same_vec(sp, 0.0, 0.5, "still body p"), same_vec(sv, 0.0, 1.0, "still body v")])
+  end
+
+  fn bound_case(got : Option((Float, Float)), x : Float, v : Float, what : String) : Outcome do
+    match got do
+    Some((gx, gv)) -> all([same(gx, x, what ++ " x"), same(gv, v, what ++ " v")])
+    None -> Mismatch(what ++ ": expected a clamp")
+    end
+  end
+
+  fn walls() : Outcome do
+    let n = Arcade.Vec2.vec2(0.0, 1.0)
+    let inside =
+      match Arcade.Physics.Kinematics.clamp_to_bound(0.5, 2.0, 1.0, 0.5) do
+      Some(_) -> Mismatch("inside the bound is left alone")
+      None -> Passed(1)
+      end
+    all([same_vec(Arcade.Physics.Kinematics.reflect(Arcade.Vec2.vec2(1.0, -2.0), n, 0.5), 1.0, 1.0, "reflect"), same_vec(Arcade.Physics.Kinematics.reflect_approaching(Arcade.Vec2.vec2(1.0, -2.0), n, 0.5), 1.0, 1.0, "approaching"), same_vec(Arcade.Physics.Kinematics.reflect_approaching(Arcade.Vec2.vec2(1.0, 2.0), n, 0.5), 1.0, 2.0, "leaving"), bound_case(Arcade.Physics.Kinematics.clamp_to_bound(1.5, 2.0, 1.0, 0.5), 1.0, -1.0, "past +bound"), bound_case(Arcade.Physics.Kinematics.clamp_to_bound(-1.5, -2.0, 1.0, 0.5), -1.0, 1.0, "past -bound"), inside])
+  end
+
+  -- ---- Trig ----
+  fn trig() : Outcome do
+    let book =
+      Arcade.Physics.Trig.SineNode(Arcade.Physics.Trig.SineNode(Arcade.Physics.Trig.NoSines, 0.5, 0.125, Arcade.Physics.Trig.NoSines), 1.0, 0.25, Arcade.Physics.Trig.SineNode(Arcade.Physics.Trig.NoSines, 2.0, 0.375, Arcade.Physics.Trig.NoSines))
+    let sc = Arcade.Physics.Trig.sin_cos(0.0)
+    all([same(Arcade.Physics.Trig.sine_of(book, 1.0), 0.25, "root entry"), same(Arcade.Physics.Trig.sine_of(book, 0.5), 0.125, "left entry"), same(Arcade.Physics.Trig.sine_of(book, 2.0), 0.375, "right entry"), same(Arcade.Physics.Trig.sine_of(book, 3.0), Math.sin(3.0), "missing asks libm"), same(Arcade.Physics.Trig.sine_of(Arcade.Physics.Trig.NoSines, 1.0), Math.sin(1.0), "NoSines is libm"), same(sc.sine, 0.0, "sin 0"), same(sc.cosine, 1.0, "cos 0")])
+  end
+
+  -- ---- Gesture ----
+  fn pt(t : Float, x : Float, y : Float) : Arcade.Physics.Gesture.TrackPoint do
+    Arcade.Physics.Gesture.point(t, x, y)
+  end
+
+  -- Nine points 1/64 s apart, each 16 px higher: 1024 px/s straight up.
+  fn steady_flick() : List(Arcade.Physics.Gesture.TrackPoint) do
+    List.map(List.range(0, 9), fn i -> pt(int_to_float(i) /. 64.0, 100.0, 500.0 -. 16.0 *. int_to_float(i)))
+  end
+
+  fn gesture_pieces() : Outcome do
+    let line = [pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 2.0), pt(2.0, 0.0, 4.0)]
+    let v =
+      Arcade.Physics.Gesture.diff([pt(0.0, 1.0, 10.0), pt(0.5, 2.0, 8.0), pt(0.5, 9.0, 9.0)])
+    let sm =
+      Arcade.Physics.Gesture.smooth([pt(0.0, 0.0, 3.0), pt(1.0, 0.0, 6.0), pt(2.0, 0.0, 0.0)])
+    let v_ok =
+      match v do
+      Cons(d, Nil) -> do
+        all([same(d.gt, 0.25, "diff midpoint"), same(d.gx, 2.0, "diff x"), same(d.gy, 4.0, "diff y is upward")])
+      end
+      _ -> Mismatch("diff: a zero-time pair drops out")
+      end
+    let sm_ok =
+      match sm do
+      Cons(a, Cons(b, Cons(c, Nil))) -> do
+        all([same(a.gy, 4.5, "smooth first"), same(b.gy, 3.0, "smooth middle"), same(c.gy, 3.0, "smooth last")])
+      end
+      _ -> Mismatch("smooth keeps every entry")
+      end
+    all([v_ok, sm_ok, same(Arcade.Physics.Gesture.regression_at_end(line, pt(9.0, 0.0, 9.0), 3.0), 6.0, "regression on a line"), same(Arcade.Physics.Gesture.regression_at_end([pt(0.0, 0.0, 1.0)], pt(9.0, 0.0, 7.0), 3.0), 7.0, "one point falls back"), same(Arcade.Physics.Gesture.rms_jerk([pt(0.0, 3.0, 4.0)]), 5.0, "rms of 3,4"), same(Arcade.Physics.Gesture.rms_jerk([]), 0.0, "rms of nothing")])
+  end
+
+  fn measured(m : Arcade.Physics.Gesture.GestureMetrics) : Outcome do
+    all([same(m.top_speed, 1024.0, "top speed"), same(m.lift_speed, 1024.0, "lift speed"), same(m.top_at, 0.0078125, "top at"), same(m.began_at, 0.0078125, "began at"), same(m.ended_at, 0.125, "ended at"), same(m.duration, 0.1171875, "duration"), same(m.accel_up, 0.0, "steady: no acceleration"), same(m.rms_jerk, 0.0, "steady: no jerk"), same(m.norm_jerk, 0.0, "steady: no norm jerk"), same(m.unit_accel, 1024.0 /. 0.1171875, "unit accel"), same(m.began_point.gt, 0.0, "began point"), same(m.top_point.gy, 500.0, "top point")])
+  end
+
+  fn gesture_measure() : Outcome do
+    let lim = Arcade.Physics.Gesture.flick_limits()
+    let slow =
+      List.map(List.range(0, 9), fn i -> pt(int_to_float(i) /. 64.0, 100.0, 500.0 -. int_to_float(i)))
+    let accepted =
+      match Arcade.Physics.Gesture.measure(steady_flick(), lim) do
+      Some(m) -> measured(m)
+      None -> Mismatch("a 1024 px/s flick counts")
+      end
+    let rejected =
+      match Arcade.Physics.Gesture.measure(slow, lim) do
+      Some(_) -> Mismatch("a 64 px/s drag is not a flick")
+      None -> Passed(1)
+      end
+    let short =
+      match Arcade.Physics.Gesture.measure(List.take(steady_flick(), 3), lim) do
+      Some(_) -> Mismatch("two velocities are too few")
+      None -> Passed(1)
+      end
+    let empty =
+      match Arcade.Physics.Gesture.measure([], lim) do
+      Some(_) -> Mismatch("no points, no flick")
+      None -> Passed(1)
+      end
+    all([accepted, rejected, short, empty])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("Sim clock", fn () -> clock_ticks()),
+      case("Sim record_every", fn () -> recording()),
+      case("Sim events", fn () -> events()),
+      case("Sim path samples", fn () -> path()),
+      case("Sim run_steps", fn () -> run_steps_cases()),
+      case("Kinematics steps", fn () -> kinematics()),
+      case("Kinematics walls", fn () -> walls()),
+      case("Trig seam", fn () -> trig()),
+      case("Gesture pieces", fn () -> gesture_pieces()),
+      case("Gesture measure", fn () -> gesture_measure())
+    ]
+  end
+
+end

@@ -232,7 +232,8 @@ mod ReducerSuite do
         let k = consts()
         let l =
           Skee.Physics.launch_of_power(k, int_to_float(i) /. 200.0, aim, start, 0.0, 0.0, 0.0)
-        let r = Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.of_int(0))
+        let r =
+          Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.of_int(0))
         if r.hole == hole do
           Some(l)
         else

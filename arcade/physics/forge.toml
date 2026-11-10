@@ -1,0 +1,10 @@
+[package]
+name = "arcade_physics"
+version = "0.1.0"
+type = "lib"
+description = "Arcade physics: fixed-step simulation, kinematics, the libm replay seam and gesture measurement. Pure."
+author = ""
+license = ""
+
+[deps]
+arcade = { path = ".." }

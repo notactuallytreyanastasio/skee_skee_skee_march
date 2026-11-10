@@ -1,0 +1,69 @@
+mod Arcade.Physics.Kinematics do
+
+  -- Motion one step at a time: semi-implicit Euler, friction against the
+  -- direction of travel, reflection off a wall and clamping to a bound. Each
+  -- function fixes its order of float operations; callers that must match
+  -- another implementation bit for bit rely on it, so it never changes.
+  cap pure
+
+  import Arcade.Vec2
+
+  doc """
+  One step of `dt` under acceleration `a`: the velocity first, then the
+  position with the new velocity. Returns (position, velocity).
+  """
+  fn ballistic(p : Vec2, v : Vec2, a : Vec2, dt : Float) : (Vec2, Vec2) needs () do
+    let v1 = add(v, scale(a, dt))
+    (add(p, scale(v1, dt)), v1)
+  end
+
+  doc """
+  The same step on one axis under a pull of `g` toward minus: `vz -. g *. dt`,
+  then `z +. vz *. dt`. Returns (height, vertical speed).
+  """
+  fn ballistic_height(z : Float, vz : Float, g : Float, dt : Float) : (Float, Float) needs () do
+    let vz1 = vz -. g *. dt
+    (z +. vz1 *. dt, vz1)
+  end
+
+  doc """
+  One step of `dt` under `pull`, less a friction deceleration of `decel`
+  against the direction of travel (none when the body is still). Returns
+  (position, velocity).
+  """
+  fn integrate_friction(p : Vec2, v : Vec2, pull : Vec2, decel : Float, dt : Float) : (Vec2, Vec2) needs () do
+    let speed = length(v)
+    let a = if speed > 0.0 do sub(pull, scale(v, decel /. speed)) else pull end
+    ballistic(p, v, a, dt)
+  end
+
+  doc """
+  `v` reflected off a surface with unit normal `n`, keeping `restitution` of
+  the normal component: `v - (1 + e) (v . n) n`.
+  """
+  fn reflect(v : Vec2, n : Vec2, restitution : Float) : Vec2 needs () do
+    sub(v, scale(n, (1.0 +. restitution) *. dot(v, n)))
+  end
+
+  doc """`reflect`, but only when `v` is heading into the surface (`v . n < 0`)."""
+  fn reflect_approaching(v : Vec2, n : Vec2, restitution : Float) : Vec2 needs () do
+    if dot(v, n) < 0.0 do reflect(v, n, restitution) else v end
+  end
+
+  doc """
+  A coordinate past `bound` on either side is put back on it, and its speed
+  reversed keeping `restitution` (`-v *. e`). None when `x` is within bounds.
+  Returns Some((coordinate, speed)).
+  """
+  fn clamp_to_bound(x : Float, v : Float, bound : Float, restitution : Float) : Option((Float, Float)) needs () do
+    if Math.abs(x) > bound do
+      do
+        let edge = if x > 0.0 do bound else -bound end
+        Some((edge, -v *. restitution))
+      end
+    else
+      None
+    end
+  end
+
+end

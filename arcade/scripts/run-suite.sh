@@ -13,7 +13,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
 export PATH="$HOME/.march/bin:$PATH"
 # The engine, its test kit, the suites and their rows; nothing of any game.
-export MARCH_LIB_PATH="lib:testkit/lib:test/suites:test/golden"
+export MARCH_LIB_PATH="lib:physics/lib:testkit/lib:test/suites:test/golden"
 entry="test/mains/${suite}_main.march"
 [ -f "$entry" ] || { echo "no such suite: $entry"; exit 2; }
 

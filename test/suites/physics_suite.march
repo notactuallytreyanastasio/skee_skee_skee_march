@@ -526,17 +526,17 @@ mod PhysicsSuite do
   -- A shot depends on libm through its four sin and cos pairs, and a wobbler's sway
   -- and a bean's lane height. The rows hold what Swift got for all of them, so a
   -- replay can run on Swift's values and needs no tolerance on any target.
-  fn swift_pair(row : List(String), i : Int) : Skee.Physics.SinCos do
+  fn swift_pair(row : List(String), i : Int) : Arcade.Physics.Trig.SinCos do
     { sine: at(row, i), cosine: at(row, i + 1) }
   end
 
-  fn book_node(left : Skee.Physics.SineBook, entry : List(String), right : Skee.Physics.SineBook) : Skee.Physics.SineBook do
+  fn book_node(left : Arcade.Physics.Trig.SineBook, entry : List(String), right : Arcade.Physics.Trig.SineBook) : Arcade.Physics.Trig.SineBook do
     SineNode(left, at(entry, 0), at(entry, 1), right)
   end
 
   -- One round of joining neighbours. There is one more tree than entries, and each
   -- round halves them.
-  fn book_round(trees : List(Skee.Physics.SineBook), entries : List(List(String)), joined : List(Skee.Physics.SineBook), kept : List(List(String))) : Skee.Physics.SineBook do
+  fn book_round(trees : List(Arcade.Physics.Trig.SineBook), entries : List(List(String)), joined : List(Arcade.Physics.Trig.SineBook), kept : List(List(String))) : Arcade.Physics.Trig.SineBook do
     match (trees, entries) do
     (Cons(left, Cons(right, rest)), Cons(entry, Cons(gap, more))) -> do
       book_round(rest, more, Cons(book_node(left, entry, right), joined), Cons(gap, kept))
@@ -557,12 +557,12 @@ mod PhysicsSuite do
   -- The rows are sorted by argument. An argument not in the book asks libm: a bean's
   -- height on an unrecorded step, whose result nothing keeps. Any other miss would
   -- show in the replay.
-  fn sine_book(rows : List(List(String))) : Skee.Physics.SineBook do
+  fn sine_book(rows : List(List(String))) : Arcade.Physics.Trig.SineBook do
     let entries = Arcade.Test.GoldenIo.of_kind(rows, "sine")
     book_round(Cons(NoSines, List.map(entries, fn _ -> NoSines)), entries, [], [])
   end
 
-  fn swift_trig(book : Skee.Physics.SineBook, row : List(String)) : Skee.Physics.ShotTrig do
+  fn swift_trig(book : Arcade.Physics.Trig.SineBook, row : List(String)) : Skee.Physics.ShotTrig do
     {
       aim_angle: swift_pair(row, 27),
       incline: swift_pair(row, 29),
@@ -572,7 +572,7 @@ mod PhysicsSuite do
     }
   end
 
-  fn same_pair(p : Skee.Physics.SinCos, row : List(String), i : Int) : Bool do
+  fn same_pair(p : Arcade.Physics.Trig.SinCos, row : List(String), i : Int) : Bool do
     same_bits(p.sine, token(row, i)) && same_bits(p.cosine, token(row, i + 1))
   end
 
@@ -596,13 +596,13 @@ mod PhysicsSuite do
   fn shipped(k : Skee.Consts.Consts, tables : List(Table), row : List(String)) : ShotVerdict do
     let t = shot_table(tables, row)
     let l = shot_launch(k, row)
-    judge(row, Skee.Physics.simulate_shot(k, l, t, ball_of(token(row, 2)), Arcade.Test.GoldenIo.u64(token(row, 3))), pair_differs(Skee.Physics.shot_trig(l, t), row))
+    judge(row, Skee.Physics.simulate_shot(k, l, t, ball_of(token(row, 2)), Skee.Items.speed_scale(ball_of(token(row, 2))), Arcade.Test.GoldenIo.u64(token(row, 3))), pair_differs(Skee.Physics.shot_trig(l, t), row))
   end
 
-  fn replayed(k : Skee.Consts.Consts, tables : List(Table), book : Skee.Physics.SineBook, row : List(String)) : ShotVerdict do
+  fn replayed(k : Skee.Consts.Consts, tables : List(Table), book : Arcade.Physics.Trig.SineBook, row : List(String)) : ShotVerdict do
     let t = shot_table(tables, row)
     let l = shot_launch(k, row)
-    judge(row, Skee.Physics.simulate_with(k, swift_trig(book, row), l, t, ball_of(token(row, 2)), Arcade.Test.GoldenIo.u64(token(row, 3))), false)
+    judge(row, Skee.Physics.simulate_with(k, swift_trig(book, row), l, t, ball_of(token(row, 2)), Skee.Items.speed_scale(ball_of(token(row, 2))), Arcade.Test.GoldenIo.u64(token(row, 3))), false)
   end
 
   doc """Every golden shot as the game would throw it, on this target's libm."""
@@ -854,7 +854,7 @@ mod PhysicsSuite do
     let (seed, r7) = Arcade.Rng.next(r6)
     let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
     let res =
-      Skee.Physics.simulate_shot(k, l, table_at(tables, token(combo, 0)), ball_of(token(combo, 1)), seed)
+      Skee.Physics.simulate_shot(k, l, table_at(tables, token(combo, 0)), ball_of(token(combo, 1)), Skee.Items.speed_scale(ball_of(token(combo, 1))), seed)
     (hole_name(res.hole) ++ "." ++ int_to_string(List.length(res.events)) ++ "." ++ int_to_string(List.length(res.path)), r7)
   end
 
@@ -1058,7 +1058,7 @@ mod PhysicsSuite do
   -- ---- The Swift tests, ported ----
   fn power_shot(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, start : Float, fold : Float, spin : Float, skid : Float) : ShotResult do
     let l = Skee.Physics.launch_of_power(k, power, aim, start, fold, spin, skid)
-    Skee.Physics.simulate_shot(k, l, t, ClassicBall, Arcade.U64.make(0, 0))
+    Skee.Physics.simulate_shot(k, l, t, ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.make(0, 0))
   end
 
   fn std(k : Skee.Consts.Consts) : Table do
@@ -1259,7 +1259,7 @@ mod PhysicsSuite do
 
   fn ball_shot(k : Skee.Consts.Consts, ball : BallKind, seed : Int) : ShotResult do
     let l = Skee.Physics.launch_of_power(k, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0)
-    Skee.Physics.simulate_shot(k, l, Skee.Items.modify_for_ball(ball, std(k)), ball, Arcade.U64.make(0, seed))
+    Skee.Physics.simulate_shot(k, l, Skee.Items.modify_for_ball(ball, std(k)), ball, Skee.Items.speed_scale(ball), Arcade.U64.make(0, seed))
   end
 
   fn seeds_matter(k : Skee.Consts.Consts, ball : BallKind) : Outcome do
@@ -1301,7 +1301,7 @@ mod PhysicsSuite do
       List.map(grid, fn pair ->
         let l =
           Skee.Physics.launch_of_power(k, Tuple.first(pair), Tuple.second(pair), 0.0, 0.0, 0.0, 0.0)
-        Skee.Physics.simulate_shot(k, l, t, ball, Arcade.U64.make(0, 0))
+        Skee.Physics.simulate_shot(k, l, t, ball, Skee.Items.speed_scale(ball), Arcade.U64.make(0, 0))
       )
     List.length(List.filter(shots, fn r -> r.hole == Ring50))
   end
@@ -1315,7 +1315,7 @@ mod PhysicsSuite do
     let k = consts()
     let l = Skee.Physics.launch_of_speed(k, 3.0, 0.8, 0.0, 0.0, 0.0, 0.0, 0.0)
     let r =
-      Skee.Physics.simulate_shot(k, l, std(k), ClassicBall, Arcade.U64.make(0, 0))
+      Skee.Physics.simulate_shot(k, l, std(k), ClassicBall, Skee.Items.speed_scale(ClassicBall), Arcade.U64.make(0, 0))
     match r.path do
     Cons(s, _) -> expect(Math.abs(s.along -. 0.8) < 0.000000001, "first sample")
     Nil -> Mismatch("no path")

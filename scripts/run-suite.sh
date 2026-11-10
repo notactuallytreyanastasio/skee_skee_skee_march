@@ -17,7 +17,8 @@ export PATH="$HOME/.march/bin:$PATH"
 # ARCADE_LIB and ARCADE_TESTKIT_LIB when make runs this.
 arcade_lib="${ARCADE_LIB:-arcade/lib}"
 arcade_testkit_lib="${ARCADE_TESTKIT_LIB:-arcade/testkit/lib}"
-export MARCH_LIB_PATH="${SKEE_LIB_PATH:-$arcade_lib:$arcade_testkit_lib:lib:test/support:test/suites:test/golden}"
+arcade_physics_lib="${ARCADE_PHYSICS_LIB:-arcade/physics/lib}"
+export MARCH_LIB_PATH="${SKEE_LIB_PATH:-$arcade_lib:$arcade_physics_lib:$arcade_testkit_lib:lib:test/support:test/suites:test/golden}"
 entry="test/mains/${suite}_main.march"
 [ -f "$entry" ] || { echo "no such suite: $entry"; exit 2; }
 

@@ -27,7 +27,8 @@ mod Skee.Bots do
 
   pfn hole_of(k : Skee.Consts.Consts, t : Table, power : Float, aim : Float, fold : Float, ball : BallKind) : Hole needs () do
     let l = Skee.Physics.launch_of_power(k, power, aim, 0.0, fold, 0.0, 0.0)
-    let r = Skee.Physics.simulate_shot(k, l, t, ball, Arcade.U64.of_int(1))
+    let r =
+      Skee.Physics.simulate_shot(k, l, t, ball, Skee.Items.speed_scale(ball), Arcade.U64.of_int(1))
     r.hole
   end
 
@@ -132,7 +133,8 @@ mod Skee.Bots do
     List.fold_left(List.range(0, samples), (Skee.HoleMap.fill(0.0), rng), fn (held, i) ->
       let (spread, r) = held
       let (l, next) = perturb(k, skill, w.launch, r)
-      let shot = Skee.Physics.simulate_shot(k, l, table, ball, Arcade.U64.of_int(i))
+      let shot =
+        Skee.Physics.simulate_shot(k, l, table, ball, Skee.Items.speed_scale(ball), Arcade.U64.of_int(i))
       (Skee.HoleMap.put(spread, shot.hole, Skee.HoleMap.at(spread, shot.hole) +. share), next)
     )
   end

@@ -663,9 +663,9 @@ mod ItemsSuite do
     Cons(ball, Cons(seed, Cons(hole, Cons(events, Cons(path, Cons(hop_count, Nil)))))) -> do
       let b = lookup(all_balls(), ball_raw, ball)
       let shot =
-        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(seed))
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Skee.Items.speed_scale(b), Arcade.Test.GoldenIo.u64(seed))
       let again =
-        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(seed))
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Skee.Items.speed_scale(b), Arcade.Test.GoldenIo.u64(seed))
       let what = ball ++ " seed " ++ seed
       all([expect_string(hole_raw(shot.hole), hole, what ++ " hole"), expect_int(List.length(shot.events), Arcade.Test.GoldenIo.int(events), what ++ " events"), expect_int(List.length(shot.path), Arcade.Test.GoldenIo.int(path), what ++ " path"), expect_int(hops(shot), Arcade.Test.GoldenIo.int(hop_count), what ++ " hops"), expect(same_shot(again, shot), what ++ " replays")])
     end
@@ -679,9 +679,9 @@ mod ItemsSuite do
     Cons(ball, Cons(x, Cons(y, Cons(same, Nil)))) -> do
       let b = lookup(all_balls(), ball_raw, ball)
       let first =
-        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(x))
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Skee.Items.speed_scale(b), Arcade.Test.GoldenIo.u64(x))
       let second =
-        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Arcade.Test.GoldenIo.u64(y))
+        Skee.Physics.simulate_shot(k, throw_one(k), std, b, Skee.Items.speed_scale(b), Arcade.Test.GoldenIo.u64(y))
       expect_string(bool_token(same_shot(first, second)), same, ball ++ " seeds " ++ x ++ " and " ++ y)
     end
     _ -> Mismatch("bad ball_same row")
@@ -693,7 +693,7 @@ mod ItemsSuite do
   end
 
   fn path_lengths(ball : BallKind, k : Skee.Consts.Consts, std : Table) : List(Int) do
-    List.map(List.range(0, 8), fn n -> path_length(Skee.Physics.simulate_shot(k, throw_one(k), std, ball, seed_of(n))))
+    List.map(List.range(0, 8), fn n -> path_length(Skee.Physics.simulate_shot(k, throw_one(k), std, ball, Skee.Items.speed_scale(ball), seed_of(n))))
   end
 
   -- randomBallsReplayFromTheirSeed, for the paths' lengths: Swift accepts any
@@ -707,8 +707,10 @@ mod ItemsSuite do
   fn a_classic_ball_ignores_the_seed() : Outcome do
     let k = Skee.Consts.make()
     let std = Skee.Types.standard_table(k)
-    let a = Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, seed_of(1))
-    let b = Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, seed_of(2))
+    let a =
+      Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, Skee.Items.speed_scale(ClassicBall), seed_of(1))
+    let b =
+      Skee.Physics.simulate_shot(k, throw_one(k), std, ClassicBall, Skee.Items.speed_scale(ClassicBall), seed_of(2))
     expect(same_shot(a, b), "a classic ball changed with its seed")
   end
 
@@ -716,13 +718,14 @@ mod ItemsSuite do
     let k = Skee.Consts.make()
     let std = Skee.Types.standard_table(k)
     let total =
-      List.fold_left(List.range(0, 20), 0, fn (acc, n) -> acc + hops(Skee.Physics.simulate_shot(k, throw_one(k), std, JumpingBean, seed_of(n))))
+      List.fold_left(List.range(0, 20), 0, fn (acc, n) -> acc + hops(Skee.Physics.simulate_shot(k, throw_one(k), std, JumpingBean, Skee.Items.speed_scale(JumpingBean), seed_of(n))))
     expect(total > 20, "20 beans hopped " ++ int_to_string(total) ++ " times")
   end
 
   fn hinge_speed_of(k : Skee.Consts.Consts, ball : BallKind) : Float do
     let t = modify_for_ball(ball, Skee.Types.standard_table(k))
-    let shot = Skee.Physics.simulate_shot(k, throw_one(k), t, ball, seed_of(0))
+    let shot =
+      Skee.Physics.simulate_shot(k, throw_one(k), t, ball, Skee.Items.speed_scale(ball), seed_of(0))
     match shot.hinge_speed do
     Some(v) -> v
     None -> 0.0
@@ -754,7 +757,8 @@ mod ItemsSuite do
       let b = lookup(all_balls(), ball_raw, ball)
       let l =
         aimed(k, Arcade.Test.GoldenIo.float_of_bits(power), Arcade.Test.GoldenIo.float_of_bits(aim))
-      let shot = Skee.Physics.simulate_shot(k, l, modify_for_ball(b, std), b, seed_of(0))
+      let shot =
+        Skee.Physics.simulate_shot(k, l, modify_for_ball(b, std), b, Skee.Items.speed_scale(b), seed_of(0))
       let found = hole_raw(shot.hole)
       (if found == "ring50" do ball else "-" end, expect_string(found, hole, ball ++ " " ++ power ++ " " ++ aim))
     end
@@ -785,7 +789,7 @@ mod ItemsSuite do
 
   fn hits_at(k : Skee.Consts.Consts, t : Table, aim : Float) : Int do
     let shots =
-      List.map(List.range(0, 401), fn n -> Skee.Physics.simulate_shot(k, aimed(k, int_to_float(n) /. 400.0, aim), t, ClassicBall, seed_of(0)))
+      List.map(List.range(0, 401), fn n -> Skee.Physics.simulate_shot(k, aimed(k, int_to_float(n) /. 400.0, aim), t, ClassicBall, Skee.Items.speed_scale(ClassicBall), seed_of(0)))
     List.length(List.filter(shots, fn s -> s.hole == Ring50))
   end
 

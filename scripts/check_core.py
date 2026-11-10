@@ -124,7 +124,7 @@ ENGINE_SUFFIXES = (".march", ".mjs", ".js")
 ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
 
 
-DEFAULT_CORE = ["lib", "arcade/lib"]
+DEFAULT_CORE = ["lib", "arcade/lib", "arcade/physics/lib"]
 DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib", "arcade/test", "arcade/lib/arcade/web"]
 # Directories under a core root that hold the impure shell instead: checked
 # as non-core (an --other root above), never as core.

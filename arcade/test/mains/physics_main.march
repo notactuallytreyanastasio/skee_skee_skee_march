@@ -1,0 +1,9 @@
+mod Arcade.Main.Physics do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("physics", Arcade.Suite.Physics.cases())
+  end
+
+end

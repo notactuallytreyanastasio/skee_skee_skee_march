@@ -6,6 +6,7 @@ mod Skee.Physics do
 
   import Arcade.Num
   import Arcade.Vec2
+  import Arcade.Physics.Trig
   import Skee.Types
 
   doc """Ball speed for a power, up the curve with its knee at `lane.knee`."""
@@ -193,15 +194,8 @@ mod Skee.Physics do
   end
 
   -- ---- The shot ----
-  -- The sine and cosine of one angle.
-  type SinCos = { sine : Float, cosine : Float }
-
-  -- Sines already known, by argument: a search tree. Anything else asks libm, so
-  -- NoSines is libm itself.
-  type SineBook = NoSines | SineNode(SineBook, Float, Float, SineBook)
-
-  -- Every answer a shot takes from libm: the pairs it needs at release, and the
-  -- sines it needs step by step. This is the shot's whole contact with libm, and
+  -- Every answer a shot takes from libm (Arcade.Physics.Trig, the replay seam):
+  -- the pairs it needs at release, and the sines it needs step by step. This is the shot's whole contact with libm, and
   -- libm is the only thing that can tell two runs of it apart. Swift's optimiser
   -- takes each pair from one __sincos_stret, which now and then is not sin(), and V8
   -- has a libm of its own. Handed what Swift got, a shot is Swift's to the last bit.
@@ -233,8 +227,7 @@ mod Skee.Physics do
 
   -- What every phase carries forward. `events` and `path` are newest first.
   type ShotSim = {
-    t : Float,
-    step : Int,
+    clock : Arcade.Physics.Sim.SimClock,
     events : List(TimedEvent),
     path : List(PathSample),
     hinge_speed : Option(Float),
@@ -263,13 +256,6 @@ mod Skee.Physics do
     resting : Float,
     nudges : Int
   }
-
-  -- How a step on the board ended: go on, leave the loop as Swift's `break`
-  -- does, or the shot is over.
-  type BoardTurn =
-    KeepGoing(ShotSim, BoardBall)
-    | StopHere(ShotSim, BoardBall)
-    | ShotOver(ShotResult)
 
   pfn is_bean(b : BallKind) : Bool needs () do
     match b do
@@ -301,27 +287,10 @@ mod Skee.Physics do
     end
   end
 
-  pfn sine_of(book : SineBook, x : Float) : Float needs () do
-    match book do
-    NoSines -> Math.sin(x)
-    SineNode(left, arg, value, right) -> do
-      if x < arg do
-        sine_of(left, x)
-      else
-        if arg < x do
-          sine_of(right, x)
-        else
-          if x == arg do value else Math.sin(x) end
-        end
-      end
-    end
-    end
-  end
-
   -- Sideways shove from a wobbler's sway, in m/s^2.
   pfn sway(c : ShotSetup, sim : ShotSim, strength : Float) : Float needs () do
     if is_wobbler(c.ball) do
-      strength *. sine_of(c.trig.sines, c.k.tau *. 1.6 *. sim.t +. sim.sway_phase)
+      strength *. sine_of(c.trig.sines, c.k.tau *. 1.6 *. sim.clock.t +. sim.sway_phase)
     else
       0.0
     end
@@ -329,29 +298,33 @@ mod Skee.Physics do
 
   -- How high a bean is on the lane right now: the path shows the hop.
   pfn lane_height(c : ShotSetup, sim : ShotSim) : Float needs () do
-    if sim.t < sim.hop_until do
-      0.035 *. sine_of(c.trig.sines, c.k.pi *. (sim.hop_until -. sim.t) /. 0.14)
+    if sim.clock.t < sim.hop_until do
+      0.035 *. sine_of(c.trig.sines, c.k.pi *. (sim.hop_until -. sim.clock.t) /. 0.14)
     else
       0.0
     end
   end
 
   pfn sample(sim : ShotSim, phase : PathPhase, x : Float, along : Float, h : Float) : ShotSim needs () do
-    { sim with path: Cons({ t: sim.t, phase: phase, px: x, along: along, height: h }, sim.path) }
+    { sim with path: Cons({ t: sim.clock.t, phase: phase, px: x, along: along, height: h }, sim.path) }
   end
 
   -- Record at 120 Hz (every 2nd 240 Hz step), so a 120 Hz display never
   -- interpolates across a bounce.
   pfn record(sim : ShotSim, phase : PathPhase, x : Float, along : Float, h : Float) : ShotSim needs () do
-    if sim.step % 2 == 0 do sample(sim, phase, x, along, h) else sim end
+    if Arcade.Physics.Sim.records(sim.clock.step, 2) do
+      sample(sim, phase, x, along, h)
+    else
+      sim
+    end
   end
 
   pfn emit(sim : ShotSim, e : ShotEvent) : ShotSim needs () do
-    { sim with events: Cons({ event: e, at: sim.t }, sim.events) }
+    { sim with events: Cons({ event: e, at: sim.clock.t }, sim.events) }
   end
 
   pfn tick(c : ShotSetup, sim : ShotSim) : ShotSim needs () do
-    { sim with t: sim.t +. c.table.dt, step: sim.step + 1 }
+    { sim with clock: Arcade.Physics.Sim.tick(sim.clock, c.table.dt) }
   end
 
   pfn finish(c : ShotSetup, sim : ShotSim, hole : Hole) : ShotResult needs () do
@@ -363,18 +336,18 @@ mod Skee.Physics do
       hinge_speed: sim.hinge_speed,
       first_landing: sim.first_landing,
       peak_height: sim.peak,
-      duration: sim.t
+      duration: sim.clock.t
     }
   end
 
   -- A bean takes off on the lane: two draws, in this order.
   pfn lane_hop(c : ShotSetup, sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
-    if is_bean(c.ball) && sim.t >= sim.next_hop && b.lvs > 0.0 do
+    if is_bean(c.ball) && sim.clock.t >= sim.next_hop && b.lvs > 0.0 do
       do
         let (shove, r1) = Arcade.Rng.next_unit(c.k.num, sim.rng)
         let (wait, r2) = Arcade.Rng.next_unit(c.k.num, r1)
         let hopped =
-          emit({ sim with rng: r2, hop_until: sim.t +. 0.14, next_hop: sim.t +. 0.22 +. wait *. 0.2 }, ShotHop)
+          emit({ sim with rng: r2, hop_until: sim.clock.t +. 0.14, next_hop: sim.clock.t +. 0.22 +. wait *. 0.2 }, ShotHop)
         (hopped, { b with lvx: b.lvx +. (shove -. 0.5) *. 0.7 })
       end
     else
@@ -393,14 +366,9 @@ mod Skee.Physics do
   end
 
   pfn lane_rails(c : ShotSetup, sim : ShotSim, b : LaneBall) : (ShotSim, LaneBall) needs () do
-    if Math.abs(b.lx) > c.half_lane do
-      do
-        let x = if b.lx > 0.0 do c.half_lane else -c.half_lane end
-        let vx = -b.lvx *. c.table.lane.rail_restitution
-        (emit(sim, ShotRail), { b with lx: x, lvx: vx })
-      end
-    else
-      (sim, b)
+    match Arcade.Physics.Kinematics.clamp_to_bound(b.lx, b.lvx, c.half_lane, c.table.lane.rail_restitution) do
+    Some((x, vx)) -> (emit(sim, ShotRail), { b with lx: x, lvx: vx })
+    None -> (sim, b)
     end
   end
 
@@ -420,7 +388,7 @@ mod Skee.Physics do
         let (hopped, b1) = lane_hop(c, recorded, b0)
         let (railed, b2) = lane_rails(c, hopped, lane_motion(c, hopped, b1))
         let (stalled, b3) = lane_stall(tick(c, railed), b2)
-        if b3.dud && (b3.ls <= 0.0 || stalled.t >= c.table.max_duration) do
+        if b3.dud && (b3.ls <= 0.0 || stalled.clock.t >= c.table.max_duration) do
           do
             let last = sample(stalled, OnLane, b3.lx, max_float(b3.ls, 0.0), 0.0)
             finish(c, emit(last, ShotGutter), Gutter)
@@ -541,10 +509,8 @@ mod Skee.Physics do
 
   pfn fly(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     let dt = c.table.dt
-    let v = add(b.v, scale(board_pull(c, sim, b.p), dt))
-    let vz = b.vz -. c.normal_pull *. dt
-    let p = add(b.p, scale(v, dt))
-    let z = b.z +. vz *. dt
+    let (p, v) = Arcade.Physics.Kinematics.ballistic(b.p, b.v, board_pull(c, sim, b.p), dt)
+    let (z, vz) = Arcade.Physics.Kinematics.ballistic_height(b.z, b.vz, c.normal_pull, dt)
     let (bounced, after) =
       lip_hit(c, { sim with peak: max_float(sim.peak, z) }, { b with v: v, vz: vz, p: p, z: z }, b.z)
     touch_down(c, bounced, after)
@@ -553,7 +519,7 @@ mod Skee.Physics do
   -- Mostly under the lip: a bean dances in its ring, and only now and then jumps
   -- out of it. Four draws, in this order.
   pfn board_hop(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
-    if is_bean(c.ball) && sim.hops < 3 && sim.t >= sim.next_hop do
+    if is_bean(c.ball) && sim.hops < 3 && sim.clock.t >= sim.next_hop do
       do
         let (lift, r1) = Arcade.Rng.next_unit(c.k.num, sim.rng)
         let (across, r2) = Arcade.Rng.next_unit(c.k.num, r1)
@@ -561,7 +527,7 @@ mod Skee.Physics do
         let (wait, r4) = Arcade.Rng.next_unit(c.k.num, r3)
         let shove = vec2((across -. 0.5) *. 0.5, up *. 0.35)
         let hopped =
-          emit({ sim with rng: r4, hops: sim.hops + 1, next_hop: sim.t +. 0.25 +. wait *. 0.25 }, ShotHop)
+          emit({ sim with rng: r4, hops: sim.hops + 1, next_hop: sim.clock.t +. 0.25 +. wait *. 0.25 }, ShotHop)
         (hopped, { b with vz: 0.3 +. lift *. 0.55, v: add(b.v, shove), mode: BallAirborne })
       end
     else
@@ -571,16 +537,10 @@ mod Skee.Physics do
 
   pfn roll(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
     let dt = c.table.dt
-    let speed = length(b.v)
-    let pull = board_pull(c, sim, b.p)
-    let a =
-      if speed > 0.0 do
-        sub(pull, scale(b.v, c.table.board.board_rolling_friction *. c.normal_pull /. speed))
-      else
-        pull
-      end
-    let v = add(b.v, scale(a, dt))
-    board_hop(c, sim, { b with v: v, p: add(b.p, scale(v, dt)) })
+    let decel = c.table.board.board_rolling_friction *. c.normal_pull
+    let (p, v) =
+      Arcade.Physics.Kinematics.integrate_friction(b.p, b.v, board_pull(c, sim, b.p), decel, dt)
+    board_hop(c, sim, { b with v: v, p: p })
   end
 
   pfn bounce_off_wall(c : ShotSetup, v0 : Vec2, radial : Vec2, d : Float, wall : Float) : (Vec2, Vec2) needs () do
@@ -588,12 +548,7 @@ mod Skee.Physics do
     let side = if d >= wall do 1.0 else -1.0 end
     let n = scale(radial, side)
     let p = add(board.ring_center, scale(radial, wall +. side *. board.ball_radius))
-    let vn = dot(v0, n)
-    if vn < 0.0 do
-      (p, sub(v0, scale(n, (1.0 +. board.wall_restitution) *. vn)))
-    else
-      (p, v0)
-    end
+    (p, Arcade.Physics.Kinematics.reflect_approaching(v0, n, board.wall_restitution))
   end
 
   pfn scan_walls(c : ShotSetup, p : Vec2, v : Vec2, radial : Vec2, d : Float, walls : List(Float)) : (Vec2, Vec2) needs () do
@@ -633,14 +588,11 @@ mod Skee.Physics do
   end
 
   pfn side_walls(c : ShotSetup, sim : ShotSim, b : BoardBall) : (ShotSim, BoardBall) needs () do
-    if Math.abs(b.p.x) > c.half_board do
-      do
-        let x = if b.p.x > 0.0 do c.half_board else -c.half_board end
-        let vx = -b.v.x *. c.table.board.wall_restitution
-        ({ sim with touched_wall: true }, { b with p: vec2(x, b.p.y), v: vec2(vx, b.v.y) })
-      end
-    else
-      (sim, b)
+    match Arcade.Physics.Kinematics.clamp_to_bound(b.p.x, b.v.x, c.half_board, c.table.board.wall_restitution) do
+    Some((x, vx)) -> do
+      ({ sim with touched_wall: true }, { b with p: vec2(x, b.p.y), v: vec2(vx, b.v.y) })
+    end
+    None -> (sim, b)
     end
   end
 
@@ -729,7 +681,7 @@ mod Skee.Physics do
   end
 
   -- Counts time at rest, and nudges or stops the ball when it has rested enough.
-  pfn rest(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
+  pfn rest(c : ShotSetup, sim : ShotSim, b : BoardBall) : Arcade.Physics.Sim.Turn((ShotSim, BoardBall), ShotResult) needs () do
     let board = c.table.board
     let at_rest =
       match b.mode do
@@ -741,27 +693,27 @@ mod Skee.Physics do
         let resting = b.resting +. c.table.dt
         if resting > 0.2 do
           if zone(board, b.p) != Gutter && b.nudges < 6 do
-            KeepGoing(sim, nudge(board, b))
+            Arcade.Physics.Sim.TurnOn((sim, nudge(board, b)))
           else
-            StopHere(sim, { b with resting: resting })
+            Arcade.Physics.Sim.TurnStop((sim, { b with resting: resting }))
           end
         else
-          KeepGoing(sim, { b with resting: resting })
+          Arcade.Physics.Sim.TurnOn((sim, { b with resting: resting }))
         end
       end
     else
-      KeepGoing(sim, { b with resting: 0.0 })
+      Arcade.Physics.Sim.TurnOn((sim, { b with resting: 0.0 }))
     end
   end
 
   -- `< 0.05`, as in Swift: a NaN speed is not at rest. `>= 0.05` is not its negation.
   -- What the step left: captured, gone past the bottom, or still in play.
-  pfn after_step(c : ShotSetup, sim : ShotSim, b : BoardBall) : BoardTurn needs () do
+  pfn after_step(c : ShotSetup, sim : ShotSim, b : BoardBall) : Arcade.Physics.Sim.Turn((ShotSim, BoardBall), ShotResult) needs () do
     match capture(c, sim, b) do
-    Some(hole) -> ShotOver(drop_in(c, sim, b, hole))
+    Some(hole) -> Arcade.Physics.Sim.TurnDone(drop_in(c, sim, b, hole))
     None -> do
       if b.p.y < -c.table.board.ball_radius do
-        ShotOver(finish(c, emit(sample(sim, OnBoard, b.p.x, along_board(c, b), b.z), ShotGutter), Gutter))
+        Arcade.Physics.Sim.TurnDone(finish(c, emit(sample(sim, OnBoard, b.p.x, along_board(c, b), b.z), ShotGutter), Gutter))
       else
         rest(c, sim, b)
       end
@@ -783,7 +735,10 @@ mod Skee.Physics do
     end
   end
 
-  pfn board_step(c : ShotSetup, sim0 : ShotSim, b0 : BoardBall) : BoardTurn needs () do
+  -- A step on the board ends in an Arcade.Physics.Sim.Turn: go on, leave the
+  -- loop as Swift's `break` does (TurnStop), or the shot is over (TurnDone).
+  pfn board_step(c : ShotSetup, s : (ShotSim, BoardBall)) : Arcade.Physics.Sim.Turn((ShotSim, BoardBall), ShotResult) needs () do
+    let (sim0, b0) = s
     let recorded = record(sim0, phase_of(b0), b0.p.x, along_board(c, b0), b0.z)
     let (moved, b1) = move_on_board(c, recorded, b0)
     let (sided, b2) = side_walls(c, moved, ring_walls(c, b1))
@@ -792,22 +747,20 @@ mod Skee.Physics do
   end
 
   -- The clock ran out, or the ball came to rest with nothing left to try.
-  pfn stop_shot(c : ShotSetup, sim : ShotSim, b : BoardBall) : ShotResult needs () do
+  pfn stop_shot(c : ShotSetup, s : (ShotSim, BoardBall)) : ShotResult needs () do
+    let (sim, b) = s
     let hole = zone(c.table.board, b.p)
     let last = sample(sim, OnBoard, b.p.x, along_board(c, b), b.z)
     finish(c, emit(last, if hole == Gutter do ShotGutter else ShotSettled(hole) end), hole)
   end
 
+  pfn board_time(s : (ShotSim, BoardBall)) : Float needs () do
+    let (sim, _) = s
+    sim.clock.t
+  end
+
   pfn run_board(c : ShotSetup, sim : ShotSim, b : BoardBall) : ShotResult needs () do
-    if sim.t < c.table.max_duration do
-      match board_step(c, sim, b) do
-      KeepGoing(s, n) -> run_board(c, s, n)
-      StopHere(s, n) -> stop_shot(c, s, n)
-      ShotOver(r) -> r
-      end
-    else
-      stop_shot(c, sim, b)
-    end
+    Arcade.Physics.Sim.run_steps(c, c.table.max_duration, board_time, board_step, stop_shot, (sim, b))
   end
 
   -- A bean's first hop and a wobbler's sway are drawn before anything moves.
@@ -816,8 +769,7 @@ mod Skee.Physics do
     let rng0 = Arcade.Rng.seed(seed)
     let blank : ShotSim =
       {
-        t: 0.0,
-        step: 0,
+        clock: Arcade.Physics.Sim.clock(),
         events: [],
         path: [],
         hinge_speed: None,
@@ -847,10 +799,6 @@ mod Skee.Physics do
     end
   end
 
-  pfn sin_cos(x : Float) : SinCos needs () do
-    { sine: Math.sin(x), cosine: Math.cos(x) }
-  end
-
   doc """What this target's libm says about a throw on a table."""
   fn shot_trig(l : Launch, t : Table) : ShotTrig needs () do
     {
@@ -864,16 +812,16 @@ mod Skee.Physics do
 
   doc """
   One ball from release to rest, on the libm answers in `trig`. Only a test wants
-  this: the game throws with `simulate_shot`.
+  this: the game throws with `simulate_shot`. `ball_speed` is the ball's release
+  speed scale (Skee.Items.speed_scale), passed in so physics needs no item rules.
   """
-  fn simulate_with(k : Skee.Consts.Consts, trig : ShotTrig, l : Launch, t : Table, ball : BallKind, seed : Arcade.U64.U64) : ShotResult needs () do
+  fn simulate_with(k : Skee.Consts.Consts, trig : ShotTrig, l : Launch, t : Table, ball : BallKind, ball_speed : Float, seed : Arcade.U64.U64) : ShotResult needs () do
     let lane = t.lane
     let board = t.board
     let w = board.ring_walls
     let g = t.gravity
     let half_lane = lane.width /. 2.0 -. board.ball_radius
-    let v0 =
-      l.speed *. Skee.Items.speed_scale(ball) *. (1.0 -. lane.skid_loss *. l.skid)
+    let v0 = l.speed *. ball_speed *. (1.0 -. lane.skid_loss *. l.skid)
     let c =
       {
         k: k,
@@ -904,10 +852,11 @@ mod Skee.Physics do
 
   doc """
   One ball from release to rest. Random balls take their mischief from `seed`,
-  so the same throw with the same seed is still the same shot.
+  so the same throw with the same seed is still the same shot. `ball_speed` is
+  Skee.Items.speed_scale(ball).
   """
-  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, seed : Arcade.U64.U64) : ShotResult needs () do
-    simulate_with(k, shot_trig(l, t), l, t, ball, seed)
+  fn simulate_shot(k : Skee.Consts.Consts, l : Launch, t : Table, ball : BallKind, ball_speed : Float, seed : Arcade.U64.U64) : ShotResult needs () do
+    simulate_with(k, shot_trig(l, t), l, t, ball, ball_speed, seed)
   end
 
   doc """How many lips the ball rattled on: the near-miss count."""

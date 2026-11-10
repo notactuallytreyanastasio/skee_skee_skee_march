@@ -1,0 +1,76 @@
+mod Arcade.Physics.Sim do
+
+  -- The skeleton of a fixed-step simulation: a clock, timestamped events and
+  -- path samples, and a tail-recursive step loop with a time limit. Pure: the
+  -- same state and the same step function always give the same run.
+  cap pure
+
+  -- Simulated time and the number of steps taken to reach it.
+  type SimClock = { t : Float, step : Int }
+
+  -- Something that happened at a moment of simulated time.
+  type Timed(e) = { at : Float, ev : e }
+
+  -- A point on a recorded path, at a moment of simulated time.
+  type Sampled(p) = { sampled_at : Float, point : p }
+
+  -- What one step left: go on, stop here (as a loop's `break` does, so the
+  -- caller's stop function closes the run), or done with a result.
+  type Turn(s, r) = TurnOn(s) | TurnStop(s) | TurnDone(r)
+
+  fn clock() : SimClock needs () do
+    { t: 0.0, step: 0 }
+  end
+
+  doc """One step of `dt` later: `t +. dt`, then the step count up by one."""
+  fn tick(c : SimClock, dt : Float) : SimClock needs () do
+    { t: c.t +. dt, step: c.step + 1 }
+  end
+
+  doc """`e` at time `at`, on a newest-first event list."""
+  fn emit(events : List(Timed(e)), at : Float, what : e) : List(Timed(e)) needs () do
+    Cons({ at: at, ev: what }, events)
+  end
+
+  doc """`p` at time `at`, on a newest-first path."""
+  fn sample(path : List(Sampled(p)), at : Float, p : p) : List(Sampled(p)) needs () do
+    Cons({ sampled_at: at, point: p }, path)
+  end
+
+  doc """
+  Whether step `step` is one to record when recording every `n`th step: a
+  240 Hz simulation recorded every 2nd step is a 120 Hz path.
+  """
+  fn records(step : Int, n : Int) : Bool needs () do
+    step % n == 0
+  end
+
+  doc """`x` on a newest-first list, but only on every `n`th step."""
+  fn record_every(n : Int, step : Int, x : a, xs : List(a)) : List(a) needs () do
+    if records(step, n) do Cons(x, xs) else xs end
+  end
+
+  doc """A newest-first list, oldest first: how a run hands back what it kept."""
+  fn chronological(xs : List(a)) : List(a) needs () do
+    List.reverse(xs)
+  end
+
+  doc """
+  Step `s0` with `step` while `time_of` says it is before `max_t`. A step that
+  goes on is stepped again; one that stops, or a state already out of time, is
+  closed by `stop`; one that is done is the result. `cx` is passed to every
+  call, so the hooks can be named top-level functions. Tail-recursive.
+  """
+  fn run_steps(cx : c, max_t : Float, time_of : s -> Float, step : c -> s -> Turn(s, r), stop : c -> s -> r, s0 : s) : r needs () do
+    if time_of(s0) < max_t do
+      match step(cx, s0) do
+      TurnOn(s) -> run_steps(cx, max_t, time_of, step, stop, s)
+      TurnStop(s) -> stop(cx, s)
+      TurnDone(r) -> r
+      end
+    else
+      stop(cx, s0)
+    end
+  end
+
+end

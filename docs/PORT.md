@@ -43,6 +43,7 @@ foundation: ask before changing it.
 | `Arcade.Web.Paint`, `Arcade.Web.Canvas2d` | `arcade/lib/arcade/web/paint.march`, `canvas2d.march`, `arcade_canvas2d.mjs` | JS only (not core): executes a `CanvasCall` list; the Canvas 2D calls Js.Canvas lacks. march copies the .mjs beside the build |
 | `Arcade.Camera` | `arcade/lib/arcade/camera.march` | `Pose` (eye, target, up), `Lens` (`Perspective(fov)` or `Orthographic(extent)`), `Rig`, `Viewport`, `Projection`, `Seen`; projection to fractions and pixels, `ray`, `ray_plane`, `pixels_per_metre`, `lean_step`, `lean_toward`, `shake_jolt` |
 | `Arcade.CameraFit` | `arcade/lib/arcade/camera_fit.march` | Grid fitter: `FitGrid`, `FitTarget` (point, wanted screen y, weight), `FitPlan`, lexicographic `FitBest`; the game passes `pose_at` and the targets |
+| `Arcade.Physics.Sim`, `Kinematics`, `Trig`, `Gesture` | `arcade/physics/lib/arcade/physics/*.march` (package `arcade_physics`) | Step loop and clock; Euler, friction, reflection, bounds; the libm replay seam; flick measurement |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
 
@@ -782,7 +783,7 @@ arcade/forge.toml          forge name arcade, type lib
 arcade/lib/arcade/         the pure core, later also web/ (the JS shell)
 arcade/testkit/            forge name arcade_testkit (a dev-dep): Arcade.Test.*
 arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_JS_FLAGS
-arcade/physics/            (to come) forge name arcade_physics: Arcade.Physics.*
+arcade/physics/            forge name arcade_physics (deps: arcade): Arcade.Physics.*
 arcade/test/               the engine's own suites (u64, numerics, num, vec, rng)
 arcade/scripts/            the engine's check.sh, run-suite.sh and run-all.sh
 arcade/examples/putt/      (to come) the second game
@@ -816,6 +817,45 @@ suites) and `test-arcade` (`test-arcade-native` and `test-arcade-js`, through
 runs check-arcade first, `make test` runs test-arcade, and `make test-native`
 and `make test-js` run the matching half. The JS gaussian rows drift by up to
 2 ulp (V8's libm), within the declared tolerance, as in skee's rng suite.
+
+**Physics package.** `arcade/physics` (forge `arcade_physics`, a lib that
+depends on `arcade` by path) holds `Arcade.Physics.Sim` (`SimClock`, `tick`,
+`Timed(e)`, `Sampled(p)`, `emit`, `sample`, `records`/`record_every`,
+`Turn(s, r) = TurnOn | TurnStop | TurnDone`, and the tail-recursive
+`run_steps(cx, max_t, time_of, step, stop, s0)`), `Arcade.Physics.Kinematics`
+(`ballistic`, `ballistic_height`, `integrate_friction`, `reflect`,
+`reflect_approaching`, `clamp_to_bound`), `Arcade.Physics.Trig` (`SinCos`,
+`SineBook`, `sine_of`, `sin_cos`: the libm replay seam) and
+`Arcade.Physics.Gesture` (`TrackPoint`, `diff`, `smooth`,
+`regression_at_end`, `rms_jerk`, `GestureLimits`, `GestureMetrics`,
+`measure`). Its paths are `ARCADE_PHYSICS_LIB` in `arcade.mk`; skee names it in
+`[deps]`; `check-arcade` runs forge check and lint in it; its suite is
+`arcade/test/suites/physics_suite.march` (exact dyadic cases, part of
+`test-arcade`). `run_steps` takes the state's clock as a `time_of` fn rather
+than owning a `SimClock`, because Skee.Physics ticks mid-step (the capture
+test after the tick reads the new time) and a loop-owned clock would move it.
+
+Skee.Physics and Skee.Stroke are rebuilt on it, with every float operation in
+its old order: the board loop is `run_steps` over `(ShotSim, BoardBall)`,
+`ShotSim` carries a `SimClock`, recording uses `records(step, 2)`, `fly` is
+`ballistic` + `ballistic_height`, `roll` is `integrate_friction` (the
+deceleration `friction *. normal_pull` is formed first, as before), the rails
+and side walls are `clamp_to_bound`, the ring walls `reflect_approaching`, and
+the stroke's analysis is `Gesture.measure` with `flick_limits()` (today's
+literals); a `FlickSample` becomes a `TrackPoint` by a field copy.
+`simulate_shot` and `simulate_with` take the ball's speed scale
+(`Skee.Items.speed_scale(ball)`) as a parameter, which cuts the
+Physics -> Items edge. Kept in skee, and why:
+- `lane_motion`: its x update sums `-f *. vx +. hook +. sway` left to right;
+  a generic "pull minus friction" would add `hook +. sway` first, a different
+  rounding. Its s update matches, but splitting the two axes buys nothing.
+- `TimedEvent` and `PathSample` (`ShotResult.events`/`path`): they are in
+  `types.march`, under the additive rule, and pinned by the goldens, the
+  presentation and the save codec, so they are not `Timed`/`Sampled`.
+- `ShotTrig`: its four named pairs are the cabinet's angles; only the pair
+  type and the sine book moved.
+- The lane loop `run_lane` ends on distance, not time, so it is not
+  `run_steps`.
 
 **Rules.**
 - The engine names no game. No March file or `.mjs`/`.js` glue under
@@ -930,8 +970,8 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   (`format_deletes_resource.march.txt`)
 - **`forge build` puts only `lib/` and the deps on the module path**, so it
   cannot build `shell/game.march`, which uses `shell/`'s modules. `make build`
-  and `make web` call `march` with `MARCH_LIB_PATH=arcade/lib:lib:shell`;
-  `scripts/check.sh` checks with `arcade/lib:arcade/testkit/lib:lib:test:shell`.
+  and `make web` call `march` with `MARCH_LIB_PATH=arcade/lib:arcade/physics/lib:lib:shell`;
+  `scripts/check.sh` checks with `arcade/lib:arcade/physics/lib:arcade/testkit/lib:lib:test:shell`.
 - **`python3 -m http.server` is unreachable on this machine's loopback**: the
   connection times out, sandbox or not. `make serve` uses `tools/serve/serve.mjs`.
 - `forge format` also moves a file's leading comment inside the module, turns
