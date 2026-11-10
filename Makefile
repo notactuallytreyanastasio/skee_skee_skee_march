@@ -14,7 +14,7 @@ GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
 # Native: every test block, plus the purity guard and the engine's own suites
 # (native and JS).
-test: check-purity test-arcade
+test: check-purity test-arcade test-examples
 	$(FORGE) test
 	@pending=$$(grep -l 'Arcade.Test.Harness.pending' test/mains/*_main.march | xargs -n1 basename | sed 's/_main.march//' | tr '\n' ' '); \
 	  [ -z "$$pending" ] || echo "pending, no tests yet: $$pending"
@@ -46,7 +46,7 @@ check-purity:
 
 # Types, lint, format and the core rules over lib/, test/ and shell/, after the
 # engine's own check (arcade.mk). Fails on any warning.
-check: check-arcade
+check: check-arcade check-examples
 	scripts/check.sh
 
 # Never run bare `forge format`: it can delete code. See docs/PORT.md.
@@ -133,3 +133,15 @@ selftest:
 
 clean:
 	rm -rf dist .march .forge
+
+# The engine's example games, each with its own Makefile (arcade/examples/*):
+# make test runs their suites (native and JS), make check their static gate.
+EXAMPLES := arcade/examples/putt
+
+.PHONY: test-examples check-examples
+
+test-examples:
+	@for d in $(EXAMPLES); do $(MAKE) -C $$d test || exit 1; done
+
+check-examples:
+	@for d in $(EXAMPLES); do $(MAKE) -C $$d check || exit 1; done

@@ -1,0 +1,260 @@
+mod Putt.Roll do
+
+  -- One putt rolled out: a fixed-step simulation (Arcade.Physics.Sim) of a
+  -- ball on the green. Each step: friction against the direction of travel
+  -- (more in sand) and the hole's wind as a steady pull
+  -- (Kinematics.integrate_friction); then the outer walls
+  -- (Kinematics.clamp_to_bound, per axis) and the blocks (pushed out of the
+  -- block and reflected, Kinematics.reflect_approaching); then the cup, which
+  -- takes a ball over it moving slowly enough and lets a fast one lip out.
+  -- The ball rests once friction would turn it round or its speed falls
+  -- under a floor. Only + - * / and sqrt: every target rounds them the same,
+  -- so a roll is bit-identical natively and on JS.
+  cap pure
+
+  import Arcade.Vec2
+  import Arcade.Physics.Sim
+
+  -- The numbers the game is played with: seconds, metres, m/s and m/s^2.
+  type PuttTuning = {
+    dt : Float,
+    max_time : Float,
+    ball_radius : Float,
+    cup_radius : Float,
+    capture_speed : Float,
+    rest_speed : Float,
+    green_drag : Float,
+    sand_drag : Float,
+    wall_bounce : Float,
+    block_bounce : Float,
+    trail_every : Int,
+    wind_max : Float,
+    min_power : Float,
+    max_power : Float,
+    power_per_speed : Float,
+    stroke_cap : Int
+  }
+
+  -- What a roll can meet. Each is reported when it happens: a wall or block
+  -- on every bounce, sand and the cup's lip on entering them.
+  type PuttBump = BumpWall | BumpBlock | BumpSand | BumpLip | BumpCup
+
+  -- The roll in flight.
+  type PuttRoll = {
+    clock : SimClock,
+    at : Vec2,
+    vel : Vec2,
+    in_sand : Bool,
+    over_cup : Bool,
+    bumps : List(Timed(PuttBump)),
+    trail : List(Sampled(Vec2))
+  }
+
+  -- How a roll ended: where the ball rests (the cup's centre once holed), how
+  -- long it rolled, what it met (oldest first) and its path, sampled every
+  -- `trail_every` steps and at the end.
+  type PuttRollEnd = {
+    rest : Vec2,
+    holed : Bool,
+    took : Float,
+    met : List(Timed(PuttBump)),
+    path : List(Sampled(Vec2))
+  }
+
+  -- What every step reads: the tuning, the hole and its wind.
+  type PuttCourt = { tune : PuttTuning, hole : PuttHole, wind : Vec2 }
+
+  doc """
+  The game's numbers. dt is 1/256 s, a power of two, so the clock is exact.
+  A ball at the largest power moves 0.016 m a step, under its radius, so it
+  cannot pass through a wall or block between two steps.
+  """
+  fn tuning() : PuttTuning needs () do
+    {
+      dt: 0.00390625,
+      max_time: 20.0,
+      ball_radius: 0.021,
+      cup_radius: 0.06,
+      capture_speed: 1.25,
+      rest_speed: 0.02,
+      green_drag: 0.6,
+      sand_drag: 3.0,
+      wall_bounce: 0.7,
+      block_bounce: 0.6,
+      trail_every: 8,
+      wind_max: 0.04,
+      min_power: 0.1,
+      max_power: 4.0,
+      power_per_speed: 0.0025,
+      stroke_cap: 6
+    }
+  end
+
+  doc """A ball struck from `from` with velocity `v`, rolled out on the hole."""
+  fn roll(tune : PuttTuning, hole : PuttHole, wind : Vec2, from : Vec2, v : Vec2) : PuttRollEnd needs () do
+    let court = { tune: tune, hole: hole, wind: wind }
+    let start =
+      {
+        clock: Arcade.Physics.Sim.clock(),
+        at: from,
+        vel: v,
+        in_sand: Putt.Course.inside_any(hole.sands, from),
+        over_cup: false,
+        bumps: [],
+        trail: Arcade.Physics.Sim.sample([], 0.0, from)
+      }
+    run_steps(court, tune.max_time, time_of, step, stop, start)
+  end
+
+  fn time_of(s : PuttRoll) : Float needs () do
+    s.clock.t
+  end
+
+  doc """The ball comes to rest where it is."""
+  fn stop(_c : PuttCourt, s : PuttRoll) : PuttRollEnd needs () do
+    {
+      rest: s.at,
+      holed: false,
+      took: s.clock.t,
+      met: chronological(s.bumps),
+      path: chronological(Arcade.Physics.Sim.sample(s.trail, s.clock.t, s.at))
+    }
+  end
+
+  pfn dropped(s : PuttRoll, cup : Vec2, t : Float) : PuttRollEnd needs () do
+    {
+      rest: cup,
+      holed: true,
+      took: t,
+      met: chronological(emit(s.bumps, t, BumpCup)),
+      path: chronological(Arcade.Physics.Sim.sample(s.trail, t, cup))
+    }
+  end
+
+  pfn emit_if(events : List(Timed(PuttBump)), happened : Bool, at : Float, what : PuttBump) : List(Timed(PuttBump)) needs () do
+    if happened do emit(events, at, what) else events end
+  end
+
+  doc """One step of dt."""
+  fn step(c : PuttCourt, s : PuttRoll) : Turn(PuttRoll, PuttRollEnd) needs () do
+    let tune = c.tune
+    let t = tick(s.clock, tune.dt)
+    let drag = if s.in_sand do tune.sand_drag else tune.green_drag end
+    let (p1, v1) =
+      Arcade.Physics.Kinematics.integrate_friction(s.at, s.vel, c.wind, drag, tune.dt)
+    if length(v1) < tune.rest_speed || dot(v1, s.vel) <= 0.0 do
+      TurnStop({ s with clock: t, vel: zero() })
+    else
+      moved(c, s, t, p1, v1)
+    end
+  end
+
+  pfn moved(c : PuttCourt, s : PuttRoll, t : SimClock, p1 : Vec2, v1 : Vec2) : Turn(PuttRoll, PuttRollEnd) needs () do
+    let tune = c.tune
+    let (p2, v2, walled) = walls(tune, c.hole, p1, v1)
+    let (p3, v3, blocked) = blocks(tune, c.hole.blocks, p2, v2, false)
+    let sandy = Putt.Course.inside_any(c.hole.sands, p3)
+    let over = length(sub(p3, c.hole.cup)) < tune.cup_radius
+    let e1 = emit_if(s.bumps, walled, t.t, BumpWall)
+    let e2 = emit_if(e1, blocked, t.t, BumpBlock)
+    let e3 = emit_if(e2, sandy && !s.in_sand, t.t, BumpSand)
+    if over && length(v3) <= tune.capture_speed do
+      TurnDone(dropped({ s with bumps: e3 }, c.hole.cup, t.t))
+    else
+      do
+        let e4 = emit_if(e3, over && !s.over_cup, t.t, BumpLip)
+        let trail =
+          if records(t.step, tune.trail_every) do
+            Arcade.Physics.Sim.sample(s.trail, t.t, p3)
+          else
+            s.trail
+          end
+        TurnOn({ clock: t, at: p3, vel: v3, in_sand: sandy, over_cup: over, bumps: e4, trail: trail })
+      end
+    end
+  end
+
+  doc """
+  The outer walls: each axis measured from the hole's centre line and put
+  back inside by the ball's radius, its speed reversed keeping wall_bounce.
+  """
+  fn walls(tune : PuttTuning, h : PuttHole, p : Vec2, v : Vec2) : (Vec2, Vec2, Bool) needs () do
+    let cx = h.width /. 2.0
+    let cy = h.length /. 2.0
+    let r = tune.ball_radius
+    let (x, vx, hit_x) = axis(p.x -. cx, v.x, cx -. r, tune.wall_bounce, cx)
+    let (y, vy, hit_y) = axis(p.y -. cy, v.y, cy -. r, tune.wall_bounce, cy)
+    (vec2(x, y), vec2(vx, vy), hit_x || hit_y)
+  end
+
+  pfn axis(off : Float, v : Float, bound : Float, e : Float, centre : Float) : (Float, Float, Bool) needs () do
+    match Arcade.Physics.Kinematics.clamp_to_bound(off, v, bound, e) do
+    Some((edge, v1)) -> (centre +. edge, v1, true)
+    None -> (centre +. off, v, false)
+    end
+  end
+
+  doc """Every block in turn, each pushing the ball out and reflecting it."""
+  fn blocks(tune : PuttTuning, bs : List(PuttBox), p : Vec2, v : Vec2, hit : Bool) : (Vec2, Vec2, Bool) needs () do
+    match bs do
+    Nil -> (p, v, hit)
+    Cons(b, rest) -> do
+      match block(tune, b, p, v) do
+      Some((p1, v1)) -> blocks(tune, rest, p1, v1, true)
+      None -> blocks(tune, rest, p, v, hit)
+      end
+    end
+    end
+  end
+
+  doc """
+  A ball overlapping box b: put back out along the line from the box's
+  nearest point, and reflected off that normal. A centre already inside the
+  box leaves by the nearest face. None when they do not touch.
+  """
+  fn block(tune : PuttTuning, b : PuttBox, p : Vec2, v : Vec2) : Option((Vec2, Vec2)) needs () do
+    let r = tune.ball_radius
+    let q =
+      vec2(Arcade.Num.clamp(p.x, b.lo.x, b.hi.x), Arcade.Num.clamp(p.y, b.lo.y, b.hi.y))
+    let d = sub(p, q)
+    let d2 = dot(d, d)
+    if d2 >= r *. r do
+      None
+    else
+      if d2 > 0.0 do
+        do
+          let n = scale(d, 1.0 /. Math.sqrt(d2))
+          Some((add(q, scale(n, r)), Arcade.Physics.Kinematics.reflect_approaching(v, n, tune.block_bounce)))
+        end
+      else
+        Some(leave_by_face(tune, b, p, v))
+      end
+    end
+  end
+
+  pfn leave_by_face(tune : PuttTuning, b : PuttBox, p : Vec2, v : Vec2) : (Vec2, Vec2) needs () do
+    let r = tune.ball_radius
+    let left = p.x -. b.lo.x
+    let right = b.hi.x -. p.x
+    let below = p.y -. b.lo.y
+    let above = b.hi.y -. p.y
+    let side = Arcade.Num.min_float(left, right)
+    let ends = Arcade.Num.min_float(below, above)
+    let (n, out) =
+      if side <= ends do
+        if left <= right do
+          (vec2(-1.0, 0.0), vec2(b.lo.x -. r, p.y))
+        else
+          (vec2(1.0, 0.0), vec2(b.hi.x +. r, p.y))
+        end
+      else
+        if below <= above do
+          (vec2(0.0, -1.0), vec2(p.x, b.lo.y -. r))
+        else
+          (vec2(0.0, 1.0), vec2(p.x, b.hi.y +. r))
+        end
+      end
+    (out, Arcade.Physics.Kinematics.reflect_approaching(v, n, tune.block_bounce))
+  end
+
+end

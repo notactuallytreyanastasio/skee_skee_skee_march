@@ -1,0 +1,128 @@
+mod Putt.Course do
+
+  -- The course: a handful of one-screen holes, top-down, in metres. Every
+  -- hole is a walled rectangle from (0, 0) to (width, length), with +y
+  -- running from the tee toward the cup, and may hold wooden blocks (walls
+  -- the ball bounces off) and sand (slower ground).
+  cap pure
+
+  import Arcade.Vec2
+
+  -- An axis-aligned rectangle, lower-left and upper-right corners.
+  type PuttBox = { lo : Vec2, hi : Vec2 }
+
+  type PuttHole = {
+    title : String,
+    par : Int,
+    width : Float,
+    length : Float,
+    tee : Vec2,
+    cup : Vec2,
+    blocks : List(PuttBox),
+    sands : List(PuttBox)
+  }
+
+  fn box(x0 : Float, y0 : Float, x1 : Float, y1 : Float) : PuttBox needs () do
+    { lo: vec2(x0, y0), hi: vec2(x1, y1) }
+  end
+
+  doc """Whether p is inside b, edges included."""
+  fn inside(b : PuttBox, p : Vec2) : Bool needs () do
+    p.x >= b.lo.x && p.x <= b.hi.x && p.y >= b.lo.y && p.y <= b.hi.y
+  end
+
+  doc """Whether p is inside any of the boxes."""
+  fn inside_any(bs : List(PuttBox), p : Vec2) : Bool needs () do
+    match bs do
+    Nil -> false
+    Cons(b, rest) -> if inside(b, p) do true else inside_any(rest, p) end
+    end
+  end
+
+  doc """The four corners of a box, anticlockwise from lower-left."""
+  fn corners(b : PuttBox) : List(Vec2) needs () do
+    [b.lo, vec2(b.hi.x, b.lo.y), b.hi, vec2(b.lo.x, b.hi.y)]
+  end
+
+  doc """The hole's outline as a box."""
+  fn bounds(h : PuttHole) : PuttBox needs () do
+    box(0.0, 0.0, h.width, h.length)
+  end
+
+  -- A straight run to warm up.
+  fn straight() : PuttHole needs () do
+    {
+      title: "Straight",
+      par: 2,
+      width: 1.6,
+      length: 6.0,
+      tee: vec2(0.8, 0.6),
+      cup: vec2(0.8, 5.2),
+      blocks: [],
+      sands: []
+    }
+  end
+
+  -- A block across the middle: bank off a side wall, or go round.
+  fn bank() : PuttHole needs () do
+    {
+      title: "Bank",
+      par: 3,
+      width: 3.0,
+      length: 6.0,
+      tee: vec2(1.5, 0.6),
+      cup: vec2(1.5, 5.2),
+      blocks: [box(0.9, 2.7, 2.1, 3.1)],
+      sands: []
+    }
+  end
+
+  -- Sand on the straight line to the cup.
+  fn bunker() : PuttHole needs () do
+    {
+      title: "Bunker",
+      par: 3,
+      width: 2.4,
+      length: 7.0,
+      tee: vec2(1.2, 0.6),
+      cup: vec2(1.2, 6.2),
+      blocks: [],
+      sands: [box(0.6, 3.0, 1.8, 4.2)]
+    }
+  end
+
+  -- Two blocks with a narrow gate between them, and sand behind the cup.
+  fn gate() : PuttHole needs () do
+    {
+      title: "Gate",
+      par: 3,
+      width: 3.0,
+      length: 6.0,
+      tee: vec2(1.5, 0.6),
+      cup: vec2(1.5, 4.6),
+      blocks: [box(0.0, 3.0, 1.25, 3.3), box(1.75, 3.0, 3.0, 3.3)],
+      sands: [box(0.9, 5.0, 2.1, 5.6)]
+    }
+  end
+
+  doc """The course, first hole first."""
+  fn holes() : List(PuttHole) needs () do
+    [straight(), bank(), bunker(), gate()]
+  end
+
+  doc """How many holes the course has."""
+  fn hole_count() : Int needs () do
+    List.length(holes())
+  end
+
+  doc """Hole i (0-based), or None past the last."""
+  fn hole_at(i : Int) : Option(PuttHole) needs () do
+    if i < 0 do None else List.nth_opt(holes(), i) end
+  end
+
+  doc """The par of the whole course."""
+  fn course_par() : Int needs () do
+    List.fold_left(holes(), 0, fn (acc, h) -> acc + h.par)
+  end
+
+end

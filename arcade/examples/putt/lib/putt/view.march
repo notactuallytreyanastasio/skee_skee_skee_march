@@ -1,0 +1,171 @@
+mod Putt.View do
+
+  -- The game as a picture: an orthographic Arcade.Camera looking straight
+  -- down on the hole, and the Arcade.Draw ops of one frame, in CSS pixels.
+  -- Arcade.Canvas turns them into canvas calls; nothing here touches a
+  -- canvas. The camera keeps course +x as screen right and course +y as
+  -- screen up, so a flick's direction on screen is the putt's on the course.
+  cap pure
+
+  import Arcade.Draw
+
+  doc """Course units of margin round the hole."""
+  fn margin() : Float needs () do
+    0.5
+  end
+
+  doc """How far above the course the camera sits. Any height sees the same under an orthographic lens."""
+  fn height() : Float needs () do
+    10.0
+  end
+
+  doc """
+  The camera for a hole on a viewport of this aspect (width over height):
+  over the hole's centre, looking down, seeing the hole and its margin
+  whichever way the screen is turned.
+  """
+  fn rig(h : PuttHole, aspect : Float) : Arcade.Camera.Rig needs () do
+    let tall = h.length +. 2.0 *. margin()
+    let wide = (h.width +. 2.0 *. margin()) /. aspect
+    let mid = Arcade.Vec3.vec3(h.width /. 2.0, h.length /. 2.0, 0.0)
+    {
+      pose: {
+        eye: Arcade.Vec3.vec3(mid.x, mid.y, height()),
+        target: mid,
+        up: Arcade.Vec3.vec3(0.0, 1.0, 0.0)
+      },
+      lens: Orthographic(Arcade.Num.max_float(tall, wide))
+    }
+  end
+
+  doc """The camera for a hole, ready to project onto the viewport."""
+  fn projection(rs : PuttRules, h : PuttHole, vp : Arcade.Camera.Viewport) : Arcade.Camera.Projection needs () do
+    Arcade.Camera.projection(rs.num, rig(h, Arcade.Camera.aspect(vp)), vp)
+  end
+
+  doc """A course point in pixels."""
+  fn px(rs : PuttRules, l : Arcade.Camera.Projection, p : Arcade.Vec2.Vec2) : Arcade.Vec2.Vec2 needs () do
+    Arcade.Camera.pixel(rs.num, l, Arcade.Vec3.vec3(p.x, p.y, 0.0))
+  end
+
+  doc """Pixels per course metre: the same everywhere under this lens."""
+  fn scale_of(l : Arcade.Camera.Projection) : Float needs () do
+    Arcade.Camera.pixels_per_metre(l, height())
+  end
+
+  -- Named recursion, not a lambda over the records: see PORT.md on
+  -- lambdas that capture records natively.
+  pfn pxs(rs : PuttRules, l : Arcade.Camera.Projection, ps : List(Arcade.Vec2.Vec2), acc : List(Arcade.Vec2.Vec2)) : List(Arcade.Vec2.Vec2) needs () do
+    match ps do
+    Nil -> List.reverse(acc)
+    Cons(p, rest) -> pxs(rs, l, rest, Cons(px(rs, l, p), acc))
+    end
+  end
+
+  pfn ring(rs : PuttRules, l : Arcade.Camera.Projection, b : PuttBox) : Shape needs () do
+    Poly(pxs(rs, l, Putt.Course.corners(b), []))
+  end
+
+  pfn pen(ink : Rgba, width : Float) : Pen needs () do
+    { ink: ink, width: width, ends: RoundEnd, corners: RoundCorner }
+  end
+
+  pfn flat(rs : PuttRules, l : Arcade.Camera.Projection, bs : List(PuttBox), ink : Rgba) : List(DrawOp) needs () do
+    match bs do
+    Nil -> []
+    Cons(b, rest) -> Cons(FillShape(ring(rs, l, b), Flat(ink), Over), flat(rs, l, rest, ink))
+    end
+  end
+
+  pfn walled(rs : PuttRules, l : Arcade.Camera.Projection, bs : List(PuttBox), wood : Rgba, rim : Rgba) : List(DrawOp) needs () do
+    match bs do
+    Nil -> []
+    Cons(b, rest) -> do
+      Cons(FillShape(ring(rs, l, b), Flat(wood), Over), Cons(StrokeShape(ring(rs, l, b), pen(rim, 2.0), Over), walled(rs, l, rest, wood, rim)))
+    end
+    end
+  end
+
+  pfn segment(a : Arcade.Vec2.Vec2, b : Arcade.Vec2.Vec2) : Shape needs () do
+    Outline([MoveTo(a), LineTo(b)])
+  end
+
+  doc """The cup, its flag on a pole, the pole's foot at the cup's centre."""
+  fn cup_ops(rs : PuttRules, l : Arcade.Camera.Projection, h : PuttHole) : List(DrawOp) needs () do
+    let k = scale_of(l)
+    let c = px(rs, l, h.cup)
+    let top = Arcade.Vec2.vec2(c.x, c.y -. 0.5 *. k)
+    let flag =
+      Poly([top, Arcade.Vec2.vec2(top.x +. 0.25 *. k, top.y +. 0.08 *. k), Arcade.Vec2.vec2(top.x, top.y +. 0.16 *. k)])
+    [
+      FillShape(Disc(c, rs.tune.cup_radius *. k), Flat(hex(1052688)), Over),
+      StrokeShape(segment(c, top), pen(hex(15921906), 2.0), Over),
+      FillShape(flag, Flat(hex(15221311)), Over)
+    ]
+  end
+
+  doc """The ball at a course point."""
+  fn ball_ops(rs : PuttRules, l : Arcade.Camera.Projection, at : Arcade.Vec2.Vec2) : List(DrawOp) needs () do
+    let r = rs.tune.ball_radius *. scale_of(l)
+    let c = px(rs, l, at)
+    [
+      FillShape(Disc(c, r), Flat(hex(16777215)), Over),
+      StrokeShape(Disc(c, r), pen(hex(3355443), 1.0), Over)
+    ]
+  end
+
+  doc """
+  The wind as an arrow from a point near the top right corner, 30 pixels
+  long at the strongest wind, pointing the way it pulls.
+  """
+  fn wind_ops(rs : PuttRules, vp : Arcade.Camera.Viewport, w : Arcade.Vec2.Vec2) : List(DrawOp) needs () do
+    let k = 30.0 /. rs.tune.wind_max
+    let from = Arcade.Vec2.vec2(vp.width -. 40.0, 40.0)
+    let to = Arcade.Vec2.vec2(from.x +. w.x *. k, from.y -. w.y *. k)
+    [
+      FillShape(Disc(from, 3.0), Flat(hex(10474495)), Over),
+      StrokeShape(segment(from, to), pen(hex(10474495), 3.0), Over)
+    ]
+  end
+
+  pfn identity() : Affine needs () do
+    { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
+  end
+
+  doc """The line of text along the top of the screen."""
+  fn caption(s : PuttState) : String needs () do
+    let h = Putt.Rules.current(s)
+    let where =
+      "Hole " ++ int_to_string(s.hole + 1) ++ " of " ++ int_to_string(Putt.Course.hole_count()) ++ " - " ++ h.title ++ " - Par " ++ int_to_string(h.par)
+    match s.phase do
+    PuttAiming -> where ++ " - Stroke " ++ int_to_string(s.strokes + 1)
+    PuttHoleDone -> where ++ " - Done in " ++ int_to_string(s.strokes)
+    PuttCourseDone -> do
+      "Course done in " ++ int_to_string(Putt.Rules.total(s)) ++ ", par " ++ int_to_string(Putt.Course.course_par())
+    end
+    end
+  end
+
+  fn caption_op(s : PuttState, vp : Arcade.Camera.Viewport) : DrawOp needs () do
+    DrawText({ words: caption(s), font: "16px sans-serif", middle: Arcade.Vec2.vec2(vp.width /. 2.0, 20.0), fill: hex(16119280), edge: None, frame: identity() })
+  end
+
+  doc """One frame with the ball where the state has it."""
+  fn scene(rs : PuttRules, s : PuttState, vp : Arcade.Camera.Viewport) : List(DrawOp) needs () do
+    scene_with_ball(rs, s, vp, s.ball)
+  end
+
+  doc """
+  One frame with the ball at `ball`: a point of a putt's path while the
+  shell plays it back, or the state's own ball. Back to front: the ground,
+  the green, sand, the cup, the blocks, the rail, the ball, the wind and the
+  caption.
+  """
+  fn scene_with_ball(rs : PuttRules, s : PuttState, vp : Arcade.Camera.Viewport, ball : Arcade.Vec2.Vec2) : List(DrawOp) needs () do
+    let h = Putt.Rules.current(s)
+    let l = projection(rs, h, vp)
+    let green = ring(rs, l, Putt.Course.bounds(h))
+    List.concat([[ClearTo(hex(1780258)), FillShape(green, Flat(hex(4168522)), Over)], flat(rs, l, h.sands, hex(14862730)), cup_ops(rs, l, h), walled(rs, l, h.blocks, hex(8014634), hex(5911832)), [StrokeShape(green, pen(hex(8014634), 6.0), Over)], ball_ops(rs, l, ball), wind_ops(rs, vp, s.wind), [caption_op(s, vp)]])
+  end
+
+end

@@ -1,0 +1,9 @@
+mod Putt.Main.Game do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("putt", Putt.Suite.Game.cases())
+  end
+
+end

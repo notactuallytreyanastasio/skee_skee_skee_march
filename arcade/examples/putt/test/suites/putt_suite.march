@@ -1,0 +1,375 @@
+mod Putt.Suite.Game do
+
+  -- Putt against itself: replays are deterministic (the same seed and actions
+  -- give the same digest, and native and JS give the digest pinned here), a
+  -- frame's canvas calls are pinned, each hole's outcome under a fixed bot is
+  -- one row, and the physics and gesture cases are small enough to solve by
+  -- hand. The pinned numbers were taken once from a run and are the same on
+  -- both targets: the game uses only + - * / and sqrt.
+  import Arcade.Test.Harness
+
+  fn rs() : PuttRules do
+    Putt.Rules.rules()
+  end
+
+  fn seed_of(n : Int) : Arcade.U64.U64 do
+    Arcade.U64.of_int(n)
+  end
+
+  fn near(a : Float, b : Float, tol : Float, what : String) : Outcome do
+    expect(Math.abs(a -. b) <= tol, what ++ ": got " ++ float_to_string(a) ++ ", want " ++ float_to_string(b))
+  end
+
+  -- ---- Digests ----
+  fn vec_digest(h : Int, v : Arcade.Vec2.Vec2) : Int do
+    Arcade.Test.Digest.float(Arcade.Test.Digest.float(h, v.x), v.y)
+  end
+
+  fn state_digest(h : Int, s : PuttState) : Int do
+    let a = Arcade.Test.Digest.u64(Arcade.Test.Digest.u64(h, s.rng.word), s.seed)
+    let b = Arcade.Test.Digest.int(Arcade.Test.Digest.int(a, s.hole), s.strokes)
+    let c = vec_digest(vec_digest(b, s.ball), s.wind)
+    let d = Arcade.Test.Digest.list(c, s.card, Arcade.Test.Digest.int)
+    Arcade.Test.Digest.int(d, Putt.Rules.phase_rank(s.phase))
+  end
+
+  fn bump_rank(b : PuttBump) : Int do
+    match b do
+    BumpWall -> 0
+    BumpBlock -> 1
+    BumpSand -> 2
+    BumpLip -> 3
+    BumpCup -> 4
+    end
+  end
+
+  fn event_digest(h : Int, e : PuttEvent) : Int do
+    match e do
+    PuttStruck(shot) -> do
+      Arcade.Test.Digest.float(vec_digest(Arcade.Test.Digest.int(h, 0), shot.aim), shot.power)
+    end
+    PuttMet(m) -> do
+      Arcade.Test.Digest.int(Arcade.Test.Digest.float(Arcade.Test.Digest.int(h, 1), m.at), bump_rank(m.ev))
+    end
+    PuttRested(p, t) -> Arcade.Test.Digest.float(vec_digest(Arcade.Test.Digest.int(h, 2), p), t)
+    PuttHoled(n, par) -> Arcade.Test.Digest.ints(h, [3, n, par])
+    PuttPickedUp(n, par) -> Arcade.Test.Digest.ints(h, [4, n, par])
+    PuttTeedOff(i) -> Arcade.Test.Digest.ints(h, [5, i])
+    PuttFinished(n, par) -> Arcade.Test.Digest.ints(h, [6, n, par])
+    end
+  end
+
+  fn sample_digest(h : Int, p : Sampled(Arcade.Vec2.Vec2)) : Int do
+    vec_digest(Arcade.Test.Digest.float(h, p.sampled_at), p.point)
+  end
+
+  fn turn_digest(h : Int, t : PuttTurn) : Int do
+    let a = state_digest(h, t.after)
+    let b = Arcade.Test.Digest.list(a, t.told, event_digest)
+    Arcade.Test.Digest.list(b, t.rolled, sample_digest)
+  end
+
+  -- ---- A bot: aim at the cup, with the speed that would just reach it on
+  -- the green, and a little more ----
+  fn bot_shot(r : PuttRules, s : PuttState) : PuttShot do
+    let h = Putt.Rules.current(s)
+    let gap = Arcade.Vec2.sub(h.cup, s.ball)
+    let reach = Math.sqrt(2.0 *. r.tune.green_drag *. Arcade.Vec2.length(gap))
+    let power = Arcade.Num.clamp(reach *. 1.1 +. 0.15, r.tune.min_power, r.tune.max_power)
+    { aim: gap, power: power }
+  end
+
+  fn bot(r : PuttRules, s : PuttState) : Option(PuttAction) do
+    match s.phase do
+    PuttAiming -> Some(PuttStrike(bot_shot(r, s)))
+    PuttHoleDone -> Some(PuttNext)
+    PuttCourseDone -> None
+    end
+  end
+
+  fn bot_game(seed : Int) : (PuttState, List(PuttAction), Option(PuttError)) do
+    Arcade.Replay.drive(rs(), Putt.Rules.apply, bot, Putt.Rules.new_game(rs(), seed_of(seed)), 200)
+  end
+
+  -- Every turn of a game, played with `play`, digested in order.
+  fn played_digest(r : PuttRules, s : PuttState, actions : List(PuttAction), h : Int) : Int do
+    match actions do
+    Nil -> state_digest(h, s)
+    Cons(a, rest) -> do
+      match Putt.Rules.play(r, a, s) do
+      Ok(t) -> played_digest(r, t.after, rest, turn_digest(h, t))
+      Err(_) -> Arcade.Test.Digest.int(h, 99)
+      end
+    end
+    end
+  end
+
+  fn error_text(e : Option(PuttError)) : String do
+    match e do
+    None -> "none"
+    Some(PuttNotAiming) -> "not aiming"
+    Some(PuttHoleUnfinished) -> "hole unfinished"
+    Some(PuttCourseOver) -> "course over"
+    Some(PuttNoAim) -> "no aim"
+    Some(PuttPowerOut(p)) -> "power out " ++ int_to_string(float_round(p))
+    end
+  end
+
+  fn replay_cases() : Outcome do
+    let (end1, actions, why) = bot_game(2026)
+    let (end2, taken, why2) = Putt.Rules.resume(rs(), seed_of(2026), actions)
+    let (other, _, _) = bot_game(7)
+    let d1 = state_digest(Arcade.Test.Digest.start(), end1)
+    let d2 = state_digest(Arcade.Test.Digest.start(), end2)
+    let start = Putt.Rules.new_game(rs(), seed_of(2026))
+    let full = played_digest(rs(), start, actions, Arcade.Test.Digest.start())
+    let full_again = played_digest(rs(), start, actions, Arcade.Test.Digest.start())
+    all([expect_string(error_text(why), "none", "the bot is never refused"), expect(Putt.Rules.phase_rank(end1.phase) == 2, "the bot finishes the course"), expect_int(taken, List.length(actions), "every action replays"), expect_string(error_text(why2), "none", "the replay is never refused"), expect_int(d2, d1, "resume reaches the state the game reached"), expect_int(full_again, full, "playing the actions twice tells the same"), expect_int(d1, 1576694532, "final state digest, seed 2026 (pinned)"), expect_int(full, 872715727, "every turn's digest, seed 2026 (pinned)"), expect_int(List.length(actions), 17, "actions the bot played (pinned)"), expect(state_digest(Arcade.Test.Digest.start(), other) != d1, "another seed, another game")])
+  end
+
+  fn refusal_cases() : Outcome do
+    let s = Putt.Rules.new_game(rs(), seed_of(1))
+    let straight = { aim: Arcade.Vec2.vec2(0.0, 1.0), power: 1.0 }
+    let (_, taken, why) =
+      Putt.Rules.resume(rs(), seed_of(1), [PuttStrike(straight), PuttNext, PuttStrike(straight)])
+    all([expect_string(refused(Putt.Rules.apply(rs(), PuttNext, s)), "hole unfinished", "next hole while aiming"), expect_string(refused(Putt.Rules.apply(rs(), PuttStrike({ aim: Arcade.Vec2.zero(), power: 1.0 }), s)), "no aim", "a shot with no direction"), expect_string(refused(Putt.Rules.apply(rs(), PuttStrike({ aim: Arcade.Vec2.vec2(0.0, 1.0), power: 9.0 }), s)), "power out 9", "a shot past the strongest"), expect_int(taken, 1, "resume stops at the first refusal"), expect_string(error_text(why), "hole unfinished", "and says why")])
+  end
+
+  fn refused(r : Result(PuttState, PuttError)) : String do
+    match r do
+    Ok(_) -> "accepted"
+    Err(e) -> error_text(Some(e))
+    end
+  end
+
+  -- ---- Per-hole outcomes under the bot, seed 2026: one row per hole ----
+  fn outcome_rows(r : PuttRules, s : PuttState, actions : List(PuttAction), acc : List(String)) : List(String) do
+    match actions do
+    Nil -> List.reverse(acc)
+    Cons(a, rest) -> do
+      match Putt.Rules.play(r, a, s) do
+      Ok(t) -> outcome_rows(r, t.after, rest, List.append(rows_of(s, t.told), acc))
+      Err(_) -> List.reverse(Cons("refused", acc))
+      end
+    end
+    end
+  end
+
+  fn rows_of(s : PuttState, told : List(PuttEvent)) : List(String) do
+    let h = Putt.Rules.current(s)
+    let name = int_to_string(s.hole + 1) ++ " " ++ h.title
+    List.filter_map(told, fn e -> row_of(name, e))
+  end
+
+  fn row_of(name : String, e : PuttEvent) : Option(String) do
+    match e do
+    PuttHoled(n, par) -> do
+      Some(name ++ ": holed in " ++ int_to_string(n) ++ ", par " ++ int_to_string(par))
+    end
+    PuttPickedUp(n, par) -> do
+      Some(name ++ ": picked up after " ++ int_to_string(n) ++ ", par " ++ int_to_string(par))
+    end
+    PuttFinished(n, par) -> Some("course: " ++ int_to_string(n) ++ ", par " ++ int_to_string(par))
+    PuttStruck(_) -> None
+    PuttMet(_) -> None
+    PuttRested(_, _) -> None
+    PuttTeedOff(_) -> None
+    end
+  end
+
+  fn row_case(got : List(String), i : Int, want : String) : Outcome do
+    match List.nth_opt(got, i) do
+    Some(row) -> expect_string(row, want, "row " ++ int_to_string(i + 1))
+    None -> Mismatch("row " ++ int_to_string(i + 1) ++ " missing, want " ++ want)
+    end
+  end
+
+  fn hole_rows() : Outcome do
+    let (_, actions, _) = bot_game(2026)
+    let rows = outcome_rows(rs(), Putt.Rules.new_game(rs(), seed_of(2026)), actions, [])
+    all([expect_int(List.length(rows), 5, "four holes and the course"), row_case(rows, 0, "1 Straight: holed in 2, par 2"), row_case(rows, 1, "2 Bank: picked up after 6, par 3"), row_case(rows, 2, "3 Bunker: holed in 2, par 3"), row_case(rows, 3, "4 Gate: holed in 3, par 3"), row_case(rows, 4, "course: 13, par 11")])
+  end
+
+  fn wind_cases() : Outcome do
+    let r = rs()
+    let s = Putt.Rules.new_game(r, seed_of(2026))
+    let w = r.tune.wind_max
+    let again = Putt.Rules.new_game(r, seed_of(2026))
+    all([expect(Math.abs(s.wind.x) <= w && Math.abs(s.wind.y) <= w, "the wind is within wind_max"), expect(Arcade.Vec2.length(s.wind) > 0.0, "and blows"), expect(Arcade.Vec2.equal(s.wind, again.wind), "the same seed, the same wind")])
+  end
+
+  -- ---- Physics on the green, no wind ----
+  fn rolled(h : PuttHole, x : Float, y : Float, power : Float) : PuttRollEnd do
+    Putt.Roll.roll(Putt.Roll.tuning(), h, Arcade.Vec2.zero(), h.tee, Arcade.Vec2.scale(Arcade.Vec2.vec2(x, y), power))
+  end
+
+  fn met(e : PuttRollEnd, b : PuttBump) : Bool do
+    List.any(e.met, fn m -> bump_rank(m.ev) == bump_rank(b))
+  end
+
+  fn physics_cases() : Outcome do
+    let first = Putt.Course.straight()
+    let tee = first.tee
+    let soft = rolled(Putt.Course.straight(), 0.0, 1.0, 1.0)
+    let side = rolled(Putt.Course.straight(), 1.0, 0.0, 2.0)
+    let banked = rolled(Putt.Course.bank(), 0.0, 1.0, 2.0)
+    let bunkered = rolled(Putt.Course.bunker(), 0.0, 1.0, 2.6)
+    let sunk = rolled(Putt.Course.straight(), 0.0, 1.0, 2.45)
+    let lipped = rolled(Putt.Course.straight(), 0.0, 1.0, 4.0)
+    all([expect(soft.rest.x == tee.x, "a straight putt stays on its line"), near(soft.rest.y, tee.y +. 1.0 /. 1.2, 0.01, "and rolls v^2 / 2 drag"), expect(!soft.holed && List.is_empty(soft.met), "meeting nothing"), expect(met(side, BumpWall), "a putt at the side wall bounces"), expect(side.rest.x <= 1.6 -. 0.021 && side.rest.x >= 0.021, "and stays inside the rails"), expect(met(banked, BumpBlock), "a putt at the block bounces off it"), expect(banked.rest.y < 2.7, "and comes back short of it"), expect(met(bunkered, BumpSand), "a putt through the bunker enters the sand"), expect(bunkered.rest.y < 4.2, "and the sand stops it"), expect(sunk.holed, "a putt arriving slowly drops"), expect(Arcade.Vec2.equal(sunk.rest, first.cup), "and rests in the cup"), expect(met(lipped, BumpLip), "a putt arriving fast lips out"), expect(List.length(sunk.path) > 2, "the path is kept")])
+  end
+
+  -- ---- A flick up and to the right, 1000 px/s up and 300 across ----
+  fn flick_points() : List(TrackPoint) do
+    List.map(List.range(0, 10), fn i -> Arcade.Physics.Gesture.point(int_to_float(i) *. 0.01, 100.0 +. int_to_float(i) *. 3.0, 500.0 -. int_to_float(i) *. 10.0))
+  end
+
+  fn gesture_cases() : Outcome do
+    match Arcade.Physics.Gesture.measure(flick_points(), Arcade.Physics.Gesture.flick_limits()) do
+    None -> Mismatch("the flick did not count")
+    Some(m) -> do
+      match Putt.Rules.shot_of_flick(rs(), m) do
+      None -> Mismatch("the flick gave no shot")
+      Some(shot) -> do
+        let k = 1.0 /. Math.sqrt(109.0)
+        all([near(shot.aim.x, 3.0 *. k, 0.000000001, "aim across"), near(shot.aim.y, 10.0 *. k, 0.000000001, "aim up the course"), near(shot.power, 2.5, 0.000001, "power from 1000 px/s")])
+      end
+      end
+    end
+    end
+  end
+
+  -- ---- One frame on the first tee, 360 x 640 at dpr 2 ----
+  fn frame_calls() : List(Arcade.Canvas.CanvasCall) do
+    let s = Putt.Rules.new_game(rs(), seed_of(2026))
+    let vp = Arcade.Camera.viewport(360.0, 640.0)
+    let r = rs()
+    Arcade.Canvas.calls(r.num, 2.0, 360.0, 640.0, Putt.View.scene(r, s, vp))
+  end
+
+  fn stop_digest(h : Int, s : Arcade.Canvas.ColourStop) : Int do
+    Arcade.Test.Digest.text(Arcade.Test.Digest.float(h, s.stop_at), s.stop_css)
+  end
+
+  fn rule_rank(r : Arcade.Canvas.FillRule) : Int do
+    match r do
+    RuleNonZero -> 0
+    RuleEvenOdd -> 1
+    end
+  end
+
+  fn floats(h : Int, xs : List(Float)) : Int do
+    List.fold_left(xs, h, Arcade.Test.Digest.float)
+  end
+
+  fn call_digest(h : Int, c : Arcade.Canvas.CanvasCall) : Int do
+    match c do
+    CvSave -> Arcade.Test.Digest.int(h, 0)
+    CvRestore -> Arcade.Test.Digest.int(h, 1)
+    CvSetTransform(a, b, cc, d, e, f) -> floats(Arcade.Test.Digest.int(h, 2), [a, b, cc, d, e, f])
+    CvComposite(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 3), s)
+    CvBeginPath -> Arcade.Test.Digest.int(h, 4)
+    CvMoveTo(x, y) -> floats(Arcade.Test.Digest.int(h, 5), [x, y])
+    CvLineTo(x, y) -> floats(Arcade.Test.Digest.int(h, 6), [x, y])
+    CvQuadTo(a, b, cc, d) -> floats(Arcade.Test.Digest.int(h, 7), [a, b, cc, d])
+    CvCubicTo(a, b, cc, d, e, f) -> floats(Arcade.Test.Digest.int(h, 8), [a, b, cc, d, e, f])
+    CvClosePath -> Arcade.Test.Digest.int(h, 9)
+    CvArc(x, y, r, sweep) -> floats(Arcade.Test.Digest.int(h, 10), [x, y, r, sweep])
+    CvFillStyle(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 11), s)
+    CvRadialStyle(a, b, cc, d, e, f, stops) -> do
+      Arcade.Test.Digest.list(floats(Arcade.Test.Digest.int(h, 12), [a, b, cc, d, e, f]), stops, stop_digest)
+    end
+    CvFill(r) -> Arcade.Test.Digest.int(Arcade.Test.Digest.int(h, 13), rule_rank(r))
+    CvClip(r) -> Arcade.Test.Digest.int(Arcade.Test.Digest.int(h, 14), rule_rank(r))
+    CvFillRect(a, b, cc, d) -> floats(Arcade.Test.Digest.int(h, 15), [a, b, cc, d])
+    CvStrokeStyle(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 16), s)
+    CvLineWidth(w) -> Arcade.Test.Digest.float(Arcade.Test.Digest.int(h, 17), w)
+    CvLineCap(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 18), s)
+    CvLineJoin(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 19), s)
+    CvStroke -> Arcade.Test.Digest.int(h, 20)
+    CvFont(s) -> Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 21), s)
+    CvTextCentred -> Arcade.Test.Digest.int(h, 22)
+    CvFillText(s, x, y) -> floats(Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 23), s), [x, y])
+    CvStrokeText(s, x, y) -> floats(Arcade.Test.Digest.text(Arcade.Test.Digest.int(h, 24), s), [x, y])
+    end
+  end
+
+  fn is_fill_text(c : Arcade.Canvas.CanvasCall) : Option(String) do
+    match c do
+    CvFillText(s, _, _) -> Some(s)
+    _ -> None
+    end
+  end
+
+  fn opens_at_dpr2(cs : List(Arcade.Canvas.CanvasCall)) : Bool do
+    match cs do
+    Cons(CvSetTransform(a, b, c, d, e, f), _) -> a == 2.0 && b == 0.0 && c == 0.0 && d == 2.0 && e == 0.0 && f == 0.0
+    _ -> false
+    end
+  end
+
+  fn canvas_cases() : Outcome do
+    let cs = frame_calls()
+    let h = Putt.Course.straight()
+    let l = Putt.View.projection(rs(), h, Arcade.Camera.viewport(360.0, 640.0))
+    let cup = Putt.View.px(rs(), l, h.cup)
+    let texts = List.filter_map(cs, is_fill_text)
+    all([expect(Putt.View.scale_of(l) == 640.0 /. 7.0, "the first hole fills the height: 7 m on 640 px"), expect(cup.x == 180.0, "the cup is on the centre line"), expect(opens_at_dpr2(cs), "the frame opens at dpr 2"), expect_string(String.join(texts, "|"), "Hole 1 of 4 - Straight - Par 2 - Stroke 1", "the caption"), expect_int(List.length(cs), 82, "calls in the frame (pinned)"), expect_int(Arcade.Test.Digest.list(Arcade.Test.Digest.start(), cs, call_digest), 2104261258, "the frame's calls (pinned)")])
+  end
+
+  -- ---- Sound: the cue table and the feed ----
+  fn audio_cases() : Outcome do
+    let s = Putt.Rules.new_game(rs(), seed_of(1))
+    let sink = { aim: Arcade.Vec2.vec2(0.0, 1.0), power: 2.45 }
+    let wind_free = { s with wind: Arcade.Vec2.zero() }
+    match Putt.Rules.play(rs(), PuttStrike(sink), wind_free) do
+    Err(_) -> Mismatch("the putt was refused")
+    Ok(t) -> do
+      let cmds = Putt.Cues.audio(rs(), t.told)
+      let first = Putt.Cues.audio_between(rs(), t.told, -1.0, 0.0)
+      let later = Putt.Cues.audio_between(rs(), t.told, 0.0, 100.0)
+      let synth = Arcade.Synth.new()
+      let (_, fed) = Arcade.SynthFeed.block(Putt.Cues.voices, synth, cmds, 0)
+      let levels = Arcade.SynthFeed.track(Arcade.SynthFeed.quiet(), first)
+      let rested = Arcade.SynthFeed.track(levels, later)
+      all([expect_string(String.join(List.map(t.told, event_name), " "), "struck cup rested holed", "a holed putt tells"), expect_int(List.length(cmds), 5, "and sends five commands"), expect_int(List.length(first), 2, "two at the strike"), expect_int(List.length(later), 3, "three as it drops and rests"), expect(levels.lvl_rumble == 0.25 *. 2.45 /. 4.0, "the strike starts the rumble"), expect(rested.lvl_rumble == 0.0, "the rest stops it"), expect_int(Arcade.Synth.voice_count(fed), 10, "tap (2), drop (4) and the birdie chime (4) start voices"), expect_int(List.length(Putt.Cues.voices(Arcade.Synth.consts(), PcCourseOut)), 8, "the course fanfare")])
+    end
+    end
+  end
+
+  fn event_name(e : PuttEvent) : String do
+    match e do
+    PuttStruck(_) -> "struck"
+    PuttMet(m) -> bump_name(m.ev)
+    PuttRested(_, _) -> "rested"
+    PuttHoled(_, _) -> "holed"
+    PuttPickedUp(_, _) -> "picked up"
+    PuttTeedOff(_) -> "teed off"
+    PuttFinished(_, _) -> "finished"
+    end
+  end
+
+  fn bump_name(b : PuttBump) : String do
+    match b do
+    BumpWall -> "wall"
+    BumpBlock -> "block"
+    BumpSand -> "sand"
+    BumpLip -> "lip"
+    BumpCup -> "cup"
+    end
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("replay: seed and actions give one game, on every target", fn () -> replay_cases()),
+      case("refusals stop a replay and say why", fn () -> refusal_cases()),
+      case("one row per hole under the bot", fn () -> hole_rows()),
+      case("each hole's wind is drawn from the seed", fn () -> wind_cases()),
+      case("the green: lines, walls, blocks, sand, cup and lip", fn () -> physics_cases()),
+      case("a flick becomes a putt", fn () -> gesture_cases()),
+      case("a frame's canvas calls", fn () -> canvas_cases()),
+      case("cues and the synth feed", fn () -> audio_cases())
+    ]
+  end
+
+end

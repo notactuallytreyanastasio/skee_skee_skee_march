@@ -801,7 +801,7 @@ arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_JS_FLAGS
 arcade/physics/            forge name arcade_physics (deps: arcade): Arcade.Physics.*
 arcade/test/               the engine's own suites (u64, numerics, num, vec, rng)
 arcade/scripts/            the engine's check.sh, run-suite.sh and run-all.sh
-arcade/examples/putt/      (to come) the second game
+arcade/examples/putt/      the second game: core and suites (make -C, or make test-examples); no web launch yet
 ```
 
 skee's `forge.toml` names them: `[deps] arcade = { path = "arcade" }` and

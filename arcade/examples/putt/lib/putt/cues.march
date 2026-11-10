@@ -1,0 +1,136 @@
+mod Putt.Cues do
+
+  -- The game's sounds: its own cue type, the Arcade.Synth voices each cue
+  -- starts (the cue table Arcade.SynthFeed takes as `voices`), and the
+  -- AudioCmd list a played action sends. While a putt rolls, the rumble bed
+  -- is the ball on the grass: up with the stroke's power, off when it rests.
+  cap pure
+
+  import Arcade.Synth
+
+  -- One per sound. PcTap carries the putt's power (m/s); PcHoleOut the
+  -- strokes against par (negative under par).
+  type PuttCue =
+    PcTap(Float)
+    | PcWall
+    | PcBlock
+    | PcSand
+    | PcLip
+    | PcDrop
+    | PcHoleOut(Int)
+    | PcCourseOut
+
+  doc """The voices a cue starts: the cue table for Arcade.SynthFeed."""
+  fn voices(c : SynthConsts, cue : PuttCue) : List(SynthVoice) needs () do
+    match cue do
+    PcTap(power) -> do
+      [
+        tone(c, WaveTri, 880.0 +. power *. 120.0, 0.12 +. power *. 0.05, 0.05),
+        tone(c, WaveNoise, 2000.0, 0.08, 0.02)
+      ]
+    end
+    PcWall -> [tone(c, WaveSquare, 220.0, 0.12, 0.06)]
+    PcBlock -> [tone(c, WaveTri, 160.0, 0.2, 0.08)]
+    PcSand -> [tone(c, WaveNoise, 400.0, 0.08, 0.15)]
+    PcLip -> [bend(c, WaveSine, 700.0, 500.0, 0.15, 0.1)]
+    PcDrop -> do
+      Cons(glide(c, WaveSine, 300.0, 120.0, 0.12, 0.4, 0.15), bell(c, 1046.0, 0.25, 0.1))
+    end
+    PcHoleOut(over) -> hole_out(c, over)
+    PcCourseOut -> do
+      List.append(arpeggio(c, [523.0, 659.0, 784.0, 1046.0, 1318.0], 0.09, 0.2, 0.3, WaveTri), bell(c, 1568.0, 0.25, 0.45))
+    end
+    end
+  end
+
+  pfn hole_out(c : SynthConsts, over : Int) : List(SynthVoice) needs () do
+    if over < 0 do
+      arpeggio(c, [784.0, 988.0, 1175.0, 1568.0], 0.08, 0.2, 0.25, WaveTri)
+    else
+      if over == 0 do
+        arpeggio(c, [784.0, 988.0, 1175.0], 0.08, 0.18, 0.2, WaveTri)
+      else
+        arpeggio(c, [392.0, 349.0], 0.12, 0.15, 0.2, WaveSquare)
+      end
+    end
+  end
+
+  doc """The rumble bed's level for a putt of this power: a quarter at the strongest."""
+  fn rumble_of(rs : PuttRules, power : Float) : Float needs () do
+    0.25 *. power /. rs.tune.max_power
+  end
+
+  doc """The commands one event sends."""
+  fn audio_of(rs : PuttRules, e : PuttEvent) : List(AudioCmd(PuttCue)) needs () do
+    match e do
+    PuttStruck(shot) -> [CmdPlay(PcTap(shot.power)), CmdRumble(rumble_of(rs, shot.power))]
+    PuttMet(m) -> [CmdPlay(bump_cue(m.ev))]
+    PuttRested(_, _) -> [CmdRumble(0.0)]
+    PuttHoled(n, par) -> [CmdPlay(PcHoleOut(n - par))]
+    PuttPickedUp(n, par) -> [CmdPlay(PcHoleOut(n - par))]
+    PuttTeedOff(_) -> []
+    PuttFinished(_, _) -> [CmdPlay(PcCourseOut)]
+    end
+  end
+
+  fn bump_cue(b : PuttBump) : PuttCue needs () do
+    match b do
+    BumpWall -> PcWall
+    BumpBlock -> PcBlock
+    BumpSand -> PcSand
+    BumpLip -> PcLip
+    BumpCup -> PcDrop
+    end
+  end
+
+  doc """
+  When an event sounds, in seconds from the action: a bump at its time, the
+  rest and what follows it at the roll's end, everything else at once.
+  `last` is the time of the event before.
+  """
+  fn time_of(e : PuttEvent, last : Float) : Float needs () do
+    match e do
+    PuttStruck(_) -> 0.0
+    PuttMet(m) -> m.at
+    PuttRested(_, t) -> t
+    PuttHoled(_, _) -> last
+    PuttPickedUp(_, _) -> last
+    PuttTeedOff(_) -> 0.0
+    PuttFinished(_, _) -> 0.0
+    end
+  end
+
+  doc """Every command an action's events send, in order."""
+  fn audio(rs : PuttRules, told : List(PuttEvent)) : List(AudioCmd(PuttCue)) needs () do
+    match told do
+    Nil -> []
+    Cons(e, rest) -> List.append(audio_of(rs, e), audio(rs, rest))
+    end
+  end
+
+  doc """
+  The commands of the events that sound after `from` and by `upto` seconds:
+  what a shell playing a putt back sends each frame. The first frame passes
+  a negative `from`, so what sounds at 0 is sent once.
+  """
+  fn audio_between(rs : PuttRules, told : List(PuttEvent), from : Float, upto : Float) : List(AudioCmd(PuttCue)) needs () do
+    window(rs, told, from, upto, 0.0, [])
+  end
+
+  pfn window(rs : PuttRules, told : List(PuttEvent), from : Float, upto : Float, last : Float, acc : List(AudioCmd(PuttCue))) : List(AudioCmd(PuttCue)) needs () do
+    match told do
+    Nil -> acc
+    Cons(e, rest) -> do
+      let t = time_of(e, last)
+      let now =
+        if t > from && t <= upto do
+          List.append(acc, audio_of(rs, e))
+        else
+          acc
+        end
+      window(rs, rest, from, upto, t, now)
+    end
+    end
+  end
+
+end

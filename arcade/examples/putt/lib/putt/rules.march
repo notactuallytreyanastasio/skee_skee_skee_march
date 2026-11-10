@@ -1,0 +1,244 @@
+mod Putt.Rules do
+
+  -- The game as a pure reducer: a state, the actions a player can take, and
+  -- `play`, which applies one or says why it cannot. Every random choice (each
+  -- hole's wind) is drawn from the state's Arcade.Rng, seeded once, so a game
+  -- is its seed plus the actions it accepted: `resume` rebuilds one with
+  -- Arcade.Replay.replay.
+  cap pure
+
+  import Arcade.Vec2
+
+  -- Where a game stands: lining up a putt, a hole finished (waiting for the
+  -- next), or the course over.
+  type PuttPhase = PuttAiming | PuttHoleDone | PuttCourseDone
+
+  -- One putt: a direction on the course (normalized by the rules) and the
+  -- ball's starting speed in m/s.
+  type PuttShot = { aim : Vec2, power : Float }
+
+  type PuttAction = PuttStrike(PuttShot) | PuttNext
+
+  type PuttError =
+    PuttNotAiming
+    | PuttHoleUnfinished
+    | PuttCourseOver
+    | PuttNoAim
+    | PuttPowerOut(Float)
+
+  -- `card` holds the strokes of every finished hole, first hole first.
+  type PuttState = {
+    rng : Rng,
+    seed : U64,
+    hole : Int,
+    ball : Vec2,
+    strokes : Int,
+    wind : Vec2,
+    card : List(Int),
+    phase : PuttPhase
+  }
+
+  -- What a played action told: the ball struck, what it met and when (from
+  -- the moment it was struck), where it came to rest, a hole or the course
+  -- finished, a new hole begun.
+  type PuttEvent =
+    PuttStruck(PuttShot)
+    | PuttMet(Timed(PuttBump))
+    | PuttRested(Vec2, Float)
+    | PuttHoled(Int, Int)
+    | PuttPickedUp(Int, Int)
+    | PuttTeedOff(Int)
+    | PuttFinished(Int, Int)
+
+  -- An action played: the state after it, what it told (in order) and the
+  -- ball's path when it was a putt (empty otherwise).
+  type PuttTurn = {
+    after : PuttState,
+    told : List(PuttEvent),
+    rolled : List(Sampled(Vec2))
+  }
+
+  -- What the rules read: the numerics and the tuning.
+  type PuttRules = { num : Numerics, tune : PuttTuning }
+
+  fn rules() : PuttRules needs () do
+    { num: Arcade.Numerics.make(), tune: Putt.Roll.tuning() }
+  end
+
+  doc """
+  A wind for a hole: two draws, x then y, each a uniform pull in
+  [-wind_max, wind_max) m/s^2.
+  """
+  fn draw_wind(rs : PuttRules, r : Rng) : (Vec2, Rng) needs () do
+    let (ux, r1) = Arcade.Rng.next_unit(rs.num, r)
+    let (uy, r2) = Arcade.Rng.next_unit(rs.num, r1)
+    let w = rs.tune.wind_max
+    (vec2((ux *. 2.0 -. 1.0) *. w, (uy *. 2.0 -. 1.0) *. w), r2)
+  end
+
+  pfn tee_up(rs : PuttRules, s : PuttState, i : Int, h : PuttHole) : PuttState needs () do
+    let (wind, r) = draw_wind(rs, s.rng)
+    { s with rng: r, hole: i, ball: h.tee, strokes: 0, wind: wind, phase: PuttAiming }
+  end
+
+  doc """A new game from a seed, on the first hole's tee."""
+  fn new_game(rs : PuttRules, seed : U64) : PuttState needs () do
+    let first = Putt.Course.straight()
+    let blank =
+      {
+        rng: Arcade.Rng.seed(seed),
+        seed: seed,
+        hole: 0,
+        ball: first.tee,
+        strokes: 0,
+        wind: zero(),
+        card: [],
+        phase: PuttAiming
+      }
+    tee_up(rs, blank, 0, first)
+  end
+
+  doc """The hole the game is on. The rules never let `hole` leave the course."""
+  fn current(s : PuttState) : PuttHole needs () do
+    match Putt.Course.hole_at(s.hole) do
+    Some(h) -> h
+    None -> unreachable()
+    end
+  end
+
+  doc """The strokes on the card so far."""
+  fn total(s : PuttState) : Int needs () do
+    List.fold_left(s.card, 0, fn (acc, n) -> acc + n)
+  end
+
+  doc """Apply one action, or say why it cannot be played now."""
+  fn play(rs : PuttRules, a : PuttAction, s : PuttState) : Result(PuttTurn, PuttError) needs () do
+    match a do
+    PuttStrike(shot) -> strike(rs, shot, s)
+    PuttNext -> next_hole(rs, s)
+    end
+  end
+
+  doc """`play` without what it told: the shape Arcade.Replay folds."""
+  fn apply(rs : PuttRules, a : PuttAction, s : PuttState) : Result(PuttState, PuttError) needs () do
+    match play(rs, a, s) do
+    Ok(turn) -> Ok(turn.after)
+    Err(why) -> Err(why)
+    end
+  end
+
+  doc """
+  A game rebuilt from its seed and the actions it accepted. Returns the
+  state, how many actions replayed, and the first refusal, if any.
+  """
+  fn resume(rs : PuttRules, seed : U64, actions : List(PuttAction)) : (PuttState, Int, Option(PuttError)) needs () do
+    Arcade.Replay.replay(rs, apply, new_game(rs, seed), actions)
+  end
+
+  pfn checked_shot(rs : PuttRules, shot : PuttShot) : Result(PuttShot, PuttError) needs () do
+    let l = length(shot.aim)
+    if l > 0.0 do
+      if shot.power >= rs.tune.min_power && shot.power <= rs.tune.max_power do
+        Ok({ aim: scale(shot.aim, 1.0 /. l), power: shot.power })
+      else
+        Err(PuttPowerOut(shot.power))
+      end
+    else
+      Err(PuttNoAim)
+    end
+  end
+
+  pfn strike(rs : PuttRules, shot : PuttShot, s : PuttState) : Result(PuttTurn, PuttError) needs () do
+    match s.phase do
+    PuttAiming -> do
+      match checked_shot(rs, shot) do
+      Ok(ok) -> Ok(struck(rs, ok, s))
+      Err(why) -> Err(why)
+      end
+    end
+    PuttHoleDone -> Err(PuttNotAiming)
+    PuttCourseDone -> Err(PuttCourseOver)
+    end
+  end
+
+  pfn met_events(xs : List(Timed(PuttBump)), acc : List(PuttEvent)) : List(PuttEvent) needs () do
+    match xs do
+    Nil -> acc
+    Cons(x, rest) -> met_events(rest, Cons(PuttMet(x), acc))
+    end
+  end
+
+  pfn struck(rs : PuttRules, shot : PuttShot, s : PuttState) : PuttTurn needs () do
+    let h = current(s)
+    let end_ = Putt.Roll.roll(rs.tune, h, s.wind, s.ball, scale(shot.aim, shot.power))
+    let strokes = s.strokes + 1
+    let met = List.reverse(met_events(end_.met, [PuttStruck(shot)]))
+    let rested = List.append(met, [PuttRested(end_.rest, end_.took)])
+    let moved = { s with ball: end_.rest, strokes: strokes }
+    if end_.holed do
+      finish_hole(moved, List.append(rested, [PuttHoled(strokes, h.par)]), end_.path)
+    else
+      if strokes >= rs.tune.stroke_cap do
+        finish_hole(moved, List.append(rested, [PuttPickedUp(strokes, h.par)]), end_.path)
+      else
+        { after: moved, told: rested, rolled: end_.path }
+      end
+    end
+  end
+
+  pfn finish_hole(s : PuttState, told : List(PuttEvent), path : List(Sampled(Vec2))) : PuttTurn needs () do
+    {
+      after: { s with card: List.append(s.card, [s.strokes]), phase: PuttHoleDone },
+      told: told,
+      rolled: path
+    }
+  end
+
+  pfn next_hole(rs : PuttRules, s : PuttState) : Result(PuttTurn, PuttError) needs () do
+    match s.phase do
+    PuttAiming -> Err(PuttHoleUnfinished)
+    PuttCourseDone -> Err(PuttCourseOver)
+    PuttHoleDone -> do
+      match Putt.Course.hole_at(s.hole + 1) do
+      Some(h) -> do
+        Ok({ after: tee_up(rs, s, s.hole + 1, h), told: [PuttTeedOff(s.hole + 1)], rolled: [] })
+      end
+      None -> do
+        Ok({ after: { s with phase: PuttCourseDone }, told: [PuttFinished(total(s), Putt.Course.course_par())], rolled: [] })
+      end
+      end
+    end
+    end
+  end
+
+  doc """
+  A flick on screen as a putt. The aim runs from where the flick began to
+  where it was fastest, screen y flipped to course y (the orthographic
+  camera keeps screen up as course +y); the power is the lift-off speed in
+  pixels per second times power_per_speed, held to the playable range. None
+  for a flick with no direction.
+  """
+  fn shot_of_flick(rs : PuttRules, m : GestureMetrics) : Option(PuttShot) needs () do
+    let dx = m.top_point.gx -. m.began_point.gx
+    let dy = m.began_point.gy -. m.top_point.gy
+    let aim = vec2(dx, dy)
+    if length(aim) > 0.0 do
+      do
+        let p =
+          Arcade.Num.clamp(m.lift_speed *. rs.tune.power_per_speed, rs.tune.min_power, rs.tune.max_power)
+        Some({ aim: normalized(aim), power: p })
+      end
+    else
+      None
+    end
+  end
+
+  fn phase_rank(p : PuttPhase) : Int needs () do
+    match p do
+    PuttAiming -> 0
+    PuttHoleDone -> 1
+    PuttCourseDone -> 2
+    end
+  end
+
+end

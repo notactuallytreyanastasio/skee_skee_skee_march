@@ -1,0 +1,15 @@
+[package]
+name = "putt"
+version = "0.1.0"
+type = "app"
+entrypoint = "lib/putt/rules.march"
+description = "Putt: top-down mini-golf on the arcade engine, its second game"
+author = ""
+license = ""
+
+[deps]
+arcade = { path = "../.." }
+arcade_physics = { path = "../../physics" }
+
+[dev-deps]
+arcade_testkit = { path = "../../testkit" }
