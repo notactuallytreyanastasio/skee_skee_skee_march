@@ -15,17 +15,6 @@ mod Glue do
     fn glue_on_visibility(cb : Bool -> ()) : Unit
     fn glue_vibrate(ms : Int) : Unit
     fn glue_on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : Unit
-    fn glue_set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : Unit
-    fn glue_composite(ctx : Js.Canvas.Context, op : String) : Unit
-    fn glue_fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
-    fn glue_clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
-    fn glue_line_cap(ctx : Js.Canvas.Context, cap : String) : Unit
-    fn glue_line_join(ctx : Js.Canvas.Context, join : String) : Unit
-    fn glue_text_centred(ctx : Js.Canvas.Context) : Unit
-    fn glue_arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : Unit
-    fn glue_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Unit
-    fn glue_gradient_stop(at : Float, css : String) : Unit
-    fn glue_fill_gradient(ctx : Js.Canvas.Context) : Unit
     fn glue_queue_tap(i : Int) : Unit
     fn glue_drain_taps() : List(Int)
     fn glue_mark(name : String, value : String) : Unit
@@ -66,52 +55,6 @@ mod Glue do
 
   fn on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : () do
     glue_on_pointer(canvas, down, move, up, cancel)
-  end
-
-  fn set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : () do
-    glue_set_transform(ctx, a, b, c, d, e, f)
-  end
-
-  fn composite(ctx : Js.Canvas.Context, op : String) : () do
-    glue_composite(ctx, op)
-  end
-
-  fn fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
-    glue_fill_rule(ctx, evenodd)
-  end
-
-  fn clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
-    glue_clip_rule(ctx, evenodd)
-  end
-
-  fn line_cap(ctx : Js.Canvas.Context, cap : String) : () do
-    glue_line_cap(ctx, cap)
-  end
-
-  fn line_join(ctx : Js.Canvas.Context, join : String) : () do
-    glue_line_join(ctx, join)
-  end
-
-  fn text_centred(ctx : Js.Canvas.Context) : () do
-    glue_text_centred(ctx)
-  end
-
-  fn arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : () do
-    glue_arc_full(ctx, x, y, r, sweep)
-  end
-
-  doc """Start a radial gradient (createRadialGradient). The glue keeps it: no resource
-  type, which forge format would delete (tools/repros/format_deletes_resource.march.txt)."""
-  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : () do
-    glue_radial(ctx, x0, y0, r0, x1, y1, r1)
-  end
-
-  fn gradient_stop(at : Float, css : String) : () do
-    glue_gradient_stop(at, css)
-  end
-
-  fn fill_gradient(ctx : Js.Canvas.Context) : () do
-    glue_fill_gradient(ctx)
   end
 
   fn queue_tap(i : Int) : () do

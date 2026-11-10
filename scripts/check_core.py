@@ -6,7 +6,8 @@
 Roots are relative to --root. The defaults are this repository's: core is
 lib/ and arcade/lib/ (the game's pure core and the engine's), other is shell/,
 test/ (generated goldens aside), the engine's test kit and the engine's own
-suites (arcade/test/, copied rows aside), and the engine is arcade/. Every core root must hold March files, or the check refuses to pass.
+suites (arcade/test/, copied rows aside) and the engine's web shell
+(arcade/lib/arcade/web/, JS only), and the engine is arcade/. Every core root must hold March files, or the check refuses to pass.
 
 Purity (core roots): the compiler misses Js.* and System.* from a module with no
 needs lines, so this file is the only complete guard. Every rule below that
@@ -124,7 +125,10 @@ ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
 
 
 DEFAULT_CORE = ["lib", "arcade/lib"]
-DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib", "arcade/test"]
+DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib", "arcade/test", "arcade/lib/arcade/web"]
+# Directories under a core root that hold the impure shell instead: checked
+# as non-core (an --other root above), never as core.
+SHELL_PARTS = ("web",)
 DEFAULT_ENGINE = ["arcade"]
 
 
@@ -134,6 +138,12 @@ def march_files(base: pathlib.Path) -> list:
         p for p in sorted(base.rglob("*.march"))
         if "golden" not in p.relative_to(base).parts and not ENGINE_SKIP.intersection(p.relative_to(base).parts)
     ]
+
+
+def is_shell(base: pathlib.Path, path: pathlib.Path) -> bool:
+    """A file of the engine's web shell (arcade/lib/arcade/web/), under a core root."""
+    parts = path.relative_to(base).parts
+    return len(parts) >= 3 and parts[0] == "arcade" and parts[1] in SHELL_PARTS
 
 
 def engine_files(bases: list) -> list:
@@ -172,7 +182,7 @@ def main() -> int:
 
     core_files = []
     for rel in args.core or DEFAULT_CORE:
-        found = march_files(root / rel)
+        found = [p for p in march_files(root / rel) if not is_shell(root / rel, p)]
         if not found:
             print(f"no March files under {root / rel}: refusing to pass", file=sys.stderr)
             return 1

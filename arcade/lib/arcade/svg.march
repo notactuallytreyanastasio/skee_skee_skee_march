@@ -1,0 +1,203 @@
+mod Arcade.Svg do
+
+  -- Arcade.Draw's DrawOps as SVG elements in Arcade.Html's tree: paths for
+  -- shapes, <text> for lettering, and a PushClip/PopClip pair as a <g>
+  -- clipped to a <clipPath>. Fill and clip rules are Arcade.Canvas's, so the
+  -- SVG and the canvas agree on every shape.
+  cap pure
+
+  pfn css(c : Rgba) : String needs () do
+    Arcade.Draw.css(c)
+  end
+
+  pfn num(x : Float) : String needs () do
+    Arcade.Draw.css_number(x)
+  end
+
+  pfn pt(v : Vec2) : String needs () do
+    num(v.x) ++ " " ++ num(v.y)
+  end
+
+  pfn poly_d(pts : List(Vec2)) : String needs () do
+    match pts do
+    Nil -> ""
+    Cons(first, rest) -> do
+      "M" ++ pt(first) ++ String.join(List.map(rest, fn p -> "L" ++ pt(p)), "") ++ "Z"
+    end
+    end
+  end
+
+  pfn step_d(s : PathStep) : String needs () do
+    match s do
+    MoveTo(a) -> "M" ++ pt(a)
+    LineTo(a) -> "L" ++ pt(a)
+    QuadTo(c, a) -> "Q" ++ pt(c) ++ " " ++ pt(a)
+    CubicTo(c1, c2, a) -> "C" ++ pt(c1) ++ " " ++ pt(c2) ++ " " ++ pt(a)
+    ClosePath -> "Z"
+    end
+  end
+
+  pfn disc_d(c : Vec2, r0 : Float) : String needs () do
+    let r = Arcade.Num.max_float(0.0, r0)
+    let rr = num(r) ++ " " ++ num(r)
+    "M" ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x +. r) ++ " " ++ num(c.y) ++ "A" ++ rr ++ " 0 1 0 " ++ num(c.x -. r) ++ " " ++ num(c.y) ++ "Z"
+  end
+
+  pfn shape_d(sh : Shape) : String needs () do
+    match sh do
+    Poly(pts) -> poly_d(pts)
+    Holed(outer, inner) -> poly_d(outer) ++ poly_d(inner)
+    Polys(parts) -> String.join(List.map(parts, poly_d), "")
+    Disc(c, r) -> disc_d(c, r)
+    Outline(steps) -> String.join(List.map(steps, step_d), "")
+    end
+  end
+
+  pfn rule_of(sh : Shape) : String needs () do
+    match Arcade.Canvas.rule(sh) do
+    RuleNonZero -> "nonzero"
+    RuleEvenOdd -> "evenodd"
+    end
+  end
+
+  pfn cap_of(e : LineEnd) : String needs () do
+    match e do
+    ButtEnd -> "butt"
+    RoundEnd -> "round"
+    end
+  end
+
+  pfn join_of(c : Corner) : String needs () do
+    match c do
+    MitreCorner -> "miter"
+    RoundCorner -> "round"
+    end
+  end
+
+  pfn blend_props(b : Blend) : List(Prop) needs () do
+    match b do
+    Over -> []
+    Lighter -> [Prop("style", "mix-blend-mode:plus-lighter")]
+    end
+  end
+
+  -- A radial paint's colour where SVG needs one: its last stop. Art meant for
+  -- SVG should use flat paint.
+  pfn paint_css(p : Paint) : String needs () do
+    match p do
+    Flat(c) -> css(c)
+    RadialPaint(r) -> do
+      match List.reverse(r.stops) do
+      Cons(s, _) -> css(s.colour)
+      Nil -> "none"
+      end
+    end
+    end
+  end
+
+  pfn matrix(f : Affine) : String needs () do
+    "matrix(" ++ String.join(List.map([f.a, f.b, f.c, f.d, f.e, f.f], num), " ") ++ ")"
+  end
+
+  pfn text_svg(l : Lettering) : Html needs () do
+    let edge =
+      match l.edge do
+      Some(p) -> do
+        [
+          Prop("stroke", css(p.ink)),
+          Prop("stroke-width", num(p.width)),
+          Prop("stroke-linejoin", join_of(p.corners)),
+          Prop("paint-order", "stroke")
+        ]
+      end
+      None -> []
+      end
+    let props =
+      List.append([Prop("x", num(l.middle.x)), Prop("y", num(l.middle.y)), Prop("text-anchor", "middle"), Prop("dominant-baseline", "central"), Prop("style", "font:" ++ l.font), Prop("fill", css(l.fill)), Prop("transform", matrix(l.frame))], edge)
+    Tag("text", props, [Words(l.words)])
+  end
+
+  pfn op_svg(op : DrawOp) : Html needs () do
+    match op do
+    ClearTo(c) -> do
+      Tag("rect", [Prop("width", "100%"), Prop("height", "100%"), Prop("fill", css(c))], [])
+    end
+    FillShape(sh, paint, blend) -> do
+      Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", paint_css(paint)), Prop("fill-rule", rule_of(sh))], blend_props(blend)), [])
+    end
+    StrokeShape(sh, pen, blend) -> do
+      Tag("path", List.append([Prop("d", shape_d(sh)), Prop("fill", "none"), Prop("stroke", css(pen.ink)), Prop("stroke-width", num(pen.width)), Prop("stroke-linecap", cap_of(pen.ends)), Prop("stroke-linejoin", join_of(pen.corners))], blend_props(blend)), [])
+    end
+    DrawText(l) -> text_svg(l)
+    PushClip(_) -> Words("")
+    PopClip -> Words("")
+    end
+  end
+
+  -- A clip still open: what was made before it, and its id and shape.
+  type OpenClip = {
+    before_rev : List(Html),
+    clip_id : String,
+    clip_shape : Shape
+  }
+
+  -- What `build_ops` has made at the current depth, the clips open around
+  -- it, what is left, and the next clip id.
+  type Built = {
+    made_rev : List(Html),
+    open_clips : List(OpenClip),
+    left : List(DrawOp),
+    next_clip : Int
+  }
+
+  -- Close the innermost clip: a <clipPath> and a <g> clipped to it holding
+  -- what was drawn since it opened.
+  pfn close_clip(b : Built) : Built needs () do
+    match b.open_clips do
+    Nil -> b
+    Cons(c, outer) -> do
+      let clip =
+        Tag("clipPath", [Prop("id", c.clip_id)], [Tag("path", [Prop("d", shape_d(c.clip_shape)), Prop("clip-rule", rule_of(c.clip_shape))], [])])
+      let g =
+        Tag("g", [Prop("clip-path", "url(#" ++ c.clip_id ++ ")")], List.reverse(b.made_rev))
+      { b with made_rev: Cons(g, Cons(clip, c.before_rev)), open_clips: outer }
+    end
+    end
+  end
+
+  -- DrawOps as nested SVG: a PushClip opens a <g> clipped to its shape, its
+  -- PopClip closes it, a stray PopClip does nothing (as Arcade.Canvas's restore)
+  -- and clips still open at the end are closed.
+  pfn build_ops(prefix : String, b : Built) : Built needs () do
+    match b.left do
+    Nil -> do
+      if List.is_empty(b.open_clips) do
+        b
+      else
+        build_ops(prefix, close_clip(b))
+      end
+    end
+    Cons(PopClip, rest) -> build_ops(prefix, close_clip({ b with left: rest }))
+    Cons(PushClip(sh), rest) -> do
+      let c =
+        {
+          before_rev: b.made_rev,
+          clip_id: prefix ++ "-clip" ++ int_to_string(b.next_clip),
+          clip_shape: sh
+        }
+      build_ops(prefix, { made_rev: [], open_clips: Cons(c, b.open_clips), left: rest, next_clip: b.next_clip + 1 })
+    end
+    Cons(op, rest) -> do
+      build_ops(prefix, { b with made_rev: Cons(op_svg(op), b.made_rev), left: rest })
+    end
+    end
+  end
+
+  doc """DrawOps as SVG elements; clip ids start with `prefix`."""
+  fn ops_svg(prefix : String, ops : List(DrawOp)) : List(Html) needs () do
+    let b =
+      build_ops(prefix, { made_rev: [], open_clips: [], left: ops, next_clip: 0 })
+    List.reverse(b.made_rev)
+  end
+
+end

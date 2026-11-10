@@ -1,0 +1,43 @@
+mod Arcade.Html do
+
+  -- HTML as data: a tree of tags and text, rendered to escaped text in one
+  -- place. Arcade.Svg builds its elements in it, and a game's own views can
+  -- build theirs in it too.
+  cap pure
+
+  type Prop = Prop(String, String)
+
+  type Html = Tag(String, List(Prop), List(Html)) | Words(String)
+
+  doc """HTML-escape text or an attribute value."""
+  fn escape(s : String) : String needs () do
+    let a = String.replace_all(s, "&", "&amp;")
+    let b = String.replace_all(a, "<", "&lt;")
+    let c = String.replace_all(b, ">", "&gt;")
+    let d = String.replace_all(c, "\"", "&quot;")
+    String.replace_all(d, "'", "&#39;")
+  end
+
+  pfn prop_into(acc : List(String), p : Prop) : List(String) needs () do
+    match p do
+    Prop(name, value) -> Cons(" " ++ name ++ "=\"" ++ escape(value) ++ "\"", acc)
+    end
+  end
+
+  pfn render_into(acc : List(String), h : Html) : List(String) needs () do
+    match h do
+    Words(s) -> Cons(escape(s), acc)
+    Tag(name, props, kids) -> do
+      let opened = Cons(">", List.fold_left(props, Cons("<" ++ name, acc), prop_into))
+      let inner = List.fold_left(kids, opened, render_into)
+      Cons("</" ++ name ++ ">", inner)
+    end
+    end
+  end
+
+  doc """The tree as HTML text, every text and attribute value escaped."""
+  fn render(h : Html) : String needs () do
+    String.join(List.reverse(render_into([], h)), "")
+  end
+
+end

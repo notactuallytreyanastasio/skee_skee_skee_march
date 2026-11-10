@@ -104,23 +104,6 @@ let cell = null;
 export function glue_cell_put(v) { cell = v; }
 export function glue_cell_get() { return cell; }
 
-// ---- Canvas 2D calls Js.Canvas lacks ----
-export function glue_set_transform(ctx, a, b, c, d, e, f) { ctx.setTransform(a, b, c, d, e, f); }
-export function glue_composite(ctx, op) { ctx.globalCompositeOperation = op; }
-export function glue_fill_rule(ctx, evenodd) { ctx.fill(evenodd ? "evenodd" : "nonzero"); }
-export function glue_clip_rule(ctx, evenodd) { ctx.clip(evenodd ? "evenodd" : "nonzero"); }
-export function glue_line_cap(ctx, cap) { ctx.lineCap = cap; }
-export function glue_line_join(ctx, join) { ctx.lineJoin = join; }
-export function glue_text_centred(ctx) { ctx.textAlign = "center"; ctx.textBaseline = "middle"; }
-export function glue_arc_full(ctx, x, y, r, sweep) { ctx.arc(x, y, r, 0, sweep); }
-// The gradient being built: radial, its stops, then fill_gradient sets it.
-let gradient = null;
-export function glue_radial(ctx, x0, y0, r0, x1, y1, r1) {
-  gradient = ctx.createRadialGradient(x0, y0, Math.max(0, r0), x1, y1, Math.max(0, r1));
-}
-export function glue_gradient_stop(at, css) { gradient.addColorStop(Math.min(1, Math.max(0, at)), css); }
-export function glue_fill_gradient(ctx) { ctx.fillStyle = gradient; }
-
 // ---- Taps queued by HUD buttons, drained once a frame (Hud.render) ----
 const taps = [];
 export function glue_queue_tap(i) { taps.push(i); }

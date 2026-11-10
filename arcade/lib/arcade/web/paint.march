@@ -1,0 +1,54 @@
+mod Arcade.Web.Paint do
+
+  -- Executes Arcade.Canvas's Canvas 2D calls, one for one. Every decision
+  -- about what to draw, in what order and in which coordinates is made by
+  -- Arcade.Canvas (pure, tested); this only makes the calls.
+  doc """Paint one frame: `ops` on a canvas of `w` by `h` CSS pixels at `dpr`."""
+  fn frame(ctx : Js.Canvas.Context, n : Arcade.Numerics.Numerics, dpr : Float, w : Float, h : Float, ops : List(Arcade.Draw.DrawOp)) : () do
+    List.each(Arcade.Canvas.calls(n, dpr, w, h, ops), fn c -> call(ctx, c))
+  end
+
+  fn evenodd(r : Arcade.Canvas.FillRule) : Bool do
+    match r do
+    RuleEvenOdd -> true
+    RuleNonZero -> false
+    end
+  end
+
+  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float, stops : List(Arcade.Canvas.ColourStop)) : () do
+    Arcade.Web.Canvas2d.radial(ctx, x0, y0, r0, x1, y1, r1)
+    List.each(stops, fn s -> Arcade.Web.Canvas2d.gradient_stop(s.stop_at, s.stop_css))
+    Arcade.Web.Canvas2d.fill_gradient(ctx)
+  end
+
+  fn call(ctx : Js.Canvas.Context, c : Arcade.Canvas.CanvasCall) : () do
+    match c do
+    CvSave -> Js.Canvas.save(ctx)
+    CvRestore -> Js.Canvas.restore(ctx)
+    CvSetTransform(a, b, cc, d, e, f) -> Arcade.Web.Canvas2d.set_transform(ctx, a, b, cc, d, e, f)
+    CvComposite(op) -> Arcade.Web.Canvas2d.composite(ctx, op)
+    CvBeginPath -> Js.Canvas.begin_path(ctx)
+    CvMoveTo(x, y) -> Js.Canvas.move_to(ctx, x, y)
+    CvLineTo(x, y) -> Js.Canvas.line_to(ctx, x, y)
+    CvQuadTo(a, b, x, y) -> Js.Canvas.quadratic_curve_to(ctx, a, b, x, y)
+    CvCubicTo(a, b, cc, d, x, y) -> Js.Canvas.bezier_curve_to(ctx, a, b, cc, d, x, y)
+    CvClosePath -> Js.Canvas.close_path(ctx)
+    CvArc(x, y, r, sweep) -> Arcade.Web.Canvas2d.arc_full(ctx, x, y, r, sweep)
+    CvFillStyle(css) -> Js.Canvas.set_fill_style(ctx, css)
+    CvRadialStyle(x0, y0, r0, x1, y1, r1, stops) -> radial(ctx, x0, y0, r0, x1, y1, r1, stops)
+    CvFill(r) -> Arcade.Web.Canvas2d.fill_rule(ctx, evenodd(r))
+    CvClip(r) -> Arcade.Web.Canvas2d.clip_rule(ctx, evenodd(r))
+    CvFillRect(x, y, w, h) -> Js.Canvas.fill_rect(ctx, x, y, w, h)
+    CvStrokeStyle(css) -> Js.Canvas.set_stroke_style(ctx, css)
+    CvLineWidth(w) -> Js.Canvas.set_line_width(ctx, w)
+    CvLineCap(cap) -> Arcade.Web.Canvas2d.line_cap(ctx, cap)
+    CvLineJoin(join) -> Arcade.Web.Canvas2d.line_join(ctx, join)
+    CvStroke -> Js.Canvas.stroke(ctx)
+    CvFont(font) -> Js.Canvas.set_font(ctx, font)
+    CvTextCentred -> Arcade.Web.Canvas2d.text_centred(ctx)
+    CvFillText(words, x, y) -> Js.Canvas.fill_text(ctx, words, x, y)
+    CvStrokeText(words, x, y) -> Js.Canvas.stroke_text(ctx, words, x, y)
+    end
+  end
+
+end

@@ -1,6 +1,6 @@
 mod PainterSuite do
 
-  -- The painter piece: Skee.Painter turns Skee.Scene's DrawOps into the Canvas
+  -- The painter piece: Arcade.Canvas turns Arcade.Draw's DrawOps into the Canvas
   -- 2D calls the shell makes, one for one, in the order
   -- tools/scene_preview/paint.html (the reference painter) makes them. The
   -- shell only executes the list, so everything it could get wrong is here.
@@ -8,6 +8,11 @@ mod PainterSuite do
 
   fn k() : Skee.Consts.Consts do
     Skee.Consts.make()
+  end
+
+  fn numerics() : Arcade.Numerics.Numerics do
+    let c = k()
+    c.num
   end
 
   -- Thousandths: both targets print these the same way.
@@ -19,18 +24,18 @@ mod PainterSuite do
     String.join(List.map(xs, num), ",")
   end
 
-  fn rule(r : Skee.Painter.FillRule) : String do
+  fn rule(r : Arcade.Canvas.FillRule) : String do
     match r do
     RuleNonZero -> "nonzero"
     RuleEvenOdd -> "evenodd"
     end
   end
 
-  fn stop(s : Skee.Painter.ColourStop) : String do
+  fn stop(s : Arcade.Canvas.ColourStop) : String do
     num(s.stop_at) ++ " " ++ s.stop_css
   end
 
-  fn describe(c : Skee.Painter.CanvasCall) : String do
+  fn describe(c : Arcade.Canvas.CanvasCall) : String do
     match c do
     CvSave -> "save"
     CvRestore -> "restore"
@@ -62,7 +67,7 @@ mod PainterSuite do
     end
   end
 
-  fn expect_calls(got : List(Skee.Painter.CanvasCall), want : List(String), what : String) : Outcome do
+  fn expect_calls(got : List(Arcade.Canvas.CanvasCall), want : List(String), what : String) : Outcome do
     Arcade.Test.Harness.expect_string(String.join(List.map(got, describe), " | "), String.join(want, " | "), what)
   end
 
@@ -84,8 +89,8 @@ mod PainterSuite do
 
   -- A frame of these ops on a 100x50 CSS-pixel canvas at devicePixelRatio 2,
   -- without the frame's opening transform.
-  fn body(ops : List(Arcade.Draw.DrawOp)) : List(Skee.Painter.CanvasCall) do
-    match Skee.Painter.calls(k(), 2.0, 100.0, 50.0, ops) do
+  fn body(ops : List(Arcade.Draw.DrawOp)) : List(Arcade.Canvas.CanvasCall) do
+    match Arcade.Canvas.calls(numerics(), 2.0, 100.0, 50.0, ops) do
     Cons(_, rest) -> rest
     Nil -> []
     end
@@ -101,7 +106,7 @@ mod PainterSuite do
   end
 
   fn opening() : Outcome do
-    expect_calls(Skee.Painter.calls(k(), 2.0, 100.0, 50.0, []), ["transform 2000,0,0,2000,0,0"], "an empty frame")
+    expect_calls(Arcade.Canvas.calls(numerics(), 2.0, 100.0, 50.0, []), ["transform 2000,0,0,2000,0,0"], "an empty frame")
   end
 
   fn clear() : Outcome do
@@ -168,7 +173,7 @@ mod PainterSuite do
     all([expect_calls(body([PushClip(Holed(triangle(), [])), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip evenodd", "restore"], "a clip is save, clip, restore"), expect_calls(body([PopClip, ClearTo(red())]), ["composite source-over", "fillStyle rgba(255,0,0,1)", "fillRect 0,0,100000,50000"], "an unmatched PopClip restores nothing"), expect_calls(body([PushClip(tri), PushClip(tri), PopClip]), ["save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "save", "begin", "M 1000,2000", "L 3000,4000", "L 5000,2000", "Z", "clip nonzero", "restore", "restore"], "the frame closes clips left open")])
   end
 
-  fn count(cs : List(Skee.Painter.CanvasCall), want : String) : Int do
+  fn count(cs : List(Arcade.Canvas.CanvasCall), want : String) : Int do
     List.length(List.filter(cs, fn c -> describe(c) == want))
   end
 
@@ -179,7 +184,7 @@ mod PainterSuite do
       Skee.App.boot(k(), Skee.App.nothing_saved(), 390.0, 844.0, Arcade.U64.of_int(42))
     let (ticked, _) = Skee.App.update(m, MsgTick(1.0))
     let ops = Skee.App.scene_ops(ticked)
-    let cs = Skee.Painter.calls(k(), 3.0, 390.0, 844.0, ops)
+    let cs = Arcade.Canvas.calls(numerics(), 3.0, 390.0, 844.0, ops)
     let first =
       match cs do
       Cons(c, _) -> describe(c)

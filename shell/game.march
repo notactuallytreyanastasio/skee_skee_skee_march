@@ -158,7 +158,7 @@ mod Game do
     follow_size()
     dispatch(MsgTick(t))
     let s = glue_cell_get()
-    Paint.frame(s.ctx, s.k, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
+    Arcade.Web.Paint.frame(s.ctx, s.k.num, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
     List.each(Hud.render(s.hud, s.model), dispatch)
     mark(s.model)
     Glue.request_frame(fn next -> frame(next))

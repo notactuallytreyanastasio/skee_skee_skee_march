@@ -1,10 +1,9 @@
-mod Skee.Painter do
+mod Arcade.Canvas do
 
-  -- Skee.Scene's DrawOps as the Canvas 2D calls that paint them, one frame at a
-  -- time, in the order tools/scene_preview/paint.html (the reference painter)
-  -- makes them. The shell's Paint executes the list with one exhaustive match
-  -- and decides nothing, so everything a painter can get wrong is here and
-  -- tested (test/suites/painter_suite.march).
+  -- Arcade.Draw's DrawOps as the Canvas 2D calls that paint them, one frame at
+  -- a time. Arcade.Web.Paint executes the list with one exhaustive match and
+  -- decides nothing, so everything a painter can get wrong is here, where a
+  -- pure test can pin it.
   --
   -- Coordinates are CSS pixels. The frame opens with setTransform(dpr, 0, 0,
   -- dpr, 0, 0), so the canvas's backing store is dpr device pixels per CSS
@@ -69,9 +68,9 @@ mod Skee.Painter do
   The calls that paint `ops` on a canvas of `width` by `height` CSS pixels at
   `dpr` device pixels per CSS pixel. A PopClip with no clip open restores
   nothing, and clips left open are restored at the end, so the context's
-  state stack is balanced after every frame.
+  state stack is balanced after every frame. A full disc sweeps `n.tau`.
   """
-  fn calls(k : Skee.Consts.Consts, dpr : Float, width : Float, height : Float, ops : List(Arcade.Draw.DrawOp)) : List(CanvasCall) needs () do
+  fn calls(n : Arcade.Numerics.Numerics, dpr : Float, width : Float, height : Float, ops : List(Arcade.Draw.DrawOp)) : List(CanvasCall) needs () do
     let start =
       {
         rev: [CvSetTransform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)],
@@ -79,7 +78,7 @@ mod Skee.Painter do
         dpr: dpr,
         view_w: width,
         view_h: height,
-        sweep: k.tau
+        sweep: n.tau
       }
     let painted = List.fold_left(ops, start, paint_op)
     List.reverse(close_clips(painted.rev, painted.open_clips))

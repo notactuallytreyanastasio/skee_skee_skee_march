@@ -1,0 +1,68 @@
+mod Arcade.Web.Canvas2d do
+
+  -- The Canvas 2D calls that Js.Canvas lacks, backed by arcade_canvas2d.mjs
+  -- (march copies it beside the build). Each is one platform call.
+  needs IO.Foreign
+
+  extern "./arcade_canvas2d.mjs" : Cap(IO.Foreign) do
+    fn canvas2d_set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : Unit
+    fn canvas2d_composite(ctx : Js.Canvas.Context, op : String) : Unit
+    fn canvas2d_fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
+    fn canvas2d_clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : Unit
+    fn canvas2d_line_cap(ctx : Js.Canvas.Context, cap : String) : Unit
+    fn canvas2d_line_join(ctx : Js.Canvas.Context, join : String) : Unit
+    fn canvas2d_text_centred(ctx : Js.Canvas.Context) : Unit
+    fn canvas2d_arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : Unit
+    fn canvas2d_radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : Unit
+    fn canvas2d_gradient_stop(at : Float, css : String) : Unit
+    fn canvas2d_fill_gradient(ctx : Js.Canvas.Context) : Unit
+  end
+
+  -- ---- Public names: extern declarations are private to this module ----
+  fn set_transform(ctx : Js.Canvas.Context, a : Float, b : Float, c : Float, d : Float, e : Float, f : Float) : () do
+    canvas2d_set_transform(ctx, a, b, c, d, e, f)
+  end
+
+  fn composite(ctx : Js.Canvas.Context, op : String) : () do
+    canvas2d_composite(ctx, op)
+  end
+
+  fn fill_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
+    canvas2d_fill_rule(ctx, evenodd)
+  end
+
+  fn clip_rule(ctx : Js.Canvas.Context, evenodd : Bool) : () do
+    canvas2d_clip_rule(ctx, evenodd)
+  end
+
+  fn line_cap(ctx : Js.Canvas.Context, cap : String) : () do
+    canvas2d_line_cap(ctx, cap)
+  end
+
+  fn line_join(ctx : Js.Canvas.Context, join : String) : () do
+    canvas2d_line_join(ctx, join)
+  end
+
+  fn text_centred(ctx : Js.Canvas.Context) : () do
+    canvas2d_text_centred(ctx)
+  end
+
+  fn arc_full(ctx : Js.Canvas.Context, x : Float, y : Float, r : Float, sweep : Float) : () do
+    canvas2d_arc_full(ctx, x, y, r, sweep)
+  end
+
+  doc """Start a radial gradient (createRadialGradient). The glue keeps it: no resource
+  type, which forge format would delete."""
+  fn radial(ctx : Js.Canvas.Context, x0 : Float, y0 : Float, r0 : Float, x1 : Float, y1 : Float, r1 : Float) : () do
+    canvas2d_radial(ctx, x0, y0, r0, x1, y1, r1)
+  end
+
+  fn gradient_stop(at : Float, css : String) : () do
+    canvas2d_gradient_stop(at, css)
+  end
+
+  fn fill_gradient(ctx : Js.Canvas.Context) : () do
+    canvas2d_fill_gradient(ctx)
+  end
+
+end

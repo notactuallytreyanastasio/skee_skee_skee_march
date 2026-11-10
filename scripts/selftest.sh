@@ -133,6 +133,12 @@ reset
 printf 'mod Arcade.Planted do\n  cap pure\n\n  fn f() : () needs () do\n    println("x")\n  end\nend\n' >"$work/arcade/lib/arcade/planted.march"
 expect_red "core: println in arcade/lib/ (the engine core is pure too)" core
 reset
+printf 'mod Arcade.Web.Planted do\n  fn f(ctx : Js.Canvas.Context) : () do\n    Js.Canvas.save(ctx)\n  end\nend\n' >"$work/arcade/lib/arcade/web/planted.march"
+expect_green "core: Js. in arcade/lib/arcade/web/ (the engine's JS shell is not core)" core
+reset
+printf 'mod Arcade.Planted do\n  fn f(ctx : Js.Canvas.Context) : () do\n    Js.Canvas.save(ctx)\n  end\nend\n' >"$work/arcade/lib/arcade/planted.march"
+expect_red "core: Js. in arcade/lib/arcade/ outside web/" core
+reset
 printf 'mod Arcade.Planted do\n  cap pure\n\n  type Tally = { n : Int }\nend\n' >"$work/arcade/lib/arcade/planted.march"
 printf 'mod Skee.Planted do\n  cap pure\n\n  type Tally = { m : Int }\nend\n' >"$work/lib/skee/planted.march"
 expect_red "core: a type name defined in both the engine and the game (march#1183)" core
@@ -170,6 +176,9 @@ plant_engine "Skee. in the test kit" arcade/testkit/lib/arcade/test '  fn f() : 
   end'
 plant_engine "skee in a string" arcade/lib/arcade '  fn f() : String needs () do
     "skee-ball"
+  end'
+plant_engine "Skee. in the engine's web shell" arcade/lib/arcade/web '  fn f() : Int needs () do
+    Skee.Units.chips_int(Chips(1))
   end'
 reset
 mkdir -p "$work/arcade/web"

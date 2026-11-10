@@ -37,6 +37,10 @@ foundation: ask before changing it.
 | `Arcade.Vec2`, `Arcade.Vec3` | `arcade/lib/arcade/vec2.march`, `vec3.march` | The `Vec2` and `Vec3` types and their algebra |
 | `Arcade.Rng` | `arcade/lib/arcade/rng.march` | SplitMix64; `next_unit` and `next_gaussian` take `Numerics` |
 | `Arcade.Draw` | `arcade/lib/arcade/draw.march` | The DrawOp vocabulary (`Rgba`, `Shape`, `Paint`, `Pen`, `Lettering`, `Affine`, ...) and colour helpers (`hex`, `with_alpha`, `css`, `css_number`, `mix`, `lighter`) |
+| `Arcade.Canvas` | `arcade/lib/arcade/canvas.march` | DrawOps as a `CanvasCall` list (`calls(n, dpr, w, h, ops)`, a full disc sweeps `n.tau`); `FillRule`, `ColourStop`, `rule` |
+| `Arcade.Html` | `arcade/lib/arcade/html.march` | HTML as data (`Prop`, `Html`: `Tag` or `Words`), `escape`, `render` |
+| `Arcade.Svg` | `arcade/lib/arcade/svg.march` | DrawOps as SVG elements in `Html` (`ops_svg(prefix, ops)`), clips as `<clipPath>` groups |
+| `Arcade.Web.Paint`, `Arcade.Web.Canvas2d` | `arcade/lib/arcade/web/paint.march`, `canvas2d.march`, `arcade_canvas2d.mjs` | JS only (not core): executes a `CanvasCall` list; the Canvas 2D calls Js.Canvas lacks. march copies the .mjs beside the build |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
 | `Skee.HoleMap` | `hole_map.march` | Reading the per-hole records |
 
@@ -53,7 +57,7 @@ foundation: ask before changing it.
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
-| painter + platform | `lib/skee/painter.march` (`Skee.Painter`); the shell: `shell/game.march`, `paint.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
+| painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Arcade.Web.Canvas2d`); the shell: `shell/game.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
 | audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Skee.Synth`, which is golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 | host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
@@ -469,17 +473,17 @@ run, the trail's life, the overlay gate, the board tap, counting abandoned
 games, the host's close, a cue's sound, the rumble, the tip save, the bet
 gate) each turn the suite red.
 
-### Skee.Painter and the shell
+### Arcade.Canvas and the shell
 
 Per frame the shell does `update(m, MsgTick(t))`, then
-`Paint.frame(ctx, k, dpr, w, h, Skee.App.scene_ops(m))`, then
+`Arcade.Web.Paint.frame(ctx, k.num, dpr, w, h, Skee.App.scene_ops(m))`, then
 `Hud.render(hud, m)`, whose queued taps it dispatches as `MsgTap`.
-`Skee.Painter.calls(k, dpr, w, h, ops)` turns DrawOps into a list of
+`Arcade.Canvas.calls(k.num, dpr, w, h, ops)` turns DrawOps into a list of
 `CanvasCall`s in paint.html's order: the frame opens with `setTransform(dpr,
 0, 0, dpr, 0, 0)`, a radial paint or a lettering composes its `frame` onto
 that inside save/restore, Holed fills and clips even-odd, a disc's negative
 radius is 0, a stray PopClip restores nothing and open clips are closed at the
-end. `shell/paint.march` executes the list with one match and decides nothing.
+end. `Arcade.Web.Paint` executes the list with one match and decides nothing.
 
 The shell (`shell/game.march`) keeps one `ShellState` (model, canvas,
 context, HUD and audio handles, size, dpr) in a cell in `web/skee_glue.mjs`,
@@ -507,9 +511,11 @@ playtest.
 FFI added (`web/skee_glue.mjs`, declared in `shell/glue.march`): the clock
 and rAF in seconds, view size, devicePixelRatio, canvas sizing, seed limbs,
 visibility, vibrate, pointer capture and coalesced samples, the state cell,
-the tap queue, data-* marks, and the Canvas calls Js.Canvas lacks
+the tap queue and data-* marks. The Canvas calls Js.Canvas lacks
 (setTransform, globalCompositeOperation, fill and clip with a winding rule,
-lineCap, lineJoin, text centring, a full arc, radial gradients).
+lineCap, lineJoin, text centring, a full arc, radial gradients) are the
+engine's: `Arcade.Web.Canvas2d` and `arcade/lib/arcade/web/arcade_canvas2d.mjs`,
+which march copies beside the build because arcade/lib is on its path.
 
 ### Skee.HudView: SkeeHUD as HTML
 
@@ -525,8 +531,8 @@ Skee.HudView.react(local, hud, action)           -> (HudLocal, Option(Intent))
 Skee.HudView.settle(local, hud)                  the Guide forgets its page when closed
 ```
 
-- HTML is data (`Html = Tag(name, props, kids) | Words(text)`); `render`
-  escapes every text and attribute value (`& < > " '`).
+- HTML is data (`Arcade.Html`: `Html = Tag(name, props, kids) | Words(text)`);
+  `render` escapes every text and attribute value (`& < > " '`).
 - Every tappable element carries `data-act`, an Int code for its
   `HudAction` (`ActIntent(Intent)` or a Guide page turn), and `data-intent`,
   its name, for people and the playtest. The shell delegates one click
