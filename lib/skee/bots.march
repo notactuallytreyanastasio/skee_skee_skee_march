@@ -444,17 +444,22 @@ mod Skee.Bots do
     ({ bot_final: p.now, bot_actions: List.reverse(p.done_actions), bot_events: List.concat(List.reverse(p.done_events)) }, p.books)
   end
 
-  pfn play(p : Play) : (BotRun, Books) needs () do
-    if p.played >= 5000 do
-      finished(p)
-    else
-      match p.now.phase do
-      Won -> finished(p)
-      Lost -> finished(p)
-      Throwing -> play(on_the_lane(p))
-      AtCounter(c) -> play(shop(p, c))
-      end
+  pfn played_of(_k : Skee.Consts.Consts, p : Play) : Int needs () do
+    p.played
+  end
+
+  -- One turn of Arcade.Replay.steer: throw or shop, or None once the run is over.
+  pfn turn(_k : Skee.Consts.Consts, p : Play) : Option(Play) needs () do
+    match p.now.phase do
+    Won -> None
+    Lost -> None
+    Throwing -> Some(on_the_lane(p))
+    AtCounter(c) -> Some(shop(p, c))
     end
+  end
+
+  pfn play(p : Play) : (BotRun, Books) needs () do
+    finished(Arcade.Replay.steer(p.k, played_of, turn, p, 5000))
   end
 
   doc """

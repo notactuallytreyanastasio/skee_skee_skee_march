@@ -1279,15 +1279,11 @@ mod Skee.Save do
     bind(parse(text), fn v -> bind(object_of(v, ""), fn f -> bind(required(f, "", "seed", seed_of), fn seed -> bind(optional(f, "", "room", room_of), fn room -> bind(optional(f, "", "extraTickets", int_of), fn extra -> ok_map(required(f, "", "actions", list_of(fn (x, p) -> action_of(k, x, p))), fn actions -> { file_seed: seed, file_room: room, file_extra: Option.map(extra, fn n -> Tickets(n)), file_actions: actions }))))))
   end
 
-  pfn replay_go(k : Skee.Consts.Consts, actions : List(Action), s : RunState, kept : List(Action)) : (RunState, List(Action)) needs () do
-    match actions do
-    Nil -> (s, List.reverse(kept))
-    Cons(a, rest) -> do
-      match Skee.Reducer.apply(k, a, s) do
-      Ok(step) -> replay_go(k, rest, step.run, Cons(a, kept))
-      Err(_) -> (s, List.reverse(kept))
-      end
-    end
+  -- The reducer as Arcade.Replay folds it: the run after the action, or the refusal.
+  pfn apply_run(k : Skee.Consts.Consts, a : Action, s : RunState) : Result(RunState, ActionError) needs () do
+    match Skee.Reducer.apply(k, a, s) do
+    Ok(step) -> Ok(step.run)
+    Err(why) -> Err(why)
     end
   end
 
@@ -1307,7 +1303,8 @@ mod Skee.Save do
       end
     let start =
       Skee.Reducer.new_run(k, f.file_seed, Skee.Types.standard_config(), file_room(f), extra)
-    let (s, kept) = replay_go(k, f.file_actions, start, [])
+    let (s, taken, _) = Arcade.Replay.replay(k, apply_run, start, f.file_actions)
+    let kept = List.take(f.file_actions, taken)
     {
       replayed_run: s,
       replayed_seed: f.file_seed,

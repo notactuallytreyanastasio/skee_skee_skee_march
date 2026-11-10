@@ -1,0 +1,89 @@
+mod Arcade.Suite.Replay do
+
+  -- Arcade.Replay over a toy game: a till that takes coins up to a limit (the
+  -- context). A coin of zero or less is refused, and so is one that would take
+  -- the total past the limit, so every way a fold can stop is reachable.
+  import Arcade.Test.Harness
+
+  type TillRefusal = BadCoin(Int) | OverLimit(Int)
+
+  fn take_coin(limit : Int, coin : Int, total : Int) : Result(Int, TillRefusal) do
+    if coin <= 0 do
+      Err(BadCoin(coin))
+    else
+      if total + coin > limit do Err(OverLimit(coin)) else Ok(total + coin) end
+    end
+  end
+
+  fn refusal_text(r : Option(TillRefusal)) : String do
+    match r do
+    None -> "none"
+    Some(BadCoin(n)) -> "bad " ++ int_to_string(n)
+    Some(OverLimit(n)) -> "over " ++ int_to_string(n)
+    end
+  end
+
+  fn replayed(limit : Int, s0 : Int, coins : List(Int)) : String do
+    let (total, taken, why) = Arcade.Replay.replay(limit, take_coin, s0, coins)
+    int_to_string(total) ++ "/" ++ int_to_string(taken) ++ "/" ++ refusal_text(why)
+  end
+
+  fn replay_cases() : Outcome do
+    all([expect_string(replayed(100, 0, [1, 2, 3, 4]), "10/4/none", "all accepted"), expect_string(replayed(100, 7, []), "7/0/none", "no actions"), expect_string(replayed(100, 0, [5, 0, 9]), "5/1/bad 0", "stops at a bad coin"), expect_string(replayed(10, 0, [4, 4, 4, 1]), "8/2/over 4", "stops at the limit, later coins untried"), expect_string(replayed(10, 0, [-3]), "0/0/bad -3", "first refused")])
+  end
+
+  -- Always offers a coin of 3, until the total reaches 9.
+  fn threes(_limit : Int, total : Int) : Option(Int) do
+    if total >= 9 do None else Some(3) end
+  end
+
+  -- Offers a coin worth the total plus one, which outgrows the limit.
+  fn doubling(_limit : Int, total : Int) : Option(Int) do
+    Some(total + 1)
+  end
+
+  fn driven(limit : Int, policy : Int -> Int -> Option(Int), most : Int) : String do
+    let (total, coins, why) = Arcade.Replay.drive(limit, take_coin, policy, 0, most)
+    let (again, taken, _) = Arcade.Replay.replay(limit, take_coin, 0, coins)
+    let agrees =
+      if again == total && taken == List.length(coins) do
+        "replays"
+      else
+        "differs"
+      end
+    int_to_string(total) ++ "/" ++ show(coins) ++ "/" ++ refusal_text(why) ++ "/" ++ agrees
+  end
+
+  fn drive_cases() : Outcome do
+    all([expect_string(driven(100, threes, 50), "9/[3, 3, 3]/none/replays", "stops when the policy is done"), expect_string(driven(100, threes, 2), "6/[3, 3]/none/replays", "stops at the cap"), expect_string(driven(100, threes, 0), "0/[]/none/replays", "a cap of zero plays nothing"), expect_string(driven(10, doubling, 50), "7/[1, 2, 4]/over 8/replays", "stops at the first refusal")])
+  end
+
+  -- A turn plays two coins, so the count is not the number of turns.
+  fn coins_in(_limit : Int, s : (Int, Int)) : Int do
+    let (_, played) = s
+    played
+  end
+
+  fn two_coins(limit : Int, s : (Int, Int)) : Option((Int, Int)) do
+    let (total, played) = s
+    if total + 2 > limit do None else Some((total + 2, played + 2)) end
+  end
+
+  fn steered(limit : Int, most : Int) : String do
+    let (total, played) = Arcade.Replay.steer(limit, coins_in, two_coins, (0, 0), most)
+    int_to_string(total) ++ "/" ++ int_to_string(played)
+  end
+
+  fn steer_cases() : Outcome do
+    all([expect_string(steered(9, 100), "8/8", "stops when the turn says the game is over"), expect_string(steered(100, 5), "6/6", "the cap is checked before each turn, not within one"), expect_string(steered(100, 0), "0/0", "a cap of zero plays no turn")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("replay folds to the first refusal", fn () -> replay_cases()),
+      case("drive plays the policy's actions, and they replay", fn () -> drive_cases()),
+      case("steer plays turns until over or the count reaches the cap", fn () -> steer_cases())
+    ]
+  end
+
+end

@@ -1,0 +1,78 @@
+mod Arcade.Replay do
+
+  -- Folding a game's pure reducer over actions. A game whose every random
+  -- choice flows from its seed is fully described by its starting state and
+  -- the actions it accepted, so a saved game is rebuilt by replaying them, and
+  -- a bot plays by choosing actions until the game is over.
+  --
+  -- Every hook is a plain fn parameter taking a context `cx` first, so a game
+  -- passes named top-level fns and its constants ride along in `cx`.
+  cap pure
+
+  doc """
+  Apply each action in order from s0, stopping at the first one apply refuses.
+  Returns the state reached, how many actions were accepted (a prefix of
+  actions), and the refusal, if there was one. Actions after a refusal are not
+  tried: each was chosen against a state that no longer follows.
+  """
+  fn replay(cx : c, apply : c -> a -> s -> Result(s, e), s0 : s, actions : List(a)) : (s, Int, Option(e)) needs () do
+    replay_from(cx, apply, s0, actions, 0)
+  end
+
+  pfn replay_from(cx : c, apply : c -> a -> s -> Result(s, e), now : s, actions : List(a), taken : Int) : (s, Int, Option(e)) needs () do
+    match actions do
+    Nil -> (now, taken, None)
+    Cons(x, rest) -> do
+      match apply(cx, x, now) do
+      Ok(next) -> replay_from(cx, apply, next, rest, taken + 1)
+      Err(why) -> (now, taken, Some(why))
+      end
+    end
+    end
+  end
+
+  doc """
+  Play from s0: policy chooses the next action, or None when it has nothing to
+  play (the game is over), and apply plays it. Stops when the policy says None,
+  at the first refusal, or once `most` actions have been accepted. Returns the
+  state reached, the accepted actions oldest first (so replay(cx, apply, s0, them)
+  reaches the same state), and the refusal, if there was one.
+  """
+  fn drive(cx : c, apply : c -> a -> s -> Result(s, e), policy : c -> s -> Option(a), s0 : s, most : Int) : (s, List(a), Option(e)) needs () do
+    drive_from(cx, apply, policy, s0, most, [])
+  end
+
+  pfn drive_from(cx : c, apply : c -> a -> s -> Result(s, e), policy : c -> s -> Option(a), now : s, left : Int, kept : List(a)) : (s, List(a), Option(e)) needs () do
+    if left <= 0 do
+      (now, List.reverse(kept), None)
+    else
+      match policy(cx, now) do
+      None -> (now, List.reverse(kept), None)
+      Some(x) -> do
+        match apply(cx, x, now) do
+        Ok(next) -> drive_from(cx, apply, policy, next, left - 1, Cons(x, kept))
+        Err(why) -> (now, List.reverse(kept), Some(why))
+        end
+      end
+      end
+    end
+  end
+
+  doc """
+  Play turns from s0 until the game is over or count reaches most. A turn may
+  play several actions, and may tolerate refusals, so the state counts what it
+  has played itself: count reads that, and turn plays one turn, or gives None
+  when the game is over. The count is checked before each turn, then the turn.
+  """
+  fn steer(cx : c, count : c -> s -> Int, turn : c -> s -> Option(s), s0 : s, most : Int) : s needs () do
+    if count(cx, s0) >= most do
+      s0
+    else
+      match turn(cx, s0) do
+      None -> s0
+      Some(next) -> steer(cx, count, turn, next, most)
+      end
+    end
+  end
+
+end

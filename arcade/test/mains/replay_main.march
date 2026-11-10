@@ -1,0 +1,9 @@
+mod Arcade.Main.Replay do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("replay", Arcade.Suite.Replay.cases())
+  end
+
+end
