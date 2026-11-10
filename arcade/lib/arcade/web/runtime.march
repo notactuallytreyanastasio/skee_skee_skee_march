@@ -1,0 +1,174 @@
+mod Arcade.Web.Runtime do
+
+  -- The frame loop of a game's browser shell. A game hands `launch` a
+  -- WebHooks record (closures are allowed here, in the JS-only web shell) and
+  -- the runtime does the rest:
+  --
+  --   launch    find or make the canvas, build the hooks, size the canvas,
+  --             boot the model and perform its effects, then listen
+  --   events    pointer samples, visibility and resizes become the game's msgs
+  --   per frame follow the view's size, the tick msg, paint scene_ops, the
+  --             overlay's msgs (a DOM HUD, say), then the data-* marks
+  --
+  -- Every rule is the game's: the runtime never looks inside a model, msg or fx.
+  -- Effects go to the game's `perform` in the order its update returned them.
+  -- Times are on one clock, performance.now() / 1000 (rAF's time and every
+  -- event's timeStamp); positions are CSS pixels.
+  needs IO.Foreign
+
+  -- A game's side of the shell. model is its model, msg its messages, fx its
+  -- effects. Give a record model a one-constructor box: the JS backend names
+  -- each specialization of these fns after its type arguments, and spells a
+  -- record type out field by field, at every call site.
+  --   hook_num        the constants Arcade.Web.Paint draws with
+  --   hook_boot       (width, height, seed) to the first model and its effects
+  --   hook_update     one msg
+  --   hook_perform    run a batch of effects (storage, haptics, audio, ...)
+  --   hook_tick       the frame msg, at rAF's time
+  --   hook_resize     the view's new CSS size
+  --   hook_down/move/up  one pointer's (t, x, y) samples (Arcade.Web.Input);
+  --                   None sends nothing
+  --   hook_cancel     the pointer was lost
+  --   hook_visible    the page was shown (true) or hidden
+  --   hook_scene      the frame's DrawOps
+  --   hook_overlay    after painting: anything drawn outside the canvas,
+  --                   returning the msgs it produced (dispatched in order)
+  --   hook_marks      after the overlay: data-* attributes for <html>, set
+  --                   in order (Arcade.Web.Glue.mark)
+  type WebHooks(model, msg, fx) = {
+    hook_num : Numerics,
+    hook_boot : Float -> Float -> U64 -> (model, List(fx)),
+    hook_update : model -> msg -> (model, List(fx)),
+    hook_perform : List(fx) -> (),
+    hook_tick : Float -> msg,
+    hook_resize : Float -> Float -> msg,
+    hook_down : List((Float, Float, Float)) -> Option(msg),
+    hook_move : List((Float, Float, Float)) -> Option(msg),
+    hook_up : List((Float, Float, Float)) -> Option(msg),
+    hook_cancel : Option(msg),
+    hook_visible : Bool -> msg,
+    hook_scene : model -> List(DrawOp),
+    hook_overlay : model -> List(msg),
+    hook_marks : model -> List((String, String))
+  }
+
+  -- What the runtime keeps between events, in the one Arcade.Web.Cell: the
+  -- model and the canvas with its last size.
+  type WebRun(model) = {
+    run_model : model,
+    run_canvas : Js.Dom.Node,
+    run_ctx : Js.Canvas.Context,
+    run_width : Float,
+    run_height : Float,
+    run_dpr : Float
+  }
+
+  -- The hooks argument only fixes the cell's type.
+  fn run_get(_h : WebHooks(model, msg, fx)) : WebRun(model) do
+    Arcade.Web.Cell.get()
+  end
+
+  fn run_put(_h : WebHooks(model, msg, fx), s : WebRun(model)) : () do
+    Arcade.Web.Cell.put(s)
+  end
+
+  doc """One msg: update, keep the new model, perform its effects."""
+  fn dispatch(h : WebHooks(model, msg, fx), x : msg) : () do
+    let s = run_get(h)
+    let (m, effects) = h.hook_update(s.run_model, x)
+    run_put(h, { s with run_model: m })
+    h.hook_perform(effects)
+  end
+
+  fn dispatch_some(h : WebHooks(model, msg, fx), x : Option(msg)) : () do
+    match x do
+    Some(y) -> dispatch(h, y)
+    None -> ()
+    end
+  end
+
+  -- ---- The frame ----
+  -- A resize or a new devicePixelRatio (zoom, another screen) resizes the
+  -- canvas's backing store and tells the model.
+  fn follow_size(h : WebHooks(model, msg, fx)) : () do
+    let s = run_get(h)
+    let (w, ht) = Arcade.Web.Glue.view_size()
+    let dpr = Arcade.Web.Glue.device_pixel_ratio()
+    if w != s.run_width || ht != s.run_height || dpr != s.run_dpr do
+      resize(h, s, w, ht, dpr)
+    else
+      ()
+    end
+  end
+
+  fn resize(h : WebHooks(model, msg, fx), s : WebRun(model), w : Float, ht : Float, dpr : Float) : () do
+    Arcade.Web.Glue.size_canvas(s.run_canvas, w, ht, dpr)
+    run_put(h, { s with run_width: w, run_height: ht, run_dpr: dpr })
+    dispatch(h, h.hook_resize(w, ht))
+  end
+
+  fn mark(pair : (String, String)) : () do
+    let (name, value) = pair
+    Arcade.Web.Glue.mark(name, value)
+  end
+
+  fn frame(h : WebHooks(model, msg, fx), t : Float) : () do
+    follow_size(h)
+    dispatch(h, h.hook_tick(t))
+    let s = run_get(h)
+    Arcade.Web.Paint.frame(s.run_ctx, h.hook_num, s.run_dpr, s.run_width, s.run_height, h.hook_scene(s.run_model))
+    List.each(h.hook_overlay(s.run_model), fn y -> dispatch(h, y))
+    List.each(h.hook_marks(s.run_model), mark)
+    Arcade.Web.Glue.request_frame(fn next -> frame(h, next))
+  end
+
+  -- ---- Launch ----
+  doc """The element with this id, or a new one of this tag appended to <body>."""
+  fn element(id : String, tag : String) : Js.Dom.Node do
+    match Js.Dom.find(id) do
+    Some(node) -> node
+    None -> do
+      let node = Js.Dom.create(tag)
+      Js.Dom.set_attr(node, "id", id)
+      Js.Dom.append(Js.Dom.body(), node)
+      node
+    end
+    end
+  end
+
+  doc """Run a game in the canvas with this id. `make` is called once, after the canvas
+  and its 2D context exist and before the view is measured, so a game can mount its
+  own DOM there; `hook_boot` gets the view's CSS size and a random launch seed. Err,
+  before `make` runs, when the browser gives no 2D context; the game decides how to
+  fail (a library does not panic)."""
+  fn launch(canvas_id : String, make : () -> WebHooks(model, msg, fx)) : Result((), String) do
+    let canvas = element(canvas_id, "canvas")
+    match Js.Canvas.get_context(canvas) do
+    Some(ctx) -> Ok(start(canvas, ctx, make()))
+    None -> Err("this browser gives no 2D canvas context")
+    end
+  end
+
+  fn start(canvas : Js.Dom.Node, ctx : Js.Canvas.Context, h : WebHooks(model, msg, fx)) : () do
+    let (w, ht) = Arcade.Web.Glue.view_size()
+    let dpr = Arcade.Web.Glue.device_pixel_ratio()
+    let (hi, lo) = Arcade.Web.Glue.seed_limbs()
+    Arcade.Web.Glue.size_canvas(canvas, w, ht, dpr)
+    let (m, effects) = h.hook_boot(w, ht, Arcade.U64.make(hi, lo))
+    let s =
+      {
+        run_model: m,
+        run_canvas: canvas,
+        run_ctx: ctx,
+        run_width: w,
+        run_height: ht,
+        run_dpr: dpr
+      }
+    run_put(h, s)
+    h.hook_perform(effects)
+    Arcade.Web.Input.on_pointer(canvas, fn raw -> dispatch_some(h, h.hook_down(raw)), fn raw -> dispatch_some(h, h.hook_move(raw)), fn raw -> dispatch_some(h, h.hook_up(raw)), fn () -> dispatch_some(h, h.hook_cancel))
+    Arcade.Web.Glue.on_visibility(fn shown -> dispatch(h, h.hook_visible(shown)))
+    Arcade.Web.Glue.request_frame(fn t -> frame(h, t))
+  end
+
+end

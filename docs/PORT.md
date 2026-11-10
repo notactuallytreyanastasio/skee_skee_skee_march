@@ -43,6 +43,7 @@ foundation: ask before changing it.
 | `Arcade.Web.Paint`, `Arcade.Web.Canvas2d` | `arcade/lib/arcade/web/paint.march`, `canvas2d.march`, `arcade_canvas2d.mjs` | JS only (not core): executes a `CanvasCall` list; the Canvas 2D calls Js.Canvas lacks. march copies the .mjs beside the build |
 | `Arcade.Web.Glue`, `Cell`, `Input` | `arcade/lib/arcade/web/glue.march`, `cell.march`, `input.march`, `arcade_glue.mjs`, `arcade_cell.mjs`, `arcade_input.mjs` | JS only: the clock and rAF in seconds, view size, dpr, canvas sizing, seed limbs, visibility, vibrate, data-* marks; the generic state cell (`put(s : a)`, `get() : a`); one-pointer input with coalesced samples, and the tap queue |
 | `Arcade.Web.Audio`, `SynthHost`, `SynthWorklet` | `arcade/lib/arcade/web/audio.march`, `synth_host.march`, `synth_worklet.march`, `arcade_audio.mjs`, `arcade_synth_cell.mjs`, `arcade_worklet.mjs` | JS only: the AudioContext lifecycle (`install(AudioSetup, serve)`, `route(cmds)`; the setup names rate, gain, worklet URL, processor name and debug global); the synth cell (`reset`, `serve(voices, cmds)`); the worklet's processor (`register(processor, rate, reset, serve)`) |
+| `Arcade.Web.Runtime` | `arcade/lib/arcade/web/runtime.march` | JS only: a game's frame loop. `launch(canvas_id, make)` takes a `WebHooks(model, msg, fx)` record of closures (boot, update, perform, the tick/resize/pointer/visible msgs, scene DrawOps, an overlay returning msgs, data-* marks) and owns the canvas, the cell, dispatch, resizes and rAF; `element(id, tag)` |
 | `Arcade.Camera` | `arcade/lib/arcade/camera.march` | `Pose` (eye, target, up), `Lens` (`Perspective(fov)` or `Orthographic(extent)`), `Rig`, `Viewport`, `Projection`, `Seen`; projection to fractions and pixels, `ray`, `ray_plane`, `pixels_per_metre`, `lean_step`, `lean_toward`, `shake_jolt` |
 | `Arcade.CameraFit` | `arcade/lib/arcade/camera_fit.march` | Grid fitter: `FitGrid`, `FitTarget` (point, wanted screen y, weight), `FitPlan`, lexicographic `FitBest`; the game passes `pose_at` and the targets |
 | `Arcade.Physics.Sim`, `Kinematics`, `Trig`, `Gesture` | `arcade/physics/lib/arcade/physics/*.march` (package `arcade_physics`) | Step loop and clock; Euler, friction, reflection, bounds; the libm replay seam; flick measurement |
@@ -503,10 +504,15 @@ that inside save/restore, Holed fills and clips even-odd, a disc's negative
 radius is 0, a stray PopClip restores nothing and open clips are closed at the
 end. `Arcade.Web.Paint` executes the list with one match and decides nothing.
 
-The shell (`shell/game.march`) keeps one `ShellState` (model, canvas,
-context, HUD and audio handles, size, dpr) in the engine's cell (`Arcade.Web.Cell`),
-so pointer callbacks, visibility changes and the frame loop act on the same
-model, each through `dispatch(msg)`: update, store, perform. Effects:
+The shell (`shell/game.march`) is skee's `WebHooks` for `Arcade.Web.Runtime`,
+which keeps the model, canvas, context, size and dpr in the engine's cell
+(`Arcade.Web.Cell`), so pointer callbacks, visibility changes and the frame
+loop act on the same model, each through `dispatch(h, msg)`: update, store,
+perform. The model goes into the runtime boxed (`BoxedModel`), because the JS
+backend names a generic fn's specialization after its type arguments and spells
+a record out field by field: with the bare `Skee.App.Model` the runtime's
+names were tens of kilobytes each and skee.mjs grew from 5.5 MB to 9.2 MB.
+Effects:
 `FxSave` to localStorage (`skee.wallet`, `skee.run`, `skee.tipsSeen`,
 `skee.walkthroughDone`, `skee.arrivalDone`, after Swift's names), `FxHaptic`
 to `navigator.vibrate` (impacts and notifications; the rolling buzz has no
@@ -519,8 +525,8 @@ and sends `MsgResize`. The launch seed is two `crypto.getRandomValues` limbs.
 
 Entry points other shell pieces fill in: `Hud.mount(root : Js.Dom.Node) :
 HudHandle`, `Hud.render(h : HudHandle, m : Skee.App.Model) :
-List(Skee.App.Msg)`; `Audio.start() : AudioHandle`, `Audio.apply(a :
-AudioHandle, effects : List(Skee.App.Effect)) : ()`. The stub HUD shows one
+List(Skee.App.Msg)`; `Audio.start() : ()`, `Audio.apply(effects :
+List(Skee.App.Effect)) : ()`. The stub HUD shows one
 button per argument-free Intent that `Skee.App.accepts`. `Arcade.Web.Input.queue_tap(i)`
 and `Arcade.Web.Input.drain_taps()` are a tap queue for HUD buttons. `<html>` carries
 `data-layer`, `data-can-throw`, `data-busy` and `data-crease-y` for the
@@ -1074,9 +1080,16 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   dispatch`), next to `import { cell_get } from "./arcade_cell.mjs"`. A
   `Game.cell_get` wrapper therefore compiled clean and failed at load with
   `SyntaxError: Identifier 'cell_get' has already been declared`, so the game
-  never started and no build step warned. shell/game.march names its
-  wrappers `state_get`/`state_put`; an entry module must not reuse an extern
-  name of any module in its build.
+  never started and no build step warned. An entry module must not reuse an
+  extern name of any module in its build (the cell is now behind
+  `Arcade.Web.Runtime`).
+- **A function type with two or more arguments is written curried**, `a -> b
+  -> c`. `(a, b) -> c` is a function of one tuple, and a record field typed so
+  rejected `h.f(x, y)` with `not a function`; `fn (x, y) -> ...` infers as
+  `a -> b -> c`.
+- **`send` is reserved (actor send).** A helper `fn send(h, x) : ()` in
+  Arcade.Web.Runtime typed as `Option(())` at its call sites inside lambdas,
+  and `send(3)` as a statement is a syntax error; the helper is `dispatch_some`.
 - **Extern declarations are private to their module.** `Glue.now()` is
   `Unknown module Glue` unless Glue defines a public `fn now()` wrapping the
   extern, as the stdlib does.

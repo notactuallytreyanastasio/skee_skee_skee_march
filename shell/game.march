@@ -1,41 +1,37 @@
 mod Game do
 
-  -- The imperative shell, and the entry point of the browser build. It holds
-  -- one Skee.App.Model and does only this:
+  -- Skee's browser shell, and the entry point of the browser build: the hooks
+  -- Arcade.Web.Runtime runs one Skee.App.Model with. The runtime owns the
+  -- canvas, the frame loop and the events; this module says what they mean
+  -- for skee:
   --
-  --   launch    read the five stored strings, boot, perform the effects
-  --   events    canvas pointer events, visibility and resizes become Msgs
-  --   per frame update(MsgTick(t)), paint scene_ops, render the HUD, whose
-  --             queued taps come back as MsgTap
+  --   boot      the five stored strings and the launch seed to Skee.App.boot,
+  --             and the speakers (Audio.start)
+  --   msgs      the thumb's samples, visibility, resizes and the tick
+  --   overlay   the HUD (Hud.render), whose queued taps come back as MsgTap
   --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate, and
   --             every effect to Audio.apply (sound, rumble, drum)
+  --   marks     what the playtest reads off <html>
   --
-  -- Every rule is in Skee.App; nothing here looks at the game. Times are on
-  -- one clock, performance.now() / 1000 (rAF's time and every event's
-  -- timeStamp); positions are CSS pixels.
+  -- Every rule is in Skee.App; nothing here looks at the game.
   needs IO.Foreign
 
-  -- What the shell keeps between events: the model and the browser handles.
-  type ShellState = {
-    model : Skee.App.Model,
-    k : Skee.Consts.Consts,
-    canvas : Js.Dom.Node,
-    ctx : Js.Canvas.Context,
-    hud : Hud.HudHandle,
-    audio : Audio.AudioHandle,
-    width : Float,
-    height : Float,
-    dpr : Float
-  }
+  -- The model as the runtime holds it. The JS backend names each
+  -- specialization of a generic fn after its type arguments, and a record
+  -- type is spelled out field by field: with the bare Skee.App.Model every
+  -- Arcade.Web.Runtime fn's name was tens of kilobytes and skee.mjs grew from
+  -- 5.5 MB to 9.2 MB. A one-constructor type is spelled by its name.
+  type Boxed = BoxedModel(Skee.App.Model)
 
-  -- One cell holds the ShellState, so that event callbacks and the frame
-  -- loop act on the same model (Arcade.Web.Cell).
-  fn state_put(s : ShellState) : () do
-    Arcade.Web.Cell.put(s)
+  fn unbox(b : Boxed) : Skee.App.Model do
+    match b do
+    BoxedModel(m) -> m
+    end
   end
 
-  fn state_get() : ShellState do
-    Arcade.Web.Cell.get()
+  fn boxed(r : (Skee.App.Model, List(Skee.App.Effect))) : (Boxed, List(Skee.App.Effect)) do
+    let (m, effects) = r
+    (BoxedModel(m), effects)
   end
 
   -- ---- Storage ----
@@ -96,18 +92,17 @@ mod Game do
     end
   end
 
-  fn perform(s : ShellState, effects : List(Skee.App.Effect)) : () do
+  fn perform(effects : List(Skee.App.Effect)) : () do
     List.each(effects, effect)
-    Audio.apply(s.audio, effects)
+    Audio.apply(effects)
   end
 
-  -- One message: update, keep the new model, perform its effects.
-  fn dispatch(msg : Skee.App.Msg) : () do
-    let s = state_get()
-    let (m, effects) = Skee.App.update(s.model, msg)
-    let next = { s with model: m }
-    state_put(next)
-    perform(next, effects)
+  -- ---- Boot ----
+  -- The model first, then the speakers' gesture listeners.
+  fn boot(k : Skee.Consts.Consts, w : Float, h : Float, seed : Arcade.U64.U64) : (Boxed, List(Skee.App.Effect)) do
+    let booted = Skee.App.boot(k, saved_strings(), w, h, seed)
+    Audio.start()
+    boxed(booted)
   end
 
   -- ---- The thumb ----
@@ -120,104 +115,55 @@ mod Game do
     List.map(raw, sample)
   end
 
-  fn pointer_down(ss : List(FlickSample)) : () do
-    match ss do
-    Cons(first, _) -> dispatch(MsgPointerDown(first))
-    Nil -> ()
+  fn pointer_down(raw : List((Float, Float, Float))) : Option(Skee.App.Msg) do
+    match samples(raw) do
+    Cons(first, _) -> Some(MsgPointerDown(first))
+    Nil -> None
     end
   end
 
-  -- ---- The frame ----
-  -- A resize or a new devicePixelRatio (zoom, another screen) resizes the
-  -- canvas's backing store and tells the model.
-  fn follow_size() : () do
-    let s = state_get()
-    let (w, h) = Arcade.Web.Glue.view_size()
-    let dpr = Arcade.Web.Glue.device_pixel_ratio()
-    if w != s.width || h != s.height || dpr != s.dpr do
-      resize(s, w, h, dpr)
-    else
-      ()
-    end
-  end
-
-  fn resize(s : ShellState, w : Float, h : Float, dpr : Float) : () do
-    Arcade.Web.Glue.size_canvas(s.canvas, w, h, dpr)
-    state_put({ s with width: w, height: h, dpr: dpr })
-    dispatch(MsgResize(w, h))
-  end
-
+  -- ---- Marks ----
   -- What the playtest reads off <html>: the top layer, whether a throw is
   -- possible, whether the presentation is busy, and the crease's height.
-  fn mark(m : Skee.App.Model) : () do
+  fn marks(m : Skee.App.Model) : List((String, String)) do
     let g = Skee.App.geometry(m)
-    Arcade.Web.Glue.mark("data-layer", show(Skee.App.top_layer(m)))
-    Arcade.Web.Glue.mark("data-can-throw", if Skee.App.can_throw(m) do "1" else "0" end)
-    Arcade.Web.Glue.mark("data-busy", if Skee.App.busy(m) do "1" else "0" end)
-    Arcade.Web.Glue.mark("data-crease-y", int_to_string(float_round(g.crease_y)))
-  end
-
-  fn frame(t : Float) : () do
-    follow_size()
-    dispatch(MsgTick(t))
-    let s = state_get()
-    Arcade.Web.Paint.frame(s.ctx, s.k.num, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
-    List.each(Hud.render(s.hud, s.model), dispatch)
-    mark(s.model)
-    Arcade.Web.Glue.request_frame(fn next -> frame(next))
+    [
+      ("data-layer", show(Skee.App.top_layer(m))),
+      ("data-can-throw", if Skee.App.can_throw(m) do "1" else "0" end),
+      ("data-busy", if Skee.App.busy(m) do "1" else "0" end),
+      ("data-crease-y", int_to_string(float_round(g.crease_y)))
+    ]
   end
 
   -- ---- Launch ----
-  fn element(id : String, tag : String) : Js.Dom.Node do
-    match Js.Dom.find(id) do
-    Some(node) -> node
-    None -> do
-      let node = Js.Dom.create(tag)
-      Js.Dom.set_attr(node, "id", id)
-      Js.Dom.append(Js.Dom.body(), node)
-      node
-    end
-    end
-  end
-
-  fn context(canvas : Js.Dom.Node) : Js.Canvas.Context do
-    match Js.Canvas.get_context(canvas) do
-    Some(ctx) -> ctx
-    None -> panic("this browser gives no 2D canvas context")
-    end
-  end
-
-  fn launch() : () do
-    let canvas = element("alley", "canvas")
-    let ctx = context(canvas)
-    let hud = Hud.mount(element("hud", "div"))
+  -- Called by the runtime once the canvas exists: the HUD's DOM, then the
+  -- constants.
+  fn hooks() : Arcade.Web.Runtime.WebHooks(Boxed, Skee.App.Msg, Skee.App.Effect) do
+    let hud = Hud.mount(Arcade.Web.Runtime.element("hud", "div"))
     let k = Skee.Consts.make()
-    let (w, h) = Arcade.Web.Glue.view_size()
-    let dpr = Arcade.Web.Glue.device_pixel_ratio()
-    let (hi, lo) = Arcade.Web.Glue.seed_limbs()
-    Arcade.Web.Glue.size_canvas(canvas, w, h, dpr)
-    let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Arcade.U64.make(hi, lo))
-    let s =
-      {
-        model: m,
-        k: k,
-        canvas: canvas,
-        ctx: ctx,
-        hud: hud,
-        audio: Audio.start(),
-        width: w,
-        height: h,
-        dpr: dpr
-      }
-    state_put(s)
-    perform(s, effects)
-    Arcade.Web.Input.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
-    Arcade.Web.Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
-    Arcade.Web.Glue.request_frame(fn t -> frame(t))
+    {
+      hook_num: k.num,
+      hook_boot: fn (w, h, seed) -> boot(k, w, h, seed),
+      hook_update: fn (b, msg) -> boxed(Skee.App.update(unbox(b), msg)),
+      hook_perform: fn effects -> perform(effects),
+      hook_tick: fn t -> MsgTick(t),
+      hook_resize: fn (w, h) -> MsgResize(w, h),
+      hook_down: fn raw -> pointer_down(raw),
+      hook_move: fn raw -> Some(MsgPointerMove(samples(raw))),
+      hook_up: fn raw -> Some(MsgPointerUp(samples(raw))),
+      hook_cancel: Some(MsgPointerCancel),
+      hook_visible: fn shown -> MsgVisible(shown),
+      hook_scene: fn b -> Skee.App.scene_ops(unbox(b)),
+      hook_overlay: fn b -> Hud.render(hud, unbox(b)),
+      hook_marks: fn b -> marks(unbox(b))
+    }
   end
 
   fn main(_f : Cap(IO.Foreign)) : () do
-    launch()
+    match Arcade.Web.Runtime.launch("alley", fn () -> hooks()) do
+    Ok(_) -> ()
+    Err(why) -> panic(why)
+    end
   end
 
 end

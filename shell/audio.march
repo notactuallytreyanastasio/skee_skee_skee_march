@@ -7,13 +7,9 @@ mod Audio do
   -- worklet (shell/synth_worklet.march) or on the main thread.
   --
   -- Entry points the shell uses:
-  --   Audio.start() : AudioHandle
-  --   Audio.apply(a : AudioHandle, effects : List(Skee.App.Effect)) : ()
+  --   Audio.start() : ()
+  --   Audio.apply(effects : List(Skee.App.Effect)) : ()
   needs IO.Foreign
-
-  -- audio_started: the gesture listeners are installed (the speakers come
-  -- up on the first gesture after that).
-  type AudioHandle = { audio_started : Bool }
 
   -- The synth's 44100 Hz, SoundEngine's mainMixerNode.outputVolume of 0.8,
   -- the worklet's build beside skee.mjs in dist/, and the names the
@@ -28,13 +24,14 @@ mod Audio do
     }
   end
 
-  fn start() : AudioHandle do
+  -- Install the gesture listeners; the speakers come up on the first gesture
+  -- after that.
+  fn start() : () do
     Arcade.Web.SynthHost.reset()
     Arcade.Web.Audio.install(setup(), fn cmds -> Arcade.Web.SynthHost.serve(Skee.Cues.voices_for, cmds))
-    { audio_started: true }
   end
 
-  fn apply(_a : AudioHandle, effects : List(Skee.App.Effect)) : () do
+  fn apply(effects : List(Skee.App.Effect)) : () do
     Arcade.Web.Audio.route(Skee.SoundOut.commands(effects))
   end
 
