@@ -1,0 +1,6 @@
+# Capability baseline — written by `forge audit --record`.
+# Each entry is the set of `needs` declarations a dependency ships.
+# `forge audit` fails when a dependency asks for more than is recorded here.
+
+mode = "declared"
+

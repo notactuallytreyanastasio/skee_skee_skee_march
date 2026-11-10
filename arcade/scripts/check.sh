@@ -1,9 +1,9 @@
 #!/bin/sh
 # The engine's static gate: forge check and forge lint in the engine package
-# and its test kit, and march --check over the test kit and the engine's own
-# suites. forge exits 0 on warnings, and a non-exhaustive match is only a
-# warning, so this fails on any warning text. Paths are relative to the engine
-# root (this script's parent).
+# and its test kit, the publish check (scripts/publish-check.sh), and march
+# --check over the test kit and the engine's own suites. forge exits 0 on
+# warnings, and a non-exhaustive match is only a warning, so this fails on any
+# warning text. Paths are relative to the engine root (this script's parent).
 #   scripts/check.sh
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,5 +38,8 @@ files=$(find testkit/lib test -name '*.march' -not -path 'test/golden/*' | sort)
 for f in $files; do
   scan "march --check $f" march --check "$f"
 done
+# The packages as they would be published: staged outside the tree, built
+# standalone, and passed through forge publish --dry-run.
+"$root/scripts/publish-check.sh" || fail=1
 [ "$fail" -eq 0 ] && echo "check-arcade: engine, test kit and engine suites clean, no warnings"
 exit "$fail"

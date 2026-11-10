@@ -83,8 +83,8 @@ Test kit (`arcade_testkit`):
 
 ## How a game plugs in
 
-The game is a forge package that names the engine by path (a forge package
-once published):
+The game is a forge package that names the engine by path, from inside the
+engine's source tree:
 
 ```toml
 [deps]
@@ -94,6 +94,20 @@ arcade_physics = { path = "../../physics" }   # only if it uses Arcade.Physics
 [dev-deps]
 arcade_testkit = { path = "../../testkit" }
 ```
+
+or by version, once the packages are published (see Publishing):
+
+```toml
+[deps]
+arcade = "0.1.0"
+arcade_physics = "0.1.0"
+
+[dev-deps]
+arcade_testkit = "0.1.0"
+```
+
+`arcade.mk`, `scripts/` and `examples/` are the source tree's and are not
+published; the rest of this section describes a game in that tree.
 
 Its Makefile includes `arcade.mk`, which defines `ARCADE_LIB`,
 `ARCADE_TESTKIT_LIB`, `ARCADE_PHYSICS_LIB` and `ARCADE_JS_FLAGS`, exports them
@@ -201,3 +215,35 @@ The example game: `make -C examples/putt check test web playtest`.
 Never run a bare `forge format`: on this toolchain it can delete the body of a
 `match do` or a multi-statement lambda. Use the host repository's guarded
 format script.
+
+## Publishing
+
+The three packages are versioned together (0.1.0, see each `CHANGELOG.md`)
+and are published separately. Never run `forge publish` in this tree: forge
+tars the whole directory it runs in and has no include list, so the core's
+archive would carry `examples/`, `test/` and both nested packages. Stage them
+first:
+
+```sh
+scripts/package.sh OUT       # OUT/arcade, OUT/arcade_physics, OUT/arcade_testkit
+scripts/publish-check.sh     # stage to a temp dir, forge publish --dry-run each,
+                             # then forge check + lint + audit each standalone
+```
+
+A staged package ships `forge.toml`, `forge.caps.lock`, `README.md`,
+`CHANGELOG.md`, `lib/` and (core and test kit) `.march-lint.toml`. In the tree,
+arcade_physics and arcade_testkit name the core as
+`arcade = { version = "0.1.0", path = ".." }`; forge 0.7.0 treats that as a
+path dep and ignores the version, and `forge check` does not apply a
+`[patch.arcade]` section to the lib path, so neither form alone serves both
+the tree and the registry. `package.sh` rewrites the line to
+`arcade = "0.1.0"` in the staged copy and refuses a version that differs from
+the core's. `forge.caps.lock` is each package's capability baseline
+(`forge audit --record`): the dependents record the core's declared
+`IO.Console` and `IO.Foreign`.
+
+`forge publish --dry-run` checks the manifest and, with `--old-source`, the
+semver bump; it does not build the tarball or check the deps, which is why
+`publish-check.sh` builds each staged package on its own. No license has been
+chosen yet: `license` is empty in all three manifests and the dry run warns
+until it is set.

@@ -3,8 +3,15 @@ name = "arcade_testkit"
 version = "0.1.0"
 type = "lib"
 description = "Arcade test kit: the suite harness, golden-table readers and digests, shared by native and JS runners. A dev-dep only."
-author = ""
+author = "Bobby Grayson"
+# No license has been chosen for this repository yet. `forge publish` warns
+# while this is empty; set it before a real publish.
 license = ""
 
 [deps]
-arcade = { path = ".." }
+# The registry constraint a published copy declares, and the engine tree's
+# local copy. forge 0.7.0 resolves a table with a `path` as a path dep and
+# ignores its `version`, and `forge check` does not apply [patch] sections to
+# the lib path, so neither alone gives both. scripts/package.sh rewrites this
+# line to `arcade = "0.1.0"` in the published copy.
+arcade = { version = "0.1.0", path = ".." }

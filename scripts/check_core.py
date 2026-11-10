@@ -120,7 +120,8 @@ def check_source(path: pathlib.Path, text: str, core: bool, report) -> None:
         report(str(path), "core module without `cap pure`")
 
 
-ENGINE_SUFFIXES = (".march", ".mjs", ".js")
+# Docs, manifests and scripts too: they ship in the published packages.
+ENGINE_SUFFIXES = (".march", ".mjs", ".js", ".md", ".toml", ".sh", ".mk")
 ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
 
 
@@ -147,7 +148,7 @@ def is_shell(base: pathlib.Path, path: pathlib.Path) -> bool:
 
 
 def engine_files(bases: list) -> list:
-    """Source of the arcade engine (March and JS glue) under the engine roots."""
+    """Files of the arcade engine (source, docs, manifests, scripts) under the engine roots."""
     found = []
     for base in bases:
         for path in sorted(base.rglob("*")):

@@ -802,7 +802,7 @@ arcade/testkit/            forge name arcade_testkit (a dev-dep): Arcade.Test.*
 arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_PHYSICS_LIB, ARCADE_JS_FLAGS
 arcade/physics/            forge name arcade_physics (deps: arcade): Arcade.Physics.*
 arcade/test/               the engine's own suites (u64, numerics, num, vec, rng, camera, physics, replay)
-arcade/scripts/            the engine's check.sh, run-suite.sh and run-all.sh
+arcade/scripts/            the engine's check.sh, run-suite.sh, run-all.sh, package.sh and publish-check.sh
 arcade/examples/putt/      the second game: core, suites, browser build and playtest (make -C, or make test-examples)
 ```
 
@@ -822,6 +822,27 @@ limits shape the gate: `forge check` and `forge lint` see one package, so
 `make check` runs them in `arcade/` and `arcade/testkit/` as well; and the
 check cache keys on the lib-path string, not on a path dep's contents, so
 `scripts/check.sh` clears `.forge/check-cache` in all three first.
+
+**Publishable packages.** `arcade`, `arcade_physics` and `arcade_testkit`
+are each at 0.1.0 with a `CHANGELOG.md`, `author` and a
+capability baseline (`forge.caps.lock`, from `forge audit --record`; the two
+dependents record the core's `IO.Console` and `IO.Foreign`). `license` is
+empty, as skee's is: no license has been chosen, and `forge publish` warns
+until one is. forge 0.7.0 tars the whole directory `forge publish` runs in,
+with no include list, so a publish runs only in a copy staged by
+`arcade/scripts/package.sh OUT` (the core without `examples/`, `test/`,
+`scripts/`, `arcade.mk` or the nested packages). The dependents name the core
+as `arcade = { version = "0.1.0", path = ".." }` in the tree: a path dep,
+since forge ignores `version` beside `path` and `forge check` ignores
+`[patch.arcade]` (tried: the lib path then lacks `Arcade.*`, 31 errors). The
+staged copy gets `arcade = "0.1.0"`. `arcade/scripts/publish-check.sh`, part of
+`check-arcade`, stages into a temp dir, runs `forge publish --dry-run` in each
+copy (it validates only the manifest; it builds no tarball and checks no deps)
+and forge check, lint and audit in a build copy where the dependents point at
+the staged core, so nothing of skee is reachable. There is no `repository`
+field: the only repository is skee's, and the engine may not name skee
+(`scripts/check_core.py` now scans the engine's `.md`, `.toml`, `.sh` and
+`.mk` files too, since they ship).
 
 **The engine's own gate.** `arcade/test/` pins the foundation without any
 game on the module path (`lib:testkit/lib:test/suites:test/golden`, relative

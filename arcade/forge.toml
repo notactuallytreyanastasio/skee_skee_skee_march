@@ -3,7 +3,9 @@ name = "arcade"
 version = "0.1.0"
 type = "lib"
 description = "Arcade: a game engine for March in the browser. Pure core (maths, RNG, drawing, audio) plus a JS shell."
-author = ""
+author = "Bobby Grayson"
+# No license has been chosen for this repository yet. `forge publish` warns
+# while this is empty; set it before a real publish.
 license = ""
 
 [deps]
