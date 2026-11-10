@@ -331,6 +331,26 @@ end
 EOF
 expect_red "gate: code the formatter would delete" "$work/scripts/format.sh" --check
 
+echo "== engine gate"
+arcade_gate() { (cd "$work" && arcade/scripts/check.sh); }
+reset
+expect_green "engine gate: the clean engine passes" arcade_gate
+cat >"$work/arcade/test/suites/planted_suite.march" <<'EOF'
+mod Arcade.Suite.Planted do
+  fn f(x : Option(Int)) : Int do
+    match x do
+      Some(n) -> n
+    end
+  end
+end
+EOF
+expect_red "engine gate: non-exhaustive match in arcade/test/" arcade_gate
+reset
+expect_green "engine suite: u64 is green on native" "$work/arcade/scripts/run-suite.sh" u64 native
+sed 's/u64add 0000000000000000 0000000000000000 0000000000000000/u64add 0000000000000000 0000000000000000 0000000000000001/' \
+  "$root/arcade/test/golden/words.march" >"$work/arcade/test/golden/words.march"
+expect_red "engine suite: one wrong pinned row turns u64 red" "$work/arcade/scripts/run-suite.sh" u64 native
+
 echo "== browser build keeps constant-folded floats exact"
 reset
 cat >"$work/shell/game.march" <<'EOF'

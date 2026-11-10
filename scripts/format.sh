@@ -13,7 +13,7 @@ export PATH="$HOME/.march/bin:$PATH"
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 bad=0
-for f in $(find lib test shell arcade -name '*.march' -not -path 'test/golden/*' -not -path '*/.march/*' -not -path '*/node_modules/*' | sort); do
+for f in $(find lib test shell arcade -type f -name '*.march' -not -path 'test/golden/*' -not -path '*/test/golden/*' -not -path '*/.march/*' -not -path '*/node_modules/*' | sort); do
   if ! forge format --stdin <"$f" >"$tmp" 2>/dev/null; then
     echo "format: cannot parse $f"
     bad=1

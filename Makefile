@@ -12,18 +12,19 @@ GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
 .PHONY: test test-js test-native check check-purity format golden build web serve playtest audio-check selftest clean
 
-# Native: every test block, plus the purity guard.
-test: check-purity
+# Native: every test block, plus the purity guard and the engine's own suites
+# (native and JS).
+test: check-purity test-arcade
 	$(FORGE) test
 	@pending=$$(grep -l 'Arcade.Test.Harness.pending' test/mains/*_main.march | xargs -n1 basename | sed 's/_main.march//' | tr '\n' ' '); \
 	  [ -z "$$pending" ] || echo "pending, no tests yet: $$pending"
 
 # The same suites on the shipping target, through node.
-test-js: check-purity
+test-js: check-purity test-arcade-js
 	scripts/run-all.sh js
 
 # The same suites as native plain-main programs: what test-<suite> runs.
-test-native: check-purity
+test-native: check-purity test-arcade-native
 	scripts/run-all.sh native
 
 # One suite on one target. These precede test-% because make 3.81 takes the
@@ -43,9 +44,9 @@ test-%:
 check-purity:
 	python3 scripts/check_core.py
 
-# Types, lint, format and the core rules over lib/, test/ and shell/. Fails on
-# any warning.
-check:
+# Types, lint, format and the core rules over lib/, test/ and shell/, after the
+# engine's own check (arcade.mk). Fails on any warning.
+check: check-arcade
 	scripts/check.sh
 
 # Never run bare `forge format`: it can delete code. See docs/PORT.md.

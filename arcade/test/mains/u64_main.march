@@ -1,0 +1,9 @@
+mod Arcade.Main.U64 do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("u64", Arcade.Suite.U64.cases())
+  end
+
+end

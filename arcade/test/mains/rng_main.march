@@ -1,0 +1,9 @@
+mod Arcade.Main.Rng do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("rng", Arcade.Suite.Rng.cases())
+  end
+
+end

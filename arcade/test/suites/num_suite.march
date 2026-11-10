@@ -1,0 +1,75 @@
+mod Arcade.Suite.Num do
+
+  -- Arcade.Num keeps Swift's semantics: the tie order of max and min, a clamp
+  -- that keeps NaN, Swift's Int clamp, IEEE division by zero and degrees.
+  import Arcade.Test.Harness
+
+  fn f(token : String) : Float do
+    Arcade.Suite.Rows.f(token)
+  end
+
+  fn clamp_row(row : List(String)) : Outcome do
+    match row do
+    Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> do
+      Arcade.Test.GoldenIo.expect_float(Arcade.Num.clamp(f(x), f(lo), f(hi)), want, "clamp " ++ x)
+    end
+    _ -> Mismatch("bad clamp row")
+    end
+  end
+
+  fn clamp_int_row(row : List(String)) : Outcome do
+    match List.map(row, Arcade.Test.GoldenIo.int) do
+    Cons(x, Cons(lo, Cons(hi, Cons(want, Nil)))) -> expect_int(Arcade.Num.clamp_int(x, lo, hi), want, "clamp_int")
+    _ -> Mismatch("bad clampi row")
+    end
+  end
+
+  fn clamp_nan() : Outcome do
+    let n = Arcade.Numerics.make()
+    Arcade.Test.GoldenIo.expect_float(Arcade.Num.clamp(n.nan, 0.0, 1.0), Arcade.Suite.Rows.single("clampnan"), "clamp nan")
+  end
+
+  fn div_row(row : List(String)) : Outcome do
+    match row do
+    Cons(a, Cons(b, Cons(want, Nil))) -> do
+      Arcade.Test.GoldenIo.expect_float(Arcade.Num.ieee_div(Arcade.Numerics.make(), f(a), f(b)), want, "div " ++ a ++ " " ++ b)
+    end
+    _ -> Mismatch("bad div row")
+    end
+  end
+
+  fn degrees_row(row : List(String)) : Outcome do
+    match row do
+    Cons(d, Cons(want, Nil)) -> do
+      Arcade.Test.GoldenIo.expect_float(Arcade.Num.degrees(Arcade.Numerics.make(), f(d)), want, "degrees " ++ d)
+    end
+    _ -> Mismatch("bad deg row")
+    end
+  end
+
+  -- Swift's max(x, y) is y on a tie and min(x, y) is x, which decides the sign
+  -- of a zero result. +0 is 0000000000000000 and -0 is 8000000000000000.
+  fn tie_order() : Outcome do
+    let plus = "0000000000000000"
+    let minus = "8000000000000000"
+    all([Arcade.Test.GoldenIo.expect_float(Arcade.Num.max_float(0.0, -0.0), minus, "max(+0, -0)"), Arcade.Test.GoldenIo.expect_float(Arcade.Num.max_float(-0.0, 0.0), plus, "max(-0, +0)"), Arcade.Test.GoldenIo.expect_float(Arcade.Num.min_float(0.0, -0.0), plus, "min(+0, -0)"), Arcade.Test.GoldenIo.expect_float(Arcade.Num.min_float(-0.0, 0.0), minus, "min(-0, +0)"), Arcade.Test.GoldenIo.expect_float(Arcade.Num.max_float(1.0, 2.0), "4000000000000000", "max(1, 2)"), Arcade.Test.GoldenIo.expect_float(Arcade.Num.min_float(1.0, 2.0), "3ff0000000000000", "min(1, 2)")])
+  end
+
+  fn signs() : Outcome do
+    let n = Arcade.Numerics.make()
+    all([expect(Arcade.Num.is_negative(-0.0), "-0 is negative"), expect(!Arcade.Num.is_negative(0.0), "+0 is not"), expect(Arcade.Num.is_negative(-1.0), "-1 is negative"), expect(!Arcade.Num.is_negative(1.0), "1 is not"), expect(Arcade.Num.is_negative(-n.infinity), "-inf is negative"), expect(!Arcade.Num.is_negative(n.nan), "nan is not")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("max and min keep Swift's tie order", fn () -> tie_order()),
+      case("is_negative sees the sign of a zero", fn () -> signs()),
+      case("clamp keeps Swift's argument order", fn () -> all(List.map(Arcade.Suite.Rows.foundation("clamp"), clamp_row))),
+      case("clamp leaves NaN alone", fn () -> clamp_nan()),
+      case("clamp on Ints", fn () -> all(List.map(Arcade.Suite.Rows.foundation("clampi"), clamp_int_row))),
+      case("ieee_div divides by zero as IEEE does", fn () -> all(List.map(Arcade.Suite.Rows.foundation("div"), div_row))),
+      case("degrees", fn () -> all(List.map(Arcade.Suite.Rows.foundation("deg"), degrees_row)))
+    ]
+  end
+
+end

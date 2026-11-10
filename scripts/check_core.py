@@ -5,8 +5,8 @@
 
 Roots are relative to --root. The defaults are this repository's: core is
 lib/ and arcade/lib/ (the game's pure core and the engine's), other is shell/,
-test/ (generated goldens aside) and the engine's test kit, and the engine is
-arcade/. Every core root must hold March files, or the check refuses to pass.
+test/ (generated goldens aside), the engine's test kit and the engine's own
+suites (arcade/test/, copied rows aside), and the engine is arcade/. Every core root must hold March files, or the check refuses to pass.
 
 Purity (core roots): the compiler misses Js.* and System.* from a module with no
 needs lines, so this file is the only complete guard. Every rule below that
@@ -124,7 +124,7 @@ ENGINE_SKIP = {"node_modules", "build", "_build", ".forge"}
 
 
 DEFAULT_CORE = ["lib", "arcade/lib"]
-DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib"]
+DEFAULT_OTHER = ["shell", "test", "arcade/testkit/lib", "arcade/test"]
 DEFAULT_ENGINE = ["arcade"]
 
 

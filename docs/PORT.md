@@ -761,7 +761,8 @@ arcade/lib/arcade/         the pure core, later also web/ (the JS shell)
 arcade/testkit/            forge name arcade_testkit (a dev-dep): Arcade.Test.*
 arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_JS_FLAGS
 arcade/physics/            (to come) forge name arcade_physics: Arcade.Physics.*
-arcade/test/               (to come) the engine's own suites
+arcade/test/               the engine's own suites (u64, numerics, num, vec, rng)
+arcade/scripts/            the engine's check.sh, run-suite.sh and run-all.sh
 arcade/examples/putt/      (to come) the second game
 ```
 
@@ -777,6 +778,22 @@ limits shape the gate: `forge check` and `forge lint` see one package, so
 `make check` runs them in `arcade/` and `arcade/testkit/` as well; and the
 check cache keys on the lib-path string, not on a path dep's contents, so
 `scripts/check.sh` clears `.forge/check-cache` in all three first.
+
+**The engine's own gate.** `arcade/test/` pins the foundation without any
+game on the module path (`lib:testkit/lib:test/suites:test/golden`, relative
+to `arcade/`). Its rows are a static copy: `test/golden/foundation.march`
+holds generic rows copied once from skee's Swift-generated
+`test/golden/rng.march` (a prefix of each seed's draws; the replay carries the
+generator from row to row, so a prefix is exact), and `words.march` holds U64
+and Vec3 rows pinned once with Python's exact integers and IEEE doubles. They
+are never regenerated, so the engine does not depend on skee's Swift tooling.
+`arcade/arcade.mk` defines `check-arcade` (`arcade/scripts/check.sh`: forge
+check and lint of both packages, march --check of the test kit and the
+suites) and `test-arcade` (`test-arcade-native` and `test-arcade-js`, through
+`arcade/scripts/run-all.sh`, the same HARNESS PASS protocol). `make check`
+runs check-arcade first, `make test` runs test-arcade, and `make test-native`
+and `make test-js` run the matching half. The JS gaussian rows drift by up to
+2 ulp (V8's libm), within the declared tolerance, as in skee's rng suite.
 
 **Rules.**
 - The engine names no game. No March file or `.mjs`/`.js` glue under

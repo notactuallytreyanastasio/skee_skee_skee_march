@@ -1,0 +1,146 @@
+mod Arcade.Suite.Rng do
+
+  -- Arcade.Rng (SplitMix64) against copied rows: every draw kind replayed from
+  -- 17 seeds, including words above 2^53, checking the value and the state.
+  import Arcade.Test.Harness
+
+  fn kind(k : String) : List(List(String)) do
+    Arcade.Suite.Rows.foundation(k)
+  end
+
+  -- Replay one kind of row in file order. Rows of one seed are contiguous, and
+  -- the generator carries from row to row, so any drift fails every later row.
+  fn replay(rows : List(List(String)), step : Arcade.Rng.Rng -> List(String) -> (Outcome, Arcade.Rng.Rng)) : Outcome do
+    let start = (("", Arcade.Rng.seed(Arcade.U64.make(0, 0))), [])
+    let (_, outcomes) =
+      List.fold_left(rows, start, fn (acc, row) ->
+        match (acc, row) do
+        (((prev, rng), outs), Cons(seed, rest)) -> do
+          let current =
+            if seed == prev do
+              rng
+            else
+              Arcade.Rng.seed(Arcade.Test.GoldenIo.u64(seed))
+            end
+          let (outcome, after) = step(current, rest)
+          ((seed, after), Cons(outcome, outs))
+        end
+        (_, Nil) -> panic("empty golden row")
+        end
+      )
+    all(outcomes)
+  end
+
+  fn expect_state(r : Arcade.Rng.Rng, word : String) : Outcome do
+    Arcade.Test.GoldenIo.expect_u64(Arcade.Rng.word(r), word, "state")
+  end
+
+  fn next_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next(rng)
+    match row do
+    Cons(_, Cons(want, Cons(word, Nil))) -> do
+      (all([Arcade.Test.GoldenIo.expect_u64(v, want, "next"), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad next row"), after)
+    end
+  end
+
+  fn unit_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next_unit(Arcade.Numerics.make(), rng)
+    match row do
+    Cons(_, Cons(want, Cons(word, Nil))) -> do
+      (all([Arcade.Test.GoldenIo.expect_float(v, want, "unit"), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad unit row"), after)
+    end
+  end
+
+  fn below_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    match row do
+    Cons(_, Cons(bound, Cons(want, Cons(word, Nil)))) -> do
+      let (v, after) = Arcade.Rng.next_int_below(rng, Arcade.Test.GoldenIo.int(bound))
+      (all([expect_int(v, Arcade.Test.GoldenIo.int(want), "below " ++ bound), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad below row"), rng)
+    end
+  end
+
+  fn gauss_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let (v, after) = Arcade.Rng.next_gaussian(Arcade.Numerics.make(), rng)
+    match row do
+    Cons(_, Cons(want, Cons(word, Nil))) -> do
+      (all([Arcade.Test.GoldenIo.expect_libm_float(v, want, "gaussian"), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad gauss row"), after)
+    end
+  end
+
+  fn expect_ints(actual : List(Int), expected : List(String), what : String) : Outcome do
+    expect(actual == List.map(expected, Arcade.Test.GoldenIo.int), what ++ ": got " ++ show(actual))
+  end
+
+  fn shuffle_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    match row do
+    Cons(n, Cons(word, want)) -> do
+      let (out, after) = Arcade.Rng.shuffled(rng, List.range(0, Arcade.Test.GoldenIo.int(n)))
+      (all([expect_ints(out, want, "shuffle " ++ n), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad shuffle row"), rng)
+    end
+  end
+
+  fn pick_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    match row do
+    Cons(_, Cons(count, Cons(want, Cons(word, Nil)))) -> do
+      let (v, after) =
+        Arcade.Rng.pick(rng, List.range(100, 100 + Arcade.Test.GoldenIo.int(count)))
+      (all([expect_int(v, Arcade.Test.GoldenIo.int(want), "pick"), expect_state(after, word)]), after)
+    end
+    _ -> (Mismatch("bad pick row"), rng)
+    end
+  end
+
+  fn mixed_step(rng : Arcade.Rng.Rng, row : List(String)) : (Outcome, Arcade.Rng.Rng) do
+    let n = Arcade.Numerics.make()
+    let (a, r1) = Arcade.Rng.next(rng)
+    let (u, r2) = Arcade.Rng.next_unit(n, r1)
+    let (below, r3) = Arcade.Rng.next_int_below(r2, 20)
+    let (z, r4) = Arcade.Rng.next_gaussian(n, r3)
+    let (s, r5) = Arcade.Rng.shuffled(r4, [0, 1, 2, 3, 4])
+    let (p, r6) = Arcade.Rng.pick(r5, [7, 8, 9])
+    match row do
+    Cons(_, Cons(wa, Cons(wu, Cons(wk, Cons(wz, Cons(wp, Cons(word, ws))))))) -> do
+      (all([Arcade.Test.GoldenIo.expect_u64(a, wa, "next"), Arcade.Test.GoldenIo.expect_float(u, wu, "unit"), expect_int(below, Arcade.Test.GoldenIo.int(wk), "below"), Arcade.Test.GoldenIo.expect_libm_float(z, wz, "gaussian"), expect_ints(s, ws, "shuffled"), expect_int(p, Arcade.Test.GoldenIo.int(wp), "pick"), expect_state(r6, word)]), r6)
+    end
+    _ -> (Mismatch("bad mixed row"), r6)
+    end
+  end
+
+  fn first_value() : Outcome do
+    let (v, _) = Arcade.Rng.next(Arcade.Rng.seed(Arcade.U64.make(0, 0)))
+    expect(Arcade.U64.equal(v, Arcade.U64.make(3793791033, 2065550767)), "reference value 0xE220A8397B1DCDAF")
+  end
+
+  fn shuffle_is_permutation() : Outcome do
+    let xs = List.range(0, 20)
+    let rng = Arcade.Rng.seed(Arcade.U64.of_int(3))
+    let (a, _) = Arcade.Rng.shuffled(rng, xs)
+    let (b, _) = Arcade.Rng.shuffled(rng, xs)
+    all([expect(a == b, "same seed, same shuffle"), expect(List.sort_by(a, fn (x, y) -> x < y) == xs, "shuffle is a permutation")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("known first value for seed 0", fn () -> first_value()),
+      case("next", fn () -> replay(kind("next"), next_step)),
+      case("next_unit", fn () -> replay(kind("unit"), unit_step)),
+      case("next_int_below, bounds 1 to 2^53-1", fn () -> replay(kind("below"), below_step)),
+      case("next_gaussian", fn () -> replay(kind("gauss"), gauss_step)),
+      case("shuffled", fn () -> replay(kind("shuffle"), shuffle_step)),
+      case("pick", fn () -> replay(kind("pick"), pick_step)),
+      case("draws interleave in order", fn () -> replay(kind("mixed"), mixed_step)),
+      case("shuffle is a deterministic permutation", fn () -> shuffle_is_permutation())
+    ]
+  end
+
+end

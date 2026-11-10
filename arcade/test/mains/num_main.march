@@ -1,0 +1,9 @@
+mod Arcade.Main.Num do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("num", Arcade.Suite.Num.cases())
+  end
+
+end

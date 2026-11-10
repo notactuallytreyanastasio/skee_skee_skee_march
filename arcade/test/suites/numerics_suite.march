@@ -1,0 +1,54 @@
+mod Arcade.Suite.Numerics do
+
+  -- Arcade.Numerics: float_of_text reads every decimal exactly, and the
+  -- constants are bit-identical to the doubles they name.
+  import Arcade.Test.Harness
+
+  fn bits_row(row : List(String)) : Outcome do
+    match row do
+    Cons(bits, Cons(text, Nil)) -> do
+      Arcade.Test.GoldenIo.expect_float(Arcade.Numerics.float_of_text(text), bits, text)
+    end
+    _ -> Mismatch("bad bits row")
+    end
+  end
+
+  fn const_row(row : List(String)) : Outcome do
+    let n = Arcade.Numerics.make()
+    match row do
+    Cons("pi", Cons(bits, Nil)) -> Arcade.Test.GoldenIo.expect_float(n.pi, bits, "pi")
+    Cons("tau", Cons(bits, Nil)) -> Arcade.Test.GoldenIo.expect_float(n.tau, bits, "tau")
+    Cons("unit53", Cons(bits, Nil)) -> Arcade.Test.GoldenIo.expect_float(n.unit53, bits, "unit53")
+    Cons("floor_u1", Cons(bits, Nil)) -> Arcade.Test.GoldenIo.expect_float(n.floor_u1, bits, "floor_u1")
+    _ -> Mismatch("unknown constant row")
+    end
+  end
+
+  fn non_finite() : Outcome do
+    let n = Arcade.Numerics.make()
+    all([Arcade.Test.GoldenIo.expect_float(n.infinity, Arcade.Suite.Rows.single("posinf"), "infinity"), Arcade.Test.GoldenIo.expect_float(-n.infinity, Arcade.Suite.Rows.single("neginf"), "-infinity"), Arcade.Test.GoldenIo.expect_float(n.nan, Arcade.Suite.Rows.single("nan"), "nan"), expect(n.nan != n.nan, "nan is unequal to itself")])
+  end
+
+  -- A comparator that cannot fail proves nothing, so prove this one can.
+  fn comparator_controls() : Outcome do
+    let next_up = Arcade.Suite.Rows.f("3ff0000000000001")
+    let is_mismatch =
+      fn o ->
+        match o do
+        Mismatch(_) -> true
+        Passed(_) -> false
+        Drifted(_, _, _) -> false
+        end
+    all([expect(!Arcade.U64.equal(Arcade.Test.GoldenIo.float_bits(0.0), Arcade.Test.GoldenIo.float_bits(-0.0)), "0.0 and -0.0 have different bits"), expect(is_mismatch(Arcade.Test.GoldenIo.expect_float(next_up, "3ff0000000000000", "control")), "one ulp is a mismatch")])
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("the float comparator tells values apart", fn () -> comparator_controls()),
+      case("float_of_text reads every decimal exactly", fn () -> all(List.map(Arcade.Suite.Rows.foundation("bits"), bits_row))),
+      case("constants match bit for bit", fn () -> all(List.map(Arcade.Suite.Rows.foundation("const"), const_row))),
+      case("infinity and nan", fn () -> non_finite())
+    ]
+  end
+
+end

@@ -1,0 +1,89 @@
+mod Arcade.Suite.U64 do
+
+  -- Arcade.U64 against exact 64-bit arithmetic: limbs, hex parsing, and add,
+  -- xor, mul and shr rows pinned with Python's integers modulo 2^64.
+  import Arcade.Test.Harness
+
+  fn expect_limbs(v : Arcade.U64.U64, hi : Int, lo : Int, what : String) : Outcome do
+    all([expect_int(v.hi, hi, what ++ ".hi"), expect_int(v.lo, lo, what ++ ".lo")])
+  end
+
+  fn expect_hex(text : String, hi : Int, lo : Int) : Outcome do
+    match Arcade.U64.of_hex(text) do
+    Some(v) -> expect_limbs(v, hi, lo, "of_hex " ++ text)
+    None -> Mismatch("of_hex " ++ text ++ ": got None")
+    end
+  end
+
+  fn expect_no_hex(text : String) : Outcome do
+    match Arcade.U64.of_hex(text) do
+    Some(_) -> Mismatch("of_hex " ++ text ++ ": want None")
+    None -> Passed(1)
+    end
+  end
+
+  fn hex_examples() : Outcome do
+    all([expect_hex("0", 0, 0), expect_hex("e220a8397b1dcdaf", 3793791033, 2065550767), expect_hex("E220A8397B1DCDAF", 3793791033, 2065550767), expect_hex("ffffffffffffffff", 4294967295, 4294967295), expect_hex("100000000", 1, 0), expect_hex("1fffffffffffff", 2097151, 4294967295), expect_no_hex(""), expect_no_hex("10000000000000000"), expect_no_hex("12g4"), expect_no_hex("-1")])
+  end
+
+  fn limb_examples() : Outcome do
+    all([expect_limbs(Arcade.U64.make(4294967301, 7), 5, 7, "make reduces hi"), expect_limbs(Arcade.U64.make(1, 4294967296), 1, 0, "make reduces lo"), expect_limbs(Arcade.U64.of_int(9007199254740991), 2097151, 4294967295, "of_int 2^53-1"), expect_limbs(Arcade.U64.of_int(4294967296), 1, 0, "of_int 2^32"), expect_limbs(Arcade.U64.of_int(0), 0, 0, "of_int 0")])
+  end
+
+  fn equal_examples() : Outcome do
+    let a = Arcade.U64.make(1, 2)
+    all([expect(Arcade.U64.equal(a, Arcade.U64.make(1, 2)), "equal limbs"), expect(!Arcade.U64.equal(a, Arcade.U64.make(2, 1)), "swapped limbs differ"), expect(!Arcade.U64.equal(a, Arcade.U64.make(1, 3)), "lo differs")])
+  end
+
+  fn u(token : String) : Arcade.U64.U64 do
+    Arcade.Test.GoldenIo.u64(token)
+  end
+
+  fn binary_row(row : List(String), name : String, op : Arcade.U64.U64 -> Arcade.U64.U64 -> Arcade.U64.U64) : Outcome do
+    match row do
+    Cons(a, Cons(b, Cons(want, Nil))) -> do
+      Arcade.Test.GoldenIo.expect_u64(op(u(a), u(b)), want, name ++ " " ++ a ++ " " ++ b)
+    end
+    _ -> Mismatch("bad " ++ name ++ " row")
+    end
+  end
+
+  fn add_rows() : Outcome do
+    all(List.map(Arcade.Suite.Rows.words("u64add"), fn row -> binary_row(row, "add", Arcade.U64.add)))
+  end
+
+  fn xor_rows() : Outcome do
+    all(List.map(Arcade.Suite.Rows.words("u64xor"), fn row -> binary_row(row, "xor", Arcade.U64.xor)))
+  end
+
+  fn mul_rows() : Outcome do
+    all(List.map(Arcade.Suite.Rows.words("u64mul"), fn row -> binary_row(row, "mul", Arcade.U64.mul)))
+  end
+
+  fn shr_row(row : List(String)) : Outcome do
+    match row do
+    Cons(a, Cons(k, Cons(want, Nil))) -> do
+      let bits = Arcade.Test.GoldenIo.int(k)
+      if bits >= 1 && bits <= 31 do
+        Arcade.Test.GoldenIo.expect_u64(Arcade.U64.shr(u(a), bits), want, "shr " ++ a ++ " " ++ k)
+      else
+        Mismatch("shr row out of range: " ++ k)
+      end
+    end
+    _ -> Mismatch("bad shr row")
+    end
+  end
+
+  fn cases() : List(Case) do
+    [
+      case("of_hex parses limbs and refuses bad text", fn () -> hex_examples()),
+      case("make and of_int split into 32-bit limbs", fn () -> limb_examples()),
+      case("equal compares both limbs", fn () -> equal_examples()),
+      case("add wraps at 2^64", fn () -> add_rows()),
+      case("xor", fn () -> xor_rows()),
+      case("mul wraps at 2^64", fn () -> mul_rows()),
+      case("shr by 1 to 31 bits", fn () -> all(List.map(Arcade.Suite.Rows.words("u64shr"), shr_row)))
+    ]
+  end
+
+end

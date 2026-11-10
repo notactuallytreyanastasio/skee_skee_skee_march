@@ -1,0 +1,9 @@
+mod Arcade.Main.Vec do
+
+  needs IO.Console
+
+  fn main(_c : Cap(IO.Console)) : () do
+    Arcade.Test.Harness.report("vec", Arcade.Suite.Vec.cases())
+  end
+
+end

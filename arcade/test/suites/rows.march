@@ -1,0 +1,24 @@
+mod Arcade.Suite.Rows do
+
+  -- Row access shared by the engine's suites: the copied rows of
+  -- Arcade.Golden.Foundation and the pinned rows of Arcade.Golden.Words.
+  fn foundation(k : String) : List(List(String)) do
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Arcade.Golden.Foundation.chunks()), k)
+  end
+
+  fn words(k : String) : List(List(String)) do
+    Arcade.Test.GoldenIo.of_kind(Arcade.Test.GoldenIo.rows(Arcade.Golden.Words.chunks()), k)
+  end
+
+  fn single(k : String) : String do
+    match foundation(k) do
+    Cons(Cons(token, Nil), Nil) -> token
+    _ -> panic("expected one row of kind " ++ k)
+    end
+  end
+
+  fn f(token : String) : Float do
+    Arcade.Test.GoldenIo.float_of_bits(token)
+  end
+
+end

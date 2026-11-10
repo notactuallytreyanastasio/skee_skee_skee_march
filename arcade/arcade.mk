@@ -24,3 +24,26 @@ ARCADE_JS_FLAGS := --target js --disable-pass opt.fold
 ARCADE_JS_TEST_FLAGS := $(ARCADE_JS_FLAGS) --js-int-check
 
 export ARCADE ARCADE_LIB ARCADE_TESTKIT_LIB
+
+# The engine's own gate, for the including game's `check` and `test` to depend
+# on: check-arcade is forge check and lint of the engine and its test kit plus
+# march --check of the engine's suites; test-arcade runs those suites (rows
+# copied once into arcade/test/golden, no game code on the path) as native and
+# JS plain-main programs. Defining targets here must not change the including
+# Makefile's default goal, so it is saved and restored around them.
+arcade_saved_goal := $(.DEFAULT_GOAL)
+
+.PHONY: check-arcade test-arcade test-arcade-native test-arcade-js
+
+check-arcade:
+	$(ARCADE)/scripts/check.sh
+
+test-arcade: test-arcade-native test-arcade-js
+
+test-arcade-native:
+	$(ARCADE)/scripts/run-all.sh native
+
+test-arcade-js:
+	$(ARCADE)/scripts/run-all.sh js
+
+.DEFAULT_GOAL := $(arcade_saved_goal)

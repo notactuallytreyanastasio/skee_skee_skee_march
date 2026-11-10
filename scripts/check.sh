@@ -1,8 +1,9 @@
 #!/bin/sh
-# The whole static gate. forge check and forge lint see one package's lib/ only
-# and exit 0 on warnings, and a non-exhaustive match is only a warning, so this
-# script checks the engine packages too, covers test/, shell/ and the test kit
-# with march --check, and fails on any warning text.
+# The game's static gate. forge check and forge lint see one package's lib/
+# only and exit 0 on warnings, and a non-exhaustive match is only a warning, so
+# this script covers test/ and shell/ with march --check too, and fails on any
+# warning text. The engine packages, its test kit and its own suites are
+# arcade/scripts/check.sh (make check-arcade, which make check runs first).
 set -u
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root" || exit 2
@@ -32,16 +33,12 @@ arcade=$(dirname "$arcade_lib")
 rm -rf .forge/check-cache "$arcade/.forge/check-cache" "$arcade/testkit/.forge/check-cache"
 scan "forge check" forge check
 scan "forge lint" forge lint
-for pkg in "$arcade" "$arcade/testkit"; do
-  scan "forge check ($pkg)" sh -c "cd '$pkg' && forge check"
-  scan "forge lint ($pkg)" sh -c "cd '$pkg' && forge lint"
-done
 export MARCH_LIB_PATH="$arcade_lib:$arcade_testkit_lib:lib:test:shell"
-files=$(find test shell "$arcade_testkit_lib" -name '*.march' -not -path 'test/golden/*' | sort)
+files=$(find test shell -name '*.march' -not -path 'test/golden/*' | sort)
 for f in $files; do
   scan "march --check $f" march --check "$f"
 done
 python3 scripts/check_core.py || fail=1
 scripts/format.sh --check || fail=1
-[ "$fail" -eq 0 ] && echo "check: lib, test, shell and arcade clean, no warnings"
+[ "$fail" -eq 0 ] && echo "check: lib, test and shell clean, no warnings"
 exit "$fail"
