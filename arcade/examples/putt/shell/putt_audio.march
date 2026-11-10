@@ -1,0 +1,30 @@
+mod PuttAudio do
+
+  -- Putt's speakers on Arcade.Web.Audio: the synth plays Putt.Cues through
+  -- Arcade.Web.SynthHost, in the audio worklet (shell/putt_worklet.march,
+  -- built to dist/putt_synth_worklet.mjs) or on the main thread.
+  needs IO.Foreign
+
+  -- The synth's own rate, a gain of 0.8, the worklet build beside putt.mjs,
+  -- and the names the playtest knows (PuttNames).
+  fn setup() : Arcade.Web.Audio.AudioSetup do
+    {
+      setup_rate: Arcade.Synth.rate(),
+      setup_gain: 0.8,
+      setup_worklet_url: "putt_synth_worklet.mjs",
+      setup_processor: PuttNames.processor(),
+      setup_global: PuttNames.debug_global()
+    }
+  end
+
+  doc """Install the gesture listeners; the speakers come up on the first gesture after that."""
+  fn start() : () do
+    Arcade.Web.SynthHost.reset()
+    Arcade.Web.Audio.install(setup(), fn cmds -> Arcade.Web.SynthHost.serve(Putt.Cues.voices, cmds))
+  end
+
+  fn route(cmds : List(AudioCmd(PuttCue))) : () do
+    Arcade.Web.Audio.route(cmds)
+  end
+
+end

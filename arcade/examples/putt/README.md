@@ -12,13 +12,20 @@ lib/putt/roll.march     Putt.Roll: one putt rolled out (Arcade.Physics.Sim + Kin
 lib/putt/rules.march    Putt.Rules: state, actions, play/apply, resume (Arcade.Replay), shot_of_flick (Arcade.Physics.Gesture)
 lib/putt/view.march     Putt.View: orthographic Arcade.Camera and a frame's Arcade.Draw ops
 lib/putt/cues.march     Putt.Cues: PuttCue, its Arcade.Synth voices, the AudioCmd(PuttCue) feed
-test/suites/putt_suite.march, test/mains/putt_main.march
-scripts/check.sh, scripts/run-suite.sh
+shell/putt_shell.march  PuttShell: the browser build's entry, Arcade.Web.Runtime hooks
+shell/putt_audio.march  PuttAudio: Arcade.Web.Audio setup and routing
+shell/putt_worklet.march, shell/putt_names.march   the audio worklet build's entry; the names both builds share
+web/index.html, web/style.css
+test/suites/putt_suite.march, test/mains/putt_main.march, test/web/playtest.mjs
+scripts/check.sh, scripts/run-suite.sh, scripts/serve.mjs
 ```
 
 ```
-make check   # forge check + lint of lib/, march --check of the suites; fails on any warning
-make test    # the suite on native and on JS; both must print HARNESS PASS
+make check     # forge check + lint of lib/, march --check of the suites and shell/; fails on any warning
+make test      # the suite on native and on JS; both must print HARNESS PASS
+make web       # the browser build in dist/
+make serve     # dist/ at http://127.0.0.1:8237/
+make playtest  # one flick in headless Chrome
 ```
 
 From the repository root, `make test-examples` runs `make test` here and
@@ -49,23 +56,41 @@ target rounds alike, so a game is bit-identical natively and on JS. The suite
 pins that: the final-state and turn-by-turn digests of a seeded bot game, and
 a frame's 82 canvas calls, are one constant for both targets.
 
-## Not yet: the browser launch
+## In the browser
 
-There is no `shell/` and `make web` fails on purpose. Launching in a browser
-needs the engine's web runtime (`Arcade.Web.Runtime` with its `WebHooks`
-record, and the `Arcade.Web` glue for the cell, input, canvas and audio),
-which is being written alongside this game and was not in this tree when it
-was made. Everything that launch needs from the game exists and is tested:
+`make web` builds `dist/`, a static site: `putt.mjs` from
+`shell/putt_shell.march`, the audio worklet's own build
+`putt_synth_worklet.mjs` from `shell/putt_worklet.march`, March's runtime
+modules, the engine's glue (`arcade_*.mjs`, copied by march), and
+`web/index.html` and `web/style.css`. `make serve` serves it at
+`http://127.0.0.1:8237/` (`PORT=...` to change).
 
-- the model and update: `Putt.Rules.new_game`, `play` (a `PuttTurn` with the
-  events it told and the ball's sampled path);
-- input: `Arcade.Physics.Gesture.measure` over the pointer's track, then
-  `Putt.Rules.shot_of_flick`;
-- the frame: `Putt.View.scene` (or `scene_with_ball` while a putt's path is
-  played back), through `Arcade.Canvas.calls` and `Arcade.Web.Paint.frame`;
-- sound: `Putt.Cues.voices` as the synth's cue table, and
-  `Putt.Cues.audio_between` for the commands each playback frame sends.
+The shell is the hooks `Arcade.Web.Runtime.launch` runs one model with; the
+runtime owns the canvas, the frame loop and the pointer. A drag's samples
+are kept until the pointer lifts, then measured as a flick
+(`Arcade.Physics.Gesture.measure` with `flick_limits`) and turned into a putt
+by `shot_of_flick`. The rules roll the whole putt at once; the shell then
+plays its sampled path back at real time (straight lines between samples),
+drawing `Putt.View.scene_with_ball` from the state it was struck from, and
+sends `Putt.Cues.audio_between` for each frame's slice of time to
+`Arcade.Web.Audio`. When the path ends the state moves on to the turn's
+`after`. Touches are ignored while a putt is shown; on a finished hole a tap
+tees up the next, and on a finished course a tap starts a new game seeded
+from the last one's generator. The synth runs `Putt.Cues.voices` in the
+worklet (processor `putt-synth`), or on the main thread where worklets are
+missing.
 
-What remains is `shell/putt_main.march` handing those to the runtime's
-`launch`, the `web` target building it with `$(ARCADE_JS_FLAGS)`, and a
-one-flick playtest.
+`make playtest` builds `dist/`, serves it on `PORT` and flicks once in
+headless Chrome (puppeteer-core from `PLAYTEST_MODULES`, by default the
+host repository's `tools/playtest`). It reads the marks the shell sets on
+`<html>` (`data-phase`, `data-hole`, `data-strokes`, `data-rolling`,
+`data-putts`) and checks the first tee, the green's colour at the canvas's
+centre, the flick becoming a putt that rolls and rests with one stroke on
+the card, the speakers coming up in the worklet and being sent the putt's
+commands, and a clean console. Screenshots go to `test/web/shots/`.
+
+Not checked by anything: how far a flick sends the ball. The playtest's
+flick (8 px every 10 ms by its own clock, about 800 px/s) is measured as a
+lift speed near 267 px/s, a 0.67 m/s putt that stops about a third of a
+metre up the 6 m first hole (from the screenshots). `power_per_speed` was
+tuned without a browser.

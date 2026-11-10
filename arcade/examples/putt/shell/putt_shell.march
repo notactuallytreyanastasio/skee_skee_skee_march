@@ -1,0 +1,291 @@
+mod PuttShell do
+
+  -- Putt's browser shell, and the entry point of its browser build
+  -- (dist/putt.mjs): the hooks Arcade.Web.Runtime runs one PuttModel with.
+  -- The runtime owns the canvas, the frame loop and the events; this module
+  -- says what they mean for putt:
+  --
+  --   boot      the launch seed to Putt.Rules.new_game, and the speakers
+  --   pointer   a drag's samples, measured on lift as a flick
+  --             (Arcade.Physics.Gesture), become a putt (shot_of_flick);
+  --             a tap on a finished hole tees up the next, and on a
+  --             finished course starts a new game
+  --   tick      a struck putt is played back along its sampled path, at
+  --             real time, sending Putt.Cues.audio_between each frame;
+  --             the state moves on to the turn's `after` when it ends
+  --   effects   audio commands to Arcade.Web.Audio
+  --   marks     what the playtest reads off <html>
+  --
+  -- Every rule is in Putt.Rules; nothing here decides how the ball rolls.
+  needs IO.Foreign
+
+  -- A struck putt being shown: the state it was struck from (the hole and
+  -- caption drawn meanwhile), the turn the rules returned, when the shell
+  -- started it on the frame clock, and how far into it the last frame got
+  -- (negative before the first, so what sounds at 0 is sent once).
+  type PuttPlayback = {
+    from_state : PuttState,
+    turn : PuttTurn,
+    began : Float,
+    reached : Float
+  }
+
+  type PuttModel = {
+    rs : PuttRules,
+    game : PuttState,
+    view_w : Float,
+    view_h : Float,
+    drag : List(TrackPoint),
+    shown : Option(PuttPlayback),
+    putts : Int
+  }
+
+  type PuttMsg =
+    PmTick(Float)
+    | PmResize(Float, Float)
+    | PmDown(List(TrackPoint))
+    | PmMove(List(TrackPoint))
+    | PmUp(List(TrackPoint))
+    | PmCancel
+    | PmVisible(Bool)
+
+  type PuttFx = PfAudio(List(AudioCmd(PuttCue)))
+
+  -- The model as the runtime holds it: a record type is spelled out field by
+  -- field in every generic specialization's name on JS, a one-constructor
+  -- type by its name (see Arcade.Web.Runtime.WebHooks).
+  type Held = HeldModel(PuttModel)
+
+  fn unheld(b : Held) : PuttModel do
+    match b do
+    HeldModel(m) -> m
+    end
+  end
+
+  fn held(r : (PuttModel, List(PuttFx))) : (Held, List(PuttFx)) do
+    let (m, effects) = r
+    (HeldModel(m), effects)
+  end
+
+  fn quiet(m : PuttModel) : (PuttModel, List(PuttFx)) do
+    (m, [])
+  end
+
+  -- ---- Boot ----
+  fn boot(w : Float, h : Float, seed : U64) : (Held, List(PuttFx)) do
+    let rs = Putt.Rules.rules()
+    PuttAudio.start()
+    let m =
+      {
+        rs: rs,
+        game: Putt.Rules.new_game(rs, seed),
+        view_w: w,
+        view_h: h,
+        drag: [],
+        shown: None,
+        putts: 0
+      }
+    held(quiet(m))
+  end
+
+  -- ---- Update ----
+  fn update(m : PuttModel, x : PuttMsg) : (PuttModel, List(PuttFx)) do
+    match x do
+    PmTick(t) -> tick(m, t)
+    PmResize(w, h) -> quiet({ m with view_w: w, view_h: h })
+    PmDown(ps) -> quiet({ m with drag: List.reverse(ps) })
+    PmMove(ps) -> quiet({ m with drag: List.append(List.reverse(ps), m.drag) })
+    PmUp(ps) -> lift(m, List.reverse(List.append(List.reverse(ps), m.drag)))
+    PmCancel -> quiet({ m with drag: [] })
+    PmVisible(_) -> quiet(m)
+    end
+  end
+
+  -- A pointer lifted, its whole track oldest first. While a putt is shown
+  -- every touch is ignored.
+  fn lift(m0 : PuttModel, track : List(TrackPoint)) : (PuttModel, List(PuttFx)) do
+    let m = { m0 with drag: [] }
+    match m.shown do
+    Some(_) -> quiet(m)
+    None -> do
+      match m.game.phase do
+      PuttAiming -> flicked(m, track)
+      PuttHoleDone -> next(m)
+      PuttCourseDone -> again(m)
+      end
+    end
+    end
+  end
+
+  fn flicked(m : PuttModel, track : List(TrackPoint)) : (PuttModel, List(PuttFx)) do
+    match Arcade.Physics.Gesture.measure(track, Arcade.Physics.Gesture.flick_limits()) do
+    None -> quiet(m)
+    Some(metrics) -> do
+      match Putt.Rules.shot_of_flick(m.rs, metrics) do
+      None -> quiet(m)
+      Some(shot) -> strike(m, shot, metrics.ended_at)
+      end
+    end
+    end
+  end
+
+  fn strike(m : PuttModel, shot : PuttShot, at : Float) : (PuttModel, List(PuttFx)) do
+    match Putt.Rules.play(m.rs, PuttStrike(shot), m.game) do
+    Err(_) -> quiet(m)
+    Ok(turn) -> do
+      let p = { from_state: m.game, turn: turn, began: at, reached: -1.0 }
+      quiet({ m with shown: Some(p), putts: m.putts + 1 })
+    end
+    end
+  end
+
+  fn next(m : PuttModel) : (PuttModel, List(PuttFx)) do
+    match Putt.Rules.play(m.rs, PuttNext, m.game) do
+    Err(_) -> quiet(m)
+    Ok(turn) -> ({ m with game: turn.after }, [PfAudio(Putt.Cues.audio(m.rs, turn.told))])
+    end
+  end
+
+  -- A new game, seeded from the last one's generator.
+  fn again(m : PuttModel) : (PuttModel, List(PuttFx)) do
+    let (seed, _) = Arcade.Rng.next(m.game.rng)
+    quiet({ m with game: Putt.Rules.new_game(m.rs, seed) })
+  end
+
+  -- ---- Playback ----
+  fn tick(m : PuttModel, t : Float) : (PuttModel, List(PuttFx)) do
+    match m.shown do
+    None -> quiet(m)
+    Some(p) -> play_to(m, p, t -. p.began)
+    end
+  end
+
+  fn play_to(m : PuttModel, p : PuttPlayback, upto : Float) : (PuttModel, List(PuttFx)) do
+    let sounds = PfAudio(Putt.Cues.audio_between(m.rs, p.turn.told, p.reached, upto))
+    if upto >= path_end(p.turn.rolled) do
+      ({ m with game: p.turn.after, shown: None }, [sounds])
+    else
+      ({ m with shown: Some({ p with reached: upto }) }, [sounds])
+    end
+  end
+
+  fn path_end(path : List(Sampled(Vec2))) : Float do
+    match path do
+    Nil -> 0.0
+    Cons(a, Nil) -> a.sampled_at
+    Cons(_, rest) -> path_end(rest)
+    end
+  end
+
+  -- Where the ball is `t` seconds into its path: between the two samples
+  -- either side, in a straight line.
+  fn ball_at(path : List(Sampled(Vec2)), t : Float, fallback : Vec2) : Vec2 do
+    match path do
+    Nil -> fallback
+    Cons(a, rest) -> if t <= a.sampled_at do a.point else along(a, rest, t) end
+    end
+  end
+
+  fn along(a : Sampled(Vec2), rest : List(Sampled(Vec2)), t : Float) : Vec2 do
+    match rest do
+    Nil -> a.point
+    Cons(b, more) -> if t <= b.sampled_at do between(a, b, t) else along(b, more, t) end
+    end
+  end
+
+  fn between(a : Sampled(Vec2), b : Sampled(Vec2), t : Float) : Vec2 do
+    let span = b.sampled_at -. a.sampled_at
+    if span > 0.0 do
+      Arcade.Vec2.add(a.point, Arcade.Vec2.scale(Arcade.Vec2.sub(b.point, a.point), (t -. a.sampled_at) /. span))
+    else
+      b.point
+    end
+  end
+
+  -- ---- The frame ----
+  fn scene(m : PuttModel) : List(DrawOp) do
+    let vp = Arcade.Camera.viewport(m.view_w, m.view_h)
+    match m.shown do
+    None -> Putt.View.scene(m.rs, m.game, vp)
+    Some(p) -> do
+      let at = ball_at(p.turn.rolled, p.reached, p.from_state.ball)
+      Putt.View.scene_with_ball(m.rs, p.from_state, vp, at)
+    end
+    end
+  end
+
+  -- ---- Effects ----
+  fn effect(e : PuttFx) : () do
+    match e do
+    PfAudio(cmds) -> PuttAudio.route(cmds)
+    end
+  end
+
+  fn perform(effects : List(PuttFx)) : () do
+    List.each(effects, effect)
+  end
+
+  -- ---- The pointer ----
+  fn track_point(p : (Float, Float, Float)) : TrackPoint do
+    let (t, x, y) = p
+    Arcade.Physics.Gesture.point(t, x, y)
+  end
+
+  fn track(raw : List((Float, Float, Float))) : List(TrackPoint) do
+    List.map(raw, track_point)
+  end
+
+  -- ---- Marks ----
+  fn phase_name(p : PuttPhase) : String do
+    match p do
+    PuttAiming -> "aiming"
+    PuttHoleDone -> "hole-done"
+    PuttCourseDone -> "course-done"
+    end
+  end
+
+  -- What the playtest reads off <html>: the phase, the hole (1-based), the
+  -- strokes on it, whether a putt is being shown, and the putts struck.
+  fn marks(m : PuttModel) : List((String, String)) do
+    let rolling =
+      match m.shown do
+      Some(_) -> "1"
+      None -> "0"
+      end
+    [
+      ("data-phase", phase_name(m.game.phase)),
+      ("data-hole", int_to_string(m.game.hole + 1)),
+      ("data-strokes", int_to_string(m.game.strokes)),
+      ("data-rolling", rolling),
+      ("data-putts", int_to_string(m.putts))
+    ]
+  end
+
+  -- ---- Launch ----
+  fn hooks() : Arcade.Web.Runtime.WebHooks(Held, PuttMsg, PuttFx) do
+    {
+      hook_num: Arcade.Numerics.make(),
+      hook_boot: fn (w, h, seed) -> boot(w, h, seed),
+      hook_update: fn (b, x) -> held(update(unheld(b), x)),
+      hook_perform: fn effects -> perform(effects),
+      hook_tick: fn t -> PmTick(t),
+      hook_resize: fn (w, h) -> PmResize(w, h),
+      hook_down: fn raw -> Some(PmDown(track(raw))),
+      hook_move: fn raw -> Some(PmMove(track(raw))),
+      hook_up: fn raw -> Some(PmUp(track(raw))),
+      hook_cancel: Some(PmCancel),
+      hook_visible: fn shown -> PmVisible(shown),
+      hook_scene: fn b -> scene(unheld(b)),
+      hook_overlay: fn _ -> [],
+      hook_marks: fn b -> marks(unheld(b))
+    }
+  end
+
+  fn main(_f : Cap(IO.Foreign)) : () do
+    match Arcade.Web.Runtime.launch("green", fn () -> hooks()) do
+    Ok(_) -> ()
+    Err(why) -> panic(why)
+    end
+  end
+
+end

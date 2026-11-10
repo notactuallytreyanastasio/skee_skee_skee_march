@@ -1,0 +1,13 @@
+mod PuttWorklet do
+
+  -- The entry point of the audio worklet's build (dist/putt_synth_worklet.mjs),
+  -- loaded by AudioWorklet.addModule in its own realm: the processor
+  -- (Arcade.Web.SynthWorklet) starts from a silent synth and runs
+  -- Arcade.Web.SynthHost.serve with Putt.Cues every render quantum.
+  needs IO.Foreign
+
+  fn main(_f : Cap(IO.Foreign)) : () do
+    Arcade.Web.SynthWorklet.register(PuttNames.processor(), Arcade.Synth.rate(), fn () -> Arcade.Web.SynthHost.reset(), fn cmds -> Arcade.Web.SynthHost.serve(Putt.Cues.voices, cmds))
+  end
+
+end

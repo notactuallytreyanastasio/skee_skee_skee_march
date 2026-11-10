@@ -1,6 +1,6 @@
 #!/bin/sh
 # Putt's static gate: forge check and forge lint of the game's lib/, and
-# march --check of its suites and mains. forge exits 0 on warnings, and a
+# march --check of its suites and mains and of the browser shell. forge exits 0 on warnings, and a
 # non-exhaustive match is only a warning, so this fails on any warning text.
 # Paths are relative to putt's root (this script's parent).
 #   scripts/check.sh
@@ -34,5 +34,10 @@ export MARCH_LIB_PATH="lib:$arcade/lib:$arcade/physics/lib:$arcade/testkit/lib:t
 for f in $(find test -name '*.march' | sort); do
   scan "march --check $f" march --check "$f"
 done
-[ "$fail" -eq 0 ] && echo "check-putt: lib and suites clean, no warnings"
+# The browser shell (shell/), on the web build's path: no test kit.
+export MARCH_LIB_PATH="lib:$arcade/lib:$arcade/physics/lib:shell"
+for f in $(find shell -name '*.march' | sort); do
+  scan "march --check $f" march --check "$f"
+done
+[ "$fail" -eq 0 ] && echo "check-putt: lib, suites and shell clean, no warnings"
 exit "$fail"
