@@ -45,6 +45,7 @@ foundation: ask before changing it.
 | `Arcade.Web.Audio`, `SynthHost`, `SynthWorklet` | `arcade/lib/arcade/web/audio.march`, `synth_host.march`, `synth_worklet.march`, `arcade_audio.mjs`, `arcade_synth_cell.mjs`, `arcade_worklet.mjs` | JS only: the AudioContext lifecycle (`install(AudioSetup, serve)`, `route(cmds)`; the setup names rate, gain, worklet URL, processor name and debug global); the synth cell (`reset`, `serve(voices, cmds)`); the worklet's processor (`register(processor, rate, reset, serve)`) |
 | `Arcade.Web.Runtime` | `arcade/lib/arcade/web/runtime.march` | JS only: a game's frame loop. `launch(canvas_id, make)` takes a `WebHooks(model, msg, fx)` record of closures (boot, update, perform, the tick/resize/pointer/visible msgs, scene DrawOps, an overlay returning msgs, data-* marks) and owns the canvas, the cell, dispatch, resizes and rAF; `element(id, tag)` |
 | `Arcade.Camera` | `arcade/lib/arcade/camera.march` | `Pose` (eye, target, up), `Lens` (`Perspective(fov)` or `Orthographic(extent)`), `Rig`, `Viewport`, `Projection`, `Seen`; projection to fractions and pixels, `ray`, `ray_plane`, `pixels_per_metre`, `lean_step`, `lean_toward`, `shake_jolt` |
+| `Arcade.Replay` | `arcade/lib/arcade/replay.march` | A reducer folded over actions: `replay(cx, apply, s0, actions)`, `drive` (a policy picks actions), `steer` (whole turns; `Skee.Bots.play` uses it) |
 | `Arcade.CameraFit` | `arcade/lib/arcade/camera_fit.march` | Grid fitter: `FitGrid`, `FitTarget` (point, wanted screen y, weight), `FitPlan`, lexicographic `FitBest`; the game passes `pose_at` and the targets |
 | `Arcade.Physics.Sim`, `Kinematics`, `Trig`, `Gesture` | `arcade/physics/lib/arcade/physics/*.march` (package `arcade_physics`) | Step loop and clock; Euler, friction, reflection, bounds; the libm replay seam; flick measurement |
 | `Skee.Units` | `units.march` | Chips, Points, Tickets, Winnings arithmetic; ranks |
@@ -794,15 +795,20 @@ out into forge packages of its own (module `Arcade.X` lives at
 (`scripts/check_core.py` rejects it):
 
 ```
+arcade/README.md           the engine's own guide: packages, modules, how a game plugs in, rules, checks
 arcade/forge.toml          forge name arcade, type lib
-arcade/lib/arcade/         the pure core, later also web/ (the JS shell)
+arcade/lib/arcade/         the pure core; web/ under it is the JS shell (Arcade.Web.*, arcade_*.mjs)
 arcade/testkit/            forge name arcade_testkit (a dev-dep): Arcade.Test.*
-arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_JS_FLAGS
+arcade/arcade.mk           ARCADE_LIB, ARCADE_TESTKIT_LIB, ARCADE_PHYSICS_LIB, ARCADE_JS_FLAGS
 arcade/physics/            forge name arcade_physics (deps: arcade): Arcade.Physics.*
-arcade/test/               the engine's own suites (u64, numerics, num, vec, rng)
+arcade/test/               the engine's own suites (u64, numerics, num, vec, rng, camera, physics, replay)
 arcade/scripts/            the engine's check.sh, run-suite.sh and run-all.sh
-arcade/examples/putt/      the second game: core and suites (make -C, or make test-examples); no web launch yet
+arcade/examples/putt/      the second game: core, suites, browser build and playtest (make -C, or make test-examples)
 ```
+
+`arcade/README.md` is written for someone using the engine without skee; it
+must stay free of skee too. This section is the skee side: how the extraction
+was done and what skee keeps.
 
 skee's `forge.toml` names them: `[deps] arcade = { path = "arcade" }` and
 `[dev-deps] arcade_testkit = { path = "arcade/testkit" }` (the testkit holds

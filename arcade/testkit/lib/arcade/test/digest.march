@@ -1,7 +1,7 @@
 mod Arcade.Test.Digest do
 
-  -- A 32-bit digest of a run: tools/golden/Sources/golden-run/digest.swift, word
-  -- for word. Every function takes the digest so far and returns the next one.
+  -- A 32-bit FNV-1a-style digest of a run, word for word as the reference
+  -- generator writes it. Every function takes the digest so far and returns the next one.
   -- Enums go in as their Swift allCases index; lists carry a count and optionals
   -- a tag, so two different shapes cannot feed the same words.
   fn start() : Int do

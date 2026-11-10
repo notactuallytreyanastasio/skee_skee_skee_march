@@ -9,8 +9,8 @@ mod Arcade.Test.Harness do
   -- is Passed plus a measured, declared tolerance: `differing` of `values`
   -- were not bit-identical, the worst by `max_ulps`. It is for values that
   -- went through libm: mostly on JS (V8's libm), and rarely on native where
-  -- Swift's release build merged sin and cos into __sincos_stret (PORT.md,
-  -- "Measured divergence"). It is always printed. A case that compared nothing is a failure, so an empty golden
+  -- a reference build merged sin and cos into one call (__sincos_stret).
+  -- It is always printed. A case that compared nothing is a failure, so an empty golden
   -- table can never look green.
   type Outcome = Passed(Int) | Drifted(Int, Int, Int) | Mismatch(String)
 

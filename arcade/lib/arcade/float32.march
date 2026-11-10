@@ -5,7 +5,7 @@ mod Arcade.Float32 do
   -- by `f32`, which gives Swift's result bit for bit (a double holds any
   -- product of two Floats exactly, and one rounding of an exact value is
   -- correct). The libm calls (sinf, expf, powf) are rounded double libm, not
-  -- Float libm: see docs/PORT.md, "Arcade.Synth", for the measured difference.
+  -- Float libm, so they can differ from a platform sinf by one Float ulp.
   cap pure
 
   -- The constants of the rounding, all exact doubles. Build once with `consts`.
@@ -86,7 +86,7 @@ mod Arcade.Float32 do
   end
 
   doc """Swift's `0 + x`: +0 when x is -0. March folds `0.0 +. x` to x on
-  every target, losing that (tools/repros/synth/fold_probe.march)."""
+  every target, losing that."""
   fn plus_zero(x : Float) : Float needs () do
     if x == 0.0 do 0.0 else x end
   end

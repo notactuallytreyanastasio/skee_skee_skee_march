@@ -1,7 +1,9 @@
 mod Arcade.Test.GoldenIo do
 
-  -- Readers for the tokens tools/golden writes. Every Swift writer in
-  -- GoldenSupport.swift has its reader here.
+  -- Readers for the tokens of a golden table: one row per line, tokens
+  -- separated by spaces, a Float as its IEEE bits (16 hex digits), a U64 as
+  -- 16 hex digits, an Int in decimal. Each writer a game's generator uses
+  -- has its reader here.
   -- All rows of a golden module, each row a list of tokens.
   fn rows(chunks : List(String)) : List(List(String)) do
     List.flat_map(chunks, fn chunk -> List.filter_map(String.split(chunk, "\n"), fn line -> if line == "" do None else Some(String.split(line, " ")) end))
@@ -158,7 +160,7 @@ mod Arcade.Test.GoldenIo do
   end
 
   -- The most V8's libm may differ from Darwin's on one value. Tightened to the
-  -- measured worst case; see "Measured divergence" in docs/PORT.md.
+  -- measured worst case (next_gaussian, which chains log, sqrt and cos).
   fn libm_ulps() : Int do
     2
   end

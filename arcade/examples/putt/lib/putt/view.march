@@ -53,8 +53,8 @@ mod Putt.View do
     Arcade.Camera.pixels_per_metre(l, height())
   end
 
-  -- Named recursion, not a lambda over the records: see PORT.md on
-  -- lambdas that capture records natively.
+  -- Named recursion, not a lambda over the records: a let-bound lambda that
+  -- captures records miscompiles natively.
   pfn pxs(rs : PuttRules, l : Arcade.Camera.Projection, ps : List(Arcade.Vec2.Vec2), acc : List(Arcade.Vec2.Vec2)) : List(Arcade.Vec2.Vec2) needs () do
     match ps do
     Nil -> List.reverse(acc)
