@@ -2,17 +2,14 @@ mod SynthWorklet do
 
   -- The entry point of the audio worklet's build (dist/skee_synth_worklet.mjs),
   -- loaded by AudioWorklet.addModule in its own realm. It registers the
-  -- processor that starts from a silent synth (SynthEngine.reset, SoundEngine's
-  -- `Synth()`) and runs SynthEngine.serve every render quantum
-  -- (web/skee_worklet.mjs). It depends on Arcade.Synth, Arcade.SynthFeed and Skee.Cues only.
+  -- processor (Arcade.Web.SynthWorklet) that starts from a silent synth
+  -- (Arcade.Web.SynthHost.reset, SoundEngine's `Synth()`) and runs
+  -- SynthHost.serve with Skee.Cues every render quantum. It depends on
+  -- Arcade.Synth, Arcade.SynthFeed, the engine's synth glue and Skee.Cues only.
   needs IO.Foreign
 
-  extern "./skee_worklet.mjs" : Cap(IO.Foreign) do
-    fn worklet_register(reset : () -> (), serve : List(AudioCmd(Sound)) -> List(Float)) : Unit
-  end
-
   fn main(_f : Cap(IO.Foreign)) : () do
-    worklet_register(fn () -> SynthEngine.reset(), fn cmds -> SynthEngine.serve(cmds))
+    Arcade.Web.SynthWorklet.register(SynthNames.processor(), Arcade.Synth.rate(), fn () -> Arcade.Web.SynthHost.reset(), fn cmds -> Arcade.Web.SynthHost.serve(Skee.Cues.voices_for, cmds))
   end
 
 end

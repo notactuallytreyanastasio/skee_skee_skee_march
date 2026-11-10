@@ -29,10 +29,13 @@ mod Game do
   }
 
   -- One cell holds the ShellState, so that event callbacks and the frame
-  -- loop act on the same model (web/skee_glue.mjs).
-  extern "./skee_glue.mjs" : Cap(IO.Foreign) do
-    fn glue_cell_put(s : ShellState) : Unit
-    fn glue_cell_get() : ShellState
+  -- loop act on the same model (Arcade.Web.Cell).
+  fn state_put(s : ShellState) : () do
+    Arcade.Web.Cell.put(s)
+  end
+
+  fn state_get() : ShellState do
+    Arcade.Web.Cell.get()
   end
 
   -- ---- Storage ----
@@ -83,7 +86,7 @@ mod Game do
     FxSave(key, text) -> Js.Dom.store_set(storage_key(key), text)
     FxHaptic(h) -> do
       match vibration_ms(h) do
-      Some(ms) -> Glue.vibrate(ms)
+      Some(ms) -> Arcade.Web.Glue.vibrate(ms)
       None -> ()
       end
     end
@@ -100,10 +103,10 @@ mod Game do
 
   -- One message: update, keep the new model, perform its effects.
   fn dispatch(msg : Skee.App.Msg) : () do
-    let s = glue_cell_get()
+    let s = state_get()
     let (m, effects) = Skee.App.update(s.model, msg)
     let next = { s with model: m }
-    glue_cell_put(next)
+    state_put(next)
     perform(next, effects)
   end
 
@@ -128,9 +131,9 @@ mod Game do
   -- A resize or a new devicePixelRatio (zoom, another screen) resizes the
   -- canvas's backing store and tells the model.
   fn follow_size() : () do
-    let s = glue_cell_get()
-    let (w, h) = Glue.view_size()
-    let dpr = Glue.device_pixel_ratio()
+    let s = state_get()
+    let (w, h) = Arcade.Web.Glue.view_size()
+    let dpr = Arcade.Web.Glue.device_pixel_ratio()
     if w != s.width || h != s.height || dpr != s.dpr do
       resize(s, w, h, dpr)
     else
@@ -139,8 +142,8 @@ mod Game do
   end
 
   fn resize(s : ShellState, w : Float, h : Float, dpr : Float) : () do
-    Glue.size_canvas(s.canvas, w, h, dpr)
-    glue_cell_put({ s with width: w, height: h, dpr: dpr })
+    Arcade.Web.Glue.size_canvas(s.canvas, w, h, dpr)
+    state_put({ s with width: w, height: h, dpr: dpr })
     dispatch(MsgResize(w, h))
   end
 
@@ -148,20 +151,20 @@ mod Game do
   -- possible, whether the presentation is busy, and the crease's height.
   fn mark(m : Skee.App.Model) : () do
     let g = Skee.App.geometry(m)
-    Glue.mark("data-layer", show(Skee.App.top_layer(m)))
-    Glue.mark("data-can-throw", if Skee.App.can_throw(m) do "1" else "0" end)
-    Glue.mark("data-busy", if Skee.App.busy(m) do "1" else "0" end)
-    Glue.mark("data-crease-y", int_to_string(float_round(g.crease_y)))
+    Arcade.Web.Glue.mark("data-layer", show(Skee.App.top_layer(m)))
+    Arcade.Web.Glue.mark("data-can-throw", if Skee.App.can_throw(m) do "1" else "0" end)
+    Arcade.Web.Glue.mark("data-busy", if Skee.App.busy(m) do "1" else "0" end)
+    Arcade.Web.Glue.mark("data-crease-y", int_to_string(float_round(g.crease_y)))
   end
 
   fn frame(t : Float) : () do
     follow_size()
     dispatch(MsgTick(t))
-    let s = glue_cell_get()
+    let s = state_get()
     Arcade.Web.Paint.frame(s.ctx, s.k.num, s.dpr, s.width, s.height, Skee.App.scene_ops(s.model))
     List.each(Hud.render(s.hud, s.model), dispatch)
     mark(s.model)
-    Glue.request_frame(fn next -> frame(next))
+    Arcade.Web.Glue.request_frame(fn next -> frame(next))
   end
 
   -- ---- Launch ----
@@ -189,10 +192,10 @@ mod Game do
     let ctx = context(canvas)
     let hud = Hud.mount(element("hud", "div"))
     let k = Skee.Consts.make()
-    let (w, h) = Glue.view_size()
-    let dpr = Glue.device_pixel_ratio()
-    let (hi, lo) = Glue.seed_limbs()
-    Glue.size_canvas(canvas, w, h, dpr)
+    let (w, h) = Arcade.Web.Glue.view_size()
+    let dpr = Arcade.Web.Glue.device_pixel_ratio()
+    let (hi, lo) = Arcade.Web.Glue.seed_limbs()
+    Arcade.Web.Glue.size_canvas(canvas, w, h, dpr)
     let (m, effects) = Skee.App.boot(k, saved_strings(), w, h, Arcade.U64.make(hi, lo))
     let s =
       {
@@ -206,11 +209,11 @@ mod Game do
         height: h,
         dpr: dpr
       }
-    glue_cell_put(s)
+    state_put(s)
     perform(s, effects)
-    Glue.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
-    Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
-    Glue.request_frame(fn t -> frame(t))
+    Arcade.Web.Input.on_pointer(canvas, fn raw -> pointer_down(samples(raw)), fn raw -> dispatch(MsgPointerMove(samples(raw))), fn raw -> dispatch(MsgPointerUp(samples(raw))), fn () -> dispatch(MsgPointerCancel))
+    Arcade.Web.Glue.on_visibility(fn shown -> dispatch(MsgVisible(shown)))
+    Arcade.Web.Glue.request_frame(fn t -> frame(t))
   end
 
   fn main(_f : Cap(IO.Foreign)) : () do

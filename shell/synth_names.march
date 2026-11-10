@@ -1,0 +1,16 @@
+mod SynthNames do
+
+  -- The names skee's two builds agree on: the AudioWorkletProcessor the
+  -- worklet build registers and the main build asks for, and the globalThis
+  -- name of the audio log that tools/audio_check and the playtests read.
+  needs IO.Foreign
+
+  fn processor() : String do
+    "skee-synth"
+  end
+
+  fn debug_global() : String do
+    "__skeeAudio"
+  end
+
+end

@@ -1,0 +1,23 @@
+mod Arcade.Web.Cell do
+
+  -- The shell's one mutable cell, backed by arcade_cell.mjs: the state a game's
+  -- shell keeps between events (its model and browser handles), so that event
+  -- callbacks and the frame loop act on the same value. One cell per JS realm;
+  -- a shell puts before it gets, and keeps one type in it.
+  needs IO.Foreign
+
+  extern "./arcade_cell.mjs" : Cap(IO.Foreign) do
+    fn cell_put(s : a) : Unit
+    fn cell_get() : a
+  end
+
+  -- ---- Public names: extern declarations are private to this module ----
+  fn put(s : a) : () do
+    cell_put(s)
+  end
+
+  fn get() : a do
+    cell_get()
+  end
+
+end

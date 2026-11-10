@@ -1,0 +1,18 @@
+mod Arcade.Web.SynthWorklet do
+
+  -- The AudioWorkletProcessor of a game's worklet build, backed by
+  -- arcade_worklet.mjs. The game's worklet entry calls `register` once, in the
+  -- AudioWorkletGlobalScope, with the processor name its main build asks
+  -- Arcade.Web.Audio for, the synth's rate, and SynthHost's reset and serve.
+  needs IO.Foreign
+
+  extern "./arcade_worklet.mjs" : Cap(IO.Foreign) do
+    fn worklet_register(processor : String, rate : Float, reset : () -> (), serve : List(AudioCmd(cue)) -> List(Float)) : Unit
+  end
+
+  -- ---- Public names: extern declarations are private to this module ----
+  fn register(processor : String, rate : Float, reset : () -> (), serve : List(AudioCmd(cue)) -> List(Float)) : () do
+    worklet_register(processor, rate, reset, serve)
+  end
+
+end

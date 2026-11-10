@@ -1,15 +1,17 @@
-// skee_worklet.mjs: the AudioWorkletProcessor around SynthEngine.serve, for
-// the audio worklet's build (shell/synth_worklet.march). Runs in the
+// arcade_worklet.mjs: the AudioWorkletProcessor around
+// Arcade.Web.SynthHost.serve, for a game's audio worklet build. Runs in the
 // AudioWorkletGlobalScope: sampleRate, currentFrame, registerProcessor.
 // Commands come in on the port as March lists of Arcade.SynthFeed.AudioCmd
 // (structured clones of March's plain-object values), or as
 // processorOptions.cmds before the first block. A new processor starts from
-// a silent synth (reset: SynthEngine.reset); each quantum takes what has
-// arrived, renders one block and copies it into the mono output.
-import { makePump, joinBatches } from "./skee_synth_cell.mjs";
+// a silent synth (reset: Arcade.Web.SynthHost.reset); each quantum takes what
+// has arrived, renders one block and copies it into the mono output.
+// processor: the name to register under (the game's main build asks
+// Arcade.Web.Audio for the same one); rate: the synth's sample rate.
+import { makePump, joinBatches } from "./arcade_synth_cell.mjs";
 
-export function worklet_register(reset, serve) {
-  class SkeeSynthProcessor extends AudioWorkletProcessor {
+export function worklet_register(processor, rate, reset, serve) {
+  class ArcadeSynthProcessor extends AudioWorkletProcessor {
     constructor(options) {
       super();
       reset._0(reset, 0);
@@ -18,7 +20,7 @@ export function worklet_register(reset, serve) {
       const first = options && options.processorOptions && options.processorOptions.cmds;
       if (first) this.pending.push(first);
       this.port.onmessage = (e) => { this.pending.push(e.data); };
-      this.pump = makePump(serve, sampleRate, () => {
+      this.pump = makePump(serve, rate, sampleRate, () => {
         const batches = this.pending;
         if (batches.length === 0) return { $: "Nil" };
         this.pending = [];
@@ -42,5 +44,5 @@ export function worklet_register(reset, serve) {
       return true;
     }
   }
-  registerProcessor("skee-synth", SkeeSynthProcessor);
+  registerProcessor(processor, ArcadeSynthProcessor);
 }

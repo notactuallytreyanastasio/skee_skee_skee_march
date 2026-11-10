@@ -41,6 +41,8 @@ foundation: ask before changing it.
 | `Arcade.Html` | `arcade/lib/arcade/html.march` | HTML as data (`Prop`, `Html`: `Tag` or `Words`), `escape`, `render` |
 | `Arcade.Svg` | `arcade/lib/arcade/svg.march` | DrawOps as SVG elements in `Html` (`ops_svg(prefix, ops)`), clips as `<clipPath>` groups |
 | `Arcade.Web.Paint`, `Arcade.Web.Canvas2d` | `arcade/lib/arcade/web/paint.march`, `canvas2d.march`, `arcade_canvas2d.mjs` | JS only (not core): executes a `CanvasCall` list; the Canvas 2D calls Js.Canvas lacks. march copies the .mjs beside the build |
+| `Arcade.Web.Glue`, `Cell`, `Input` | `arcade/lib/arcade/web/glue.march`, `cell.march`, `input.march`, `arcade_glue.mjs`, `arcade_cell.mjs`, `arcade_input.mjs` | JS only: the clock and rAF in seconds, view size, dpr, canvas sizing, seed limbs, visibility, vibrate, data-* marks; the generic state cell (`put(s : a)`, `get() : a`); one-pointer input with coalesced samples, and the tap queue |
+| `Arcade.Web.Audio`, `SynthHost`, `SynthWorklet` | `arcade/lib/arcade/web/audio.march`, `synth_host.march`, `synth_worklet.march`, `arcade_audio.mjs`, `arcade_synth_cell.mjs`, `arcade_worklet.mjs` | JS only: the AudioContext lifecycle (`install(AudioSetup, serve)`, `route(cmds)`; the setup names rate, gain, worklet URL, processor name and debug global); the synth cell (`reset`, `serve(voices, cmds)`); the worklet's processor (`register(processor, rate, reset, serve)`) |
 | `Arcade.Camera` | `arcade/lib/arcade/camera.march` | `Pose` (eye, target, up), `Lens` (`Perspective(fov)` or `Orthographic(extent)`), `Rig`, `Viewport`, `Projection`, `Seen`; projection to fractions and pixels, `ray`, `ray_plane`, `pixels_per_metre`, `lean_step`, `lean_toward`, `shake_jolt` |
 | `Arcade.CameraFit` | `arcade/lib/arcade/camera_fit.march` | Grid fitter: `FitGrid`, `FitTarget` (point, wanted screen y, weight), `FitPlan`, lexicographic `FitBest`; the game passes `pose_at` and the targets |
 | `Arcade.Physics.Sim`, `Kinematics`, `Trig`, `Gesture` | `arcade/physics/lib/arcade/physics/*.march` (package `arcade_physics`) | Step loop and clock; Euler, friction, reflection, bounds; the libm replay seam; flick measurement |
@@ -60,9 +62,9 @@ foundation: ask before changing it.
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
-| painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Arcade.Web.Canvas2d`); the shell: `shell/game.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
+| painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Canvas2d`, `Glue`, `Cell`, `Input`); the shell: `shell/game.march`; `web/` (index.html, style.css); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
-| audio | `arcade/lib/arcade/synth_feed.march` (`Arcade.SynthFeed`: `AudioCmd(cue)`, `Levels`; every call that may play a cue takes the game's `voices`, here `Skee.Cues.voices_for`); `lib/skee/sound_out.march` (`Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
+| audio | `arcade/lib/arcade/synth_feed.march` (`Arcade.SynthFeed`: `AudioCmd(cue)`, `Levels`; every call that may play a cue takes the game's `voices`, here `Skee.Cues.voices_for`); `lib/skee/sound_out.march` (`Skee.SoundOut`); `shell/audio.march`, `synth_names.march`, `synth_worklet.march` (the worklet's entry); the engine's `Arcade.Web.Audio`, `SynthHost`, `SynthWorklet` with `arcade_audio.mjs`, `arcade_synth_cell.mjs`, `arcade_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 | host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
@@ -502,7 +504,7 @@ radius is 0, a stray PopClip restores nothing and open clips are closed at the
 end. `Arcade.Web.Paint` executes the list with one match and decides nothing.
 
 The shell (`shell/game.march`) keeps one `ShellState` (model, canvas,
-context, HUD and audio handles, size, dpr) in a cell in `web/skee_glue.mjs`,
+context, HUD and audio handles, size, dpr) in the engine's cell (`Arcade.Web.Cell`),
 so pointer callbacks, visibility changes and the frame loop act on the same
 model, each through `dispatch(msg)`: update, store, perform. Effects:
 `FxSave` to localStorage (`skee.wallet`, `skee.run`, `skee.tipsSeen`,
@@ -519,12 +521,13 @@ Entry points other shell pieces fill in: `Hud.mount(root : Js.Dom.Node) :
 HudHandle`, `Hud.render(h : HudHandle, m : Skee.App.Model) :
 List(Skee.App.Msg)`; `Audio.start() : AudioHandle`, `Audio.apply(a :
 AudioHandle, effects : List(Skee.App.Effect)) : ()`. The stub HUD shows one
-button per argument-free Intent that `Skee.App.accepts`. `Glue.queue_tap(i)`
-and `Glue.drain_taps()` are a tap queue for HUD buttons. `<html>` carries
+button per argument-free Intent that `Skee.App.accepts`. `Arcade.Web.Input.queue_tap(i)`
+and `Arcade.Web.Input.drain_taps()` are a tap queue for HUD buttons. `<html>` carries
 `data-layer`, `data-can-throw`, `data-busy` and `data-crease-y` for the
 playtest.
 
-FFI added (`web/skee_glue.mjs`, declared in `shell/glue.march`): the clock
+FFI added (now the engine's `Arcade.Web.Glue`, `Cell` and `Input`, with
+`arcade_glue.mjs`, `arcade_cell.mjs` and `arcade_input.mjs`): the clock
 and rAF in seconds, view size, devicePixelRatio, canvas sizing, seed limbs,
 visibility, vibrate, pointer capture and coalesced samples, the state cell,
 the tap queue and data-* marks. The Canvas calls Js.Canvas lacks
@@ -611,7 +614,7 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd(Sound))  main threa
   game), which `audioWorklet.addModule` loads. It imports
   `march_runtime.mjs` in the worklet's realm; nothing in the runtime touches
   `window` or `document` at load. Each processor starts from a silent synth
-  (`SynthEngine.reset`): one module-level cell serves every processor in a
+  (`Arcade.Web.SynthHost.reset`): one module-level cell serves every processor in a
   realm, so the constructor resets it.
 - The AudioContext is made on the first gesture (pointerdown, pointerup,
   touchend, keydown, click, captured on window), at 44100 Hz with
@@ -620,10 +623,10 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd(Sound))  main threa
   up a cue is dropped (it would play late) and the rumble and drum levels are
   tracked (`Arcade.SynthFeed.track`), then restored (`restore`) the moment the
   synth comes up. A browser that ignores `sampleRate` gets linear
-  resampling in the pump (`web/skee_synth_cell.mjs`).
+  resampling in the pump (`arcade/lib/arcade/web/arcade_synth_cell.mjs`).
 - No AudioWorklet (an insecure context such as a phone on plain http over
   the LAN, an old browser) or a failed `addModule`: a ScriptProcessorNode of
-  2048 samples runs `SynthEngine.serve` on the main thread, between frames.
+  2048 samples runs `Arcade.Web.SynthHost.serve` on the main thread, between frames.
   No AudioContext at all: silent, nothing thrown.
 - A command lands on the first sample of the block after it arrives, as
   Swift's lock does at the next render callback. Measured in headless
@@ -641,6 +644,12 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd(Sound))  main threa
   `data-audio-path` is `worklet`, `script` or `off`, and
   `window.__skeeAudio.log` keeps the last 400 batches sent (page time, audio
   time, the commands, and the audio frame at which the worklet took them).
+- The plumbing is the engine's (`Arcade.Web.Audio`, `SynthHost`,
+  `SynthWorklet` and their `arcade_*.mjs`); skee passes its setup from
+  `shell/audio.march`: `Arcade.Synth.rate()`, gain 0.8,
+  `skee_synth_worklet.mjs`, and from `shell/synth_names.march` the processor
+  name `skee-synth` and the global `__skeeAudio`, which both builds and
+  tools/audio_check share.
 
 ### Skee.Host: the casino host, with no scripted host
 
@@ -1057,9 +1066,17 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - Swift's JSONEncoder writes a dictionary whose key is a String-backed enum
   (`[Room: Comp]`, `[JackpotTier: Int]`) as one array, key then value, not as an
   object. `Skee.Save.pairs_of` reads that shape.
-- An extern's callback type is written `-> ()` in `shell/glue.march`. With
+- An extern's callback type is written `-> ()` (as in `Arcade.Web.Glue`). With
   `-> Unit` the shell's first draft failed with `expected Unit but got ()` at
   its lambdas; a minimal program does not reproduce it, so there is no repro.
+- **The entry module's fns share the JS namespace with extern imports.** The
+  JS backend emits the entry module's functions unqualified (`function
+  dispatch`), next to `import { cell_get } from "./arcade_cell.mjs"`. A
+  `Game.cell_get` wrapper therefore compiled clean and failed at load with
+  `SyntaxError: Identifier 'cell_get' has already been declared`, so the game
+  never started and no build step warned. shell/game.march names its
+  wrappers `state_get`/`state_put`; an entry module must not reuse an extern
+  name of any module in its build.
 - **Extern declarations are private to their module.** `Glue.now()` is
   `Unknown module Glue` unless Glue defines a public `fn now()` wrapping the
   extern, as the stdlib does.

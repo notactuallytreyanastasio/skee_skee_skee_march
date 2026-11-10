@@ -1,31 +1,34 @@
-// skee_audio.mjs: the speakers for shell/audio.march. Web Audio plumbing only;
-// which commands to send, and what to restore when the speakers come up, is
-// decided in March (Skee.SoundOut, Arcade.SynthFeed).
+// arcade_audio.mjs: the speakers for Arcade.Web.Audio (march copies this file
+// beside the build). Web Audio plumbing only; which commands to send, and
+// what to restore when the speakers come up, is decided in March
+// (Arcade.SynthFeed and the game). The game's setup (Arcade.Web.Audio's
+// AudioSetup) gives the rate, gain, worklet URL, processor name and global.
 //
 //   - The AudioContext is made on the first user gesture (autoplay rules),
-//     at the synth's 44100 Hz, and resumed on every later gesture while it
-//     is not running (iOS "interrupted", a suspended tab).
-//   - The synth runs in an AudioWorklet (skee_synth_worklet.mjs, the March
-//     build of shell/synth_worklet.march), one 128-sample block per render
-//     quantum. Commands go to it on the port.
+//     at the synth's rate, and resumed on every later gesture while it is
+//     not running (iOS "interrupted", a suspended tab).
+//   - The synth runs in an AudioWorklet (the game's worklet build, which
+//     registers the processor through Arcade.Web.SynthWorklet), one
+//     128-sample block per render quantum. Commands go to it on the port.
 //   - Where AudioWorklet is missing or fails to load (an insecure context,
-//     an old browser), a ScriptProcessorNode runs SynthEngine.serve on the
-//     main thread instead, between frames, 2048 samples a callback.
+//     an old browser), a ScriptProcessorNode runs the game's serve
+//     (Arcade.Web.SynthHost.serve) on the main thread instead, between
+//     frames, 2048 samples a callback.
 //   - Anything that throws leaves the game silent, never broken.
-//   - mono -> a gain of 0.8 (SoundEngine's mainMixerNode.outputVolume) ->
-//     the destination.
+//   - mono -> a gain node at the setup's gain -> the destination.
 //
 // For the playtest: <html data-audio="<state>" data-audio-path="worklet|
-// script|off">, and window.__skeeAudio = { log, stats } with each batch of
-// commands sent (performance time, audio time, the commands) and the audio
-// frame at which the synth took it.
+// script|off">, and globalThis[<setup's global>] = { log, stats } with each
+// batch of commands sent (performance time, audio time, the commands) and
+// the audio frame at which the synth took it.
 
-import { makePump, joinBatches } from "./skee_synth_cell.mjs";
+import { makePump, joinBatches } from "./arcade_synth_cell.mjs";
 
-const RATE = 44100;
-const GAIN = 0.8;
 const LOG_KEEP = 400;
 
+let rate = 0;
+let gainLevel = 0;
+let processor = "";
 let ctx = null;
 let sink = null;          // (marchList) => void, once the synth is up
 let path = "off";
@@ -36,7 +39,6 @@ let levels = null;
 
 const debug = { log: [], stats: { peak: 0, frame: 0, path: "off", rate: 0, underruns: null } };
 const awaiting = [];      // log entries whose batch the worklet has not taken yet
-try { globalThis.__skeeAudio = debug; } catch (e) { }
 
 function mark() {
   try {
@@ -46,7 +48,7 @@ function mark() {
   } catch (e) { }
 }
 
-// ---- The levels cell (Arcade.SynthFeed.Levels), kept by shell/audio.march ----
+// ---- The levels cell (Arcade.SynthFeed.Levels), kept by Arcade.Web.Audio ----
 export function audio_levels_get() { return levels; }
 export function audio_levels_put(l) { levels = l; }
 
@@ -102,14 +104,14 @@ function up(name, send) {
 
 function output() {
   const gain = ctx.createGain();
-  gain.gain.value = GAIN;
+  gain.gain.value = gainLevel;
   gain.connect(ctx.destination);
   return gain;
 }
 
 function startWorklet(gain) {
   return ctx.audioWorklet.addModule(workletUrl).then(() => {
-    const node = new AudioWorkletNode(ctx, "skee-synth", {
+    const node = new AudioWorkletNode(ctx, processor, {
       numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
     });
     node.port.onmessage = fromWorklet;
@@ -120,7 +122,7 @@ function startWorklet(gain) {
 
 function startScript(gain) {
   const pending = [];
-  const pump = makePump(serveFn, ctx.sampleRate, () => joinBatches(pending.splice(0, pending.length)));
+  const pump = makePump(serveFn, rate, ctx.sampleRate, () => joinBatches(pending.splice(0, pending.length)));
   const node = ctx.createScriptProcessor(2048, 0, 1);
   let blocks = 0, peak = 0;
   node.onaudioprocess = (e) => {
@@ -139,7 +141,7 @@ function open() {
   const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
   if (!AC) { mark(); return; }
   try {
-    ctx = new AC({ sampleRate: RATE, latencyHint: "interactive" });
+    ctx = new AC({ sampleRate: rate, latencyHint: "interactive" });
   } catch (e) {
     ctx = new AC();
   }
@@ -176,9 +178,16 @@ function visibility() {
   } catch (e) { }
 }
 
-// serve: SynthEngine.serve, for the fallback. ready: called once the synth
-// is up, so March can restore the levels it kept.
-export function audio_install(url, serve, ready) {
+// The setup: the synth's sample rate, the output gain, the worklet build's
+// URL, the processor name it registers, and the globalThis name for the
+// playtest's { log, stats }. serve: Arcade.Web.SynthHost.serve with the
+// game's cue table, for the fallback. ready: called once the synth is up, so
+// March can restore the levels it kept.
+export function audio_install(synthRate, gainValue, url, processorName, globalName, serve, ready) {
+  rate = synthRate;
+  gainLevel = gainValue;
+  processor = processorName;
+  try { globalThis[globalName] = debug; } catch (e) { }
   workletUrl = url;
   serveFn = serve;
   readyFn = ready;

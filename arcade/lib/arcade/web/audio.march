@@ -1,0 +1,58 @@
+mod Arcade.Web.Audio do
+
+  -- Arcade.Synth through Web Audio, backed by arcade_audio.mjs (march copies
+  -- it beside the build). The synth renders in real time in an AudioWorklet
+  -- (the game's worklet build, registered by Arcade.Web.SynthWorklet), or on
+  -- the main thread where worklets are missing. This module only routes: a
+  -- game's Arcade.SynthFeed commands go to the synth in order.
+  --
+  -- The speakers exist only after the first user gesture (autoplay rules).
+  -- Until then a command is dropped, as a cue would only play late, but the
+  -- rumble and drum levels are tracked, and restored the moment the synth
+  -- comes up. If the browser has no audio the game plays silent.
+  needs IO.Foreign
+
+  -- What the game decides about its speakers: the AudioContext's sample rate
+  -- (the synth's own, Arcade.Synth.rate()), the output gain, the URL of its
+  -- worklet build, the AudioWorkletProcessor name that build registers, and
+  -- the globalThis name the playtest reads ({ log, stats }) under.
+  type AudioSetup = {
+    setup_rate : Float,
+    setup_gain : Float,
+    setup_worklet_url : String,
+    setup_processor : String,
+    setup_global : String
+  }
+
+  extern "./arcade_audio.mjs" : Cap(IO.Foreign) do
+    fn audio_install(rate : Float, gain : Float, worklet_url : String, processor : String, global_name : String, serve : List(AudioCmd(cue)) -> List(Float), ready : () -> ()) : Unit
+    fn audio_send(cmds : List(AudioCmd(cue))) : Unit
+    fn audio_levels_get() : Levels
+    fn audio_levels_put(l : Levels) : Unit
+  end
+
+  doc """Install the gesture listeners; the speakers come up on the first gesture after
+  this. `serve` is the main-thread fallback's audio callback (Arcade.Web.SynthHost.serve
+  with the game's cue table)."""
+  fn install(setup : AudioSetup, serve : List(AudioCmd(cue)) -> List(Float)) : () do
+    audio_levels_put(Arcade.SynthFeed.quiet())
+    audio_install(setup.setup_rate, setup.setup_gain, setup.setup_worklet_url, setup.setup_processor, setup.setup_global, serve, fn () -> came_up())
+  end
+
+  -- The synth is up: bring it to the levels asked for so far.
+  fn came_up() : () do
+    audio_send(Arcade.SynthFeed.restore(audio_levels_get()))
+  end
+
+  doc """Send a batch of commands to the synth, tracking the levels they set."""
+  fn route(cmds : List(AudioCmd(cue))) : () do
+    match cmds do
+    Nil -> ()
+    Cons(_, _) -> do
+      audio_levels_put(Arcade.SynthFeed.track(audio_levels_get(), cmds))
+      audio_send(cmds)
+    end
+    end
+  end
+
+end

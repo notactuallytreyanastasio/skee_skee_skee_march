@@ -1,0 +1,32 @@
+mod Arcade.Web.Input do
+
+  -- Input for a game's shell, backed by arcade_input.mjs (march copies it
+  -- beside the build): one pointer followed on a canvas, and a queue of taps
+  -- (codes queued by DOM buttons, drained once a frame). Platform calls only.
+  needs IO.Foreign
+
+  extern "./arcade_input.mjs" : Cap(IO.Foreign) do
+    fn input_on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : Unit
+    fn input_queue_tap(i : Int) : Unit
+    fn input_drain_taps() : List(Int)
+  end
+
+  -- ---- Public names: extern declarations are private to this module ----
+  doc """One pointer at a time: the first pointer down is followed until it lifts or is
+  cancelled, and others are ignored. down, move and up get (t, x, y) triples, seconds
+  and CSS pixels in the canvas; move and up include the coalesced samples. cancel
+  when the pointer is lost."""
+  fn on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : () do
+    input_on_pointer(canvas, down, move, up, cancel)
+  end
+
+  fn queue_tap(i : Int) : () do
+    input_queue_tap(i)
+  end
+
+  doc """The taps queued since the last drain, oldest first."""
+  fn drain_taps() : List(Int) do
+    input_drain_taps()
+  end
+
+end

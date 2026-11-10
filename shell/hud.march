@@ -50,7 +50,7 @@ mod Hud do
     match Js.Dom.get_attr(target, "data-act") do
     Some(code) -> do
       match string_to_int(code) do
-      Some(n) -> Glue.queue_tap(n)
+      Some(n) -> Arcade.Web.Input.queue_tap(n)
       None -> ()
       end
     end
@@ -107,7 +107,7 @@ mod Hud do
     let saved = Js.Dom.get_attr(h.hud_root, "data-local")
     let start = Skee.HudView.load_local(saved)
     let (stepped, msgs_rev) =
-      List.fold_left(Glue.drain_taps(), (start, []), fn (acc, code) -> step(acc, a, code))
+      List.fold_left(Arcade.Web.Input.drain_taps(), (start, []), fn (acc, code) -> step(acc, a, code))
     let l = Skee.HudView.settle(stepped, a)
     let text = Skee.HudView.save_local(l)
     if saved != Some(text) do
