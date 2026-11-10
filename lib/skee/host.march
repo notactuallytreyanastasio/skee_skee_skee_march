@@ -305,20 +305,23 @@ mod Skee.Host do
     ]
   end
 
-  doc """Haggle.perkWords by perk ("nights", "tickets", "credit"), sorted; "asks" is ask_words."""
-  fn perk_words(perk : String) : List(String) needs () do
-    if perk == "nights" do
-      ["days", "longer", "night", "nights", "stay"]
-    else
-      if perk == "tickets" do
-        ["ticket", "tickets"]
-      else
-        if perk == "credit" do
-          ["cash", "credit", "credits", "money", "prize", "prizes", "winnings"]
-        else
-          ask_words()
-        end
-      end
+  -- ScriptedHost's Perk (Haggle.Perk), which askedForPerks reads: the three
+  -- terms a player can ask for by name.
+  type Perk = PerkNights | PerkTickets | PerkCredit
+
+  derive Eq, Show for Perk
+
+  doc """Perk.allCases, in Swift's order."""
+  fn perks() : List(Perk) needs () do
+    [PerkNights, PerkTickets, PerkCredit]
+  end
+
+  doc """Haggle.perkWords, sorted."""
+  fn perk_words(perk : Perk) : List(String) needs () do
+    match perk do
+    PerkNights -> ["days", "longer", "night", "nights", "stay"]
+    PerkTickets -> ["ticket", "tickets"]
+    PerkCredit -> ["cash", "credit", "credits", "money", "prize", "prizes", "winnings"]
     end
   end
 
@@ -329,7 +332,7 @@ mod Skee.Host do
   """
   fn asked_for_perks(h : Haggle) : Bool needs () do
     let ws = Skee.HostGuard.words(last_player_text(h))
-    List.any(["asks", "nights", "tickets", "credit"], fn p -> Skee.HostGuard.meets(ws, perk_words(p)))
+    Skee.HostGuard.meets(ws, ask_words()) || List.any(perks(), fn p -> Skee.HostGuard.meets(ws, perk_words(p)))
   end
 
   doc """
@@ -870,10 +873,9 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     Result.flat_map(present(fields, path, key), fn v ->
       match v do
       Json.Str(s) -> do
-        if s == Skee.Save.unread_mark() || s == Skee.Save.underflow_mark() do
-          Err(FaultField(field_path(path, key)))
-        else
-          Ok(s)
+        match Skee.Save.text_of(s) do
+        Some(text) -> Ok(text)
+        None -> Err(FaultField(field_path(path, key)))
         end
       end
       Json.Null -> Err(FaultField(field_path(path, key)))
@@ -976,7 +978,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   character (as in a live reply's `"\\" \\ntickets"`) refuses the object.
   """
   fn parse_reply(text : String) : Result(HostReply, ReplyFault) needs () do
-    match Skee.Save.parse(reply_body(text)) do
+    match Skee.Save.parse(decoder_numbers(reply_body(text))) do
     Err(e) -> Err(FaultNotJson(Skee.Save.describe(e)))
     Ok(v) -> do
       Result.flat_map(Result.flat_map(object_fields(v, "reply"), reply_of), non_empty)
@@ -1029,13 +1031,15 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
 
   derive Show for HostWait
 
-  -- HostState: the haggle, the consent, what the table is waiting for, and
-  -- whether the stock hello is hidden while the model writes one.
+  -- HostState: the haggle, the consent, what the table is waiting for,
+  -- whether the stock hello is hidden while the model writes one, and why
+  -- the model's hello could not be had (the stock one shows meanwhile).
   type HostSession = {
     session_haggle : Haggle,
     consent : HostConsent,
     pending : HostWait,
     greeting_hidden : Bool,
+    greeting_failed : Option(HostFailure),
     next_call : Int
   }
 
@@ -1087,7 +1091,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     let h = s.session_haggle
     let fresh = List.length(h.lines) == 1 && is_open(h)
     if fresh && has_consent(s) && !is_waiting(s) do
-      call_for({ s with greeting_hidden: true }, AskGreeting, greeting_messages(h))
+      call_for({ s with greeting_hidden: true, greeting_failed: None }, AskGreeting, greeting_messages(h))
     else
       quiet(s)
     end
@@ -1095,7 +1099,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
 
   doc """Seat the host (GameModel.seat): the session, and the greeting call to make if the player has said yes to AI chat."""
   fn seat(h : Haggle, consent : HostConsent) : (HostSession, Option(HostCall)) needs () do
-    ask_greeting({ session_haggle: h, consent: consent, pending: WaitNothing, greeting_hidden: false, next_call: 1 })
+    ask_greeting({ session_haggle: h, consent: consent, pending: WaitNothing, greeting_hidden: false, greeting_failed: None, next_call: 1 })
   end
 
   doc """The player answers the AI chat card (`hostConsent`): a yes asks for the greeting."""
@@ -1127,6 +1131,23 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     end
   end
 
+  doc """Why the model's hello could not be had, while it can still be asked for again: the stock hello shows, and the table takes lines meanwhile."""
+  fn greeting_failure(s : HostSession) : Option(HostFailure) needs () do
+    if List.length(s.session_haggle.lines) == 1 do
+      s.greeting_failed
+    else
+      None
+    end
+  end
+
+  pfn can_retry_reply(s : HostSession) : Bool needs () do
+    Option.is_some(failure(s)) && is_open(s.session_haggle) && has_consent(s)
+  end
+
+  pfn can_retry_greeting(s : HostSession) : Bool needs () do
+    Option.is_some(greeting_failure(s)) && is_open(s.session_haggle) && has_consent(s) && !is_waiting(s)
+  end
+
   doc """
   Whether the table takes a new player line: open, with consent, nothing out,
   no failure showing, and the model has turns left. After
@@ -1143,9 +1164,9 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     is_open(s.session_haggle) && !is_waiting(s)
   end
 
-  doc """Whether the request that failed can be sent again."""
+  doc """Whether the request that failed can be sent again: a reply (`failure`), or the hello (`greeting_failure`)."""
   fn can_retry(s : HostSession) : Bool needs () do
-    Option.is_some(failure(s)) && is_open(s.session_haggle) && has_consent(s)
+    can_retry_reply(s) || can_retry_greeting(s)
   end
 
   pfn ask_reply(s : HostSession) : (HostSession, Option(HostCall)) needs () do
@@ -1199,7 +1220,11 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
 
   doc """Send the failed request again, from the first of three tries."""
   fn retry(s : HostSession) : (HostSession, Option(HostCall)) needs () do
-    if can_retry(s) do ask_reply(s) else quiet(s) end
+    if can_retry_reply(s) do
+      ask_reply(s)
+    else
+      if can_retry_greeting(s) do ask_greeting(s) else quiet(s) end
+    end
   end
 
   doc """DEAL (GameModel.hostDeal): take the offer on the table."""
@@ -1221,10 +1246,13 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
 
   -- A greeting that cannot be had leaves the stock hello showing, as Swift's
   -- `try?` does: the stock line is the haggle's own opening, not a host line
-  -- made up for a missing reply.
+  -- made up for a missing reply. The failure is kept, typed, so the hello
+  -- can be asked for again; it blocks nothing.
   pfn settle_failure(s : HostSession, c : HostCall, f : HostFailure) : (HostSession, Option(HostCall)) needs () do
     match c.call_ask do
-    AskGreeting -> quiet({ s with pending: WaitNothing, greeting_hidden: false })
+    AskGreeting -> do
+      quiet({ s with pending: WaitNothing, greeting_hidden: false, greeting_failed: Some(f) })
+    end
     AskReply -> quiet({ s with pending: WaitFailed(f) })
     end
   end
@@ -1299,6 +1327,485 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   end
 
   -- ---- DeepSeek.chat's envelope ----
+  -- JSONSerialization.jsonObject checks every string and number in the body,
+  -- where JSONDecoder (Skee.Save.parse) only scans what nothing reads (golden
+  -- wire rows 35 to 67). Save.parse has checked the structure and the depth;
+  -- these check each string and number token, read or not. Outside a string
+  -- only a number starts with `-` or a digit.
+  pfn serialization_reads(s : String, i : Int) : Bool needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      true
+    else
+      if c == 34 do
+        do
+          let e = serial_string_end(s, i + 1)
+          if e < 0 do false else serialization_reads(s, e) end
+        end
+      else
+        if c == 45 || c >= 48 && c <= 57 do
+          do
+            let e = serial_number_end(s, i)
+            if serial_number_ok(s, i, e) do
+              serialization_reads(s, e)
+            else
+              false
+            end
+          end
+        else
+          serialization_reads(s, i + 1)
+        end
+      end
+    end
+  end
+
+  pfn hex_value(c : Int) : Int needs () do
+    if c >= 48 && c <= 57 do
+      c - 48
+    else
+      if c >= 97 && c <= 102 do
+        c - 87
+      else
+        if c >= 65 && c <= 70 do c - 55 else -1 end
+      end
+    end
+  end
+
+  -- The four hex digits of a `\u` escape at i (just past the u), or -1.
+  pfn hex4(s : String, i : Int) : Int needs () do
+    let a = hex_value(string_byte_at(s, i))
+    let b = hex_value(string_byte_at(s, i + 1))
+    let c = hex_value(string_byte_at(s, i + 2))
+    let d = hex_value(string_byte_at(s, i + 3))
+    if a < 0 || b < 0 || c < 0 || d < 0 do
+      -1
+    else
+      ((a * 16 + b) * 16 + c) * 16 + d
+    end
+  end
+
+  -- Past a `\uXXXX` at i (the backslash): a high surrogate must be followed
+  -- by a `\u` low one, and a low one alone is refused. -1 if refused.
+  pfn unicode_escape_end(s : String, i : Int) : Int needs () do
+    let u = hex4(s, i + 2)
+    if u < 0 || u >= 56320 && u <= 57343 do
+      -1
+    else
+      if u >= 55296 && u <= 56319 do
+        do
+          let low =
+            if string_byte_at(s, i + 6) == 92 && string_byte_at(s, i + 7) == 117 do
+              hex4(s, i + 8)
+            else
+              -1
+            end
+          if low >= 56320 && low <= 57343 do i + 12 else -1 end
+        end
+      else
+        i + 6
+      end
+    end
+  end
+
+  -- Past the closing quote of the string whose text starts at i, or -1 for a
+  -- raw byte below 0x20, a bad escape, or no end.
+  pfn serial_string_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c < 32 do
+      -1
+    else
+      if c == 34 do
+        i + 1
+      else
+        if c == 92 do
+          do
+            let x = string_byte_at(s, i + 1)
+            if x == 117 do
+              do
+                let e = unicode_escape_end(s, i)
+                if e < 0 do -1 else serial_string_end(s, e) end
+              end
+            else
+              if x == 34 || x == 92 || x == 47 || x == 98 || x == 102 || x == 110 || x == 114 || x == 116 do
+                serial_string_end(s, i + 2)
+              else
+                -1
+              end
+            end
+          end
+        else
+          serial_string_end(s, i + 1)
+        end
+      end
+    end
+  end
+
+  pfn serial_number_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c >= 48 && c <= 57 || c == 43 || c == 45 || c == 46 || c == 69 || c == 101 do
+      serial_number_end(s, i + 1)
+    else
+      i
+    end
+  end
+
+  pfn digits_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c >= 48 && c <= 57 do digits_end(s, i + 1) else i end
+  end
+
+  -- Past `.digits` at i, i if there is no point, -1 for a point with no digits.
+  pfn fraction_end(s : String, i : Int) : Int needs () do
+    if string_byte_at(s, i) == 46 do at_least_one_digit(s, i + 1) else i end
+  end
+
+  -- Past `e[sign]digits` at i, i if there is no exponent, -1 for a bad one.
+  pfn exponent_end(s : String, i : Int) : Int needs () do
+    let x = string_byte_at(s, i)
+    if i < 0 || x != 101 && x != 69 do
+      i
+    else
+      at_least_one_digit(s, if string_byte_at(s, i + 1) == 43 || string_byte_at(s, i + 1) == 45 do i + 2 else i + 1 end)
+    end
+  end
+
+  pfn at_least_one_digit(s : String, i : Int) : Int needs () do
+    let e = digits_end(s, i)
+    if e > i do e else -1 end
+  end
+
+  -- ---- Number tokens, as Foundation reads them ----
+  -- An RFC 8259 number token's parts: the integer digits, the fraction's
+  -- digits ("" without a point), and what follows the `e` (sign and digits),
+  -- if there is one. Probed against this machine's Foundation over 100000
+  -- tokens (tools/num_probe) and pinned by golden rows `parse` and `serial`.
+  type NumberToken = {
+    negative : Bool,
+    int_digits : String,
+    frac_digits : String,
+    exp_text : Option(String)
+  }
+
+  derive Show for NumberToken
+
+  -- The token in s from i to e, if it is RFC 8259's number and nothing else.
+  pfn number_token(s : String, i : Int, e : Int) : Option(NumberToken) needs () do
+    let neg = string_byte_at(s, i) == 45
+    let a = if neg do i + 1 else i end
+    let b = digits_end(s, a)
+    let whole = b > a && (string_byte_at(s, a) != 48 || b == a + 1)
+    let c = fraction_end(s, b)
+    let d = exponent_end(s, c)
+    if !whole || c < 0 || d != e do
+      None
+    else
+      Some({ negative: neg, int_digits: String.slice_bytes(s, a, b - a), frac_digits: if c > b do String.slice_bytes(s, b + 1, c - b - 1) else "" end, exp_text: if d > c do Some(String.slice_bytes(s, c + 1, d - c - 1)) else None end })
+    end
+  end
+
+  pfn is_integer_form(t : NumberToken) : Bool needs () do
+    t.frac_digits == "" && Option.is_none(t.exp_text)
+  end
+
+  pfn leading_zeros(d : String, i : Int) : Int needs () do
+    if string_byte_at(d, i) == 48 do leading_zeros(d, i + 1) else i end
+  end
+
+  pfn trailing_zeros(d : String, n : Int) : Int needs () do
+    if n > 0 && string_byte_at(d, n - 1) == 48 do
+      trailing_zeros(d, n - 1)
+    else
+      n
+    end
+  end
+
+  -- a <= b, both digit strings of the same length.
+  pfn same_length_le(a : String, b : String, i : Int) : Bool needs () do
+    let x = string_byte_at(a, i)
+    let y = string_byte_at(b, i)
+    if x < 0 do
+      true
+    else
+      if x != y do x < y else same_length_le(a, b, i + 1) end
+    end
+  end
+
+  -- The whole number a digit string spells is at most the one b spells (b has no leading zeros).
+  pfn digits_at_most(a : String, b : String) : Bool needs () do
+    let z = leading_zeros(a, 0)
+    let m = String.slice_bytes(a, z, String.byte_size(a) - z)
+    let n = String.byte_size(m)
+    let k = String.byte_size(b)
+    if n != k do n < k else same_length_le(m, b, 0) end
+  end
+
+  -- 2^128: a Decimal's mantissa is below it.
+  pfn decimal_cap() : String needs () do
+    "340282366920938463463374607431768211456"
+  end
+
+  -- How many of the digits (integer then fraction) a Decimal keeps: leading
+  -- zeros, then significant digits while the mantissa stays below 2^128.
+  -- Those past it are dropped (an integer one still scales the number up).
+  pfn kept_digits(ds : String) : Int needs () do
+    let p = leading_zeros(ds, 0)
+    let sig_n = String.byte_size(ds) - p
+    if sig_n <= 38 do
+      p + sig_n
+    else
+      if same_length_le(String.slice_bytes(ds, p, 39), decimal_cap(), 0) && String.slice_bytes(ds, p, 39) != decimal_cap() do
+        p + 39
+      else
+        p + 38
+      end
+    end
+  end
+
+  -- The written exponent's value, or None past nine significant digits
+  -- (the number is then 0 or infinite as a Double, whatever its digits).
+  pfn written_exponent(t : NumberToken) : Option(Int) needs () do
+    match t.exp_text do
+    None -> Some(0)
+    Some(x) -> do
+      let c = string_byte_at(x, 0)
+      let neg = c == 45
+      let a = if c == 45 || c == 43 do 1 else 0 end
+      let z = leading_zeros(x, a)
+      let n = String.byte_size(x) - z
+      if n > 9 do
+        None
+      else
+        do
+          let v =
+            if n == 0 do
+              0
+            else
+              Result.unwrap_or(String.to_int(String.slice_bytes(x, z, n)), 0)
+            end
+          Some(if neg do 0 - v else v end)
+        end
+      end
+    end
+    end
+  end
+
+  -- The digits a Decimal scales up past its mantissa (integer digits beyond
+  -- the kept ones), less the kept fraction digits: its exponent before the
+  -- written one.
+  pfn digit_exponent(t : NumberToken) : (Int, Int) needs () do
+    let ds = t.int_digits ++ t.frac_digits
+    let kept = kept_digits(ds)
+    let i = String.byte_size(t.int_digits)
+    let over = if i > kept do i - kept else 0 end
+    let f = String.byte_size(t.frac_digits)
+    let frac = if kept <= i do 0 else if kept - i < f do kept - i else f end end
+    (over, frac)
+  end
+
+  -- JSONSerialization's number (DeepSeek.chat's envelope): an exponent of
+  -- more than four characters is refused; up to 17 digits (a lone 0 before
+  -- the point not counted) is a Double, refused only at +inf (1e400; -1e400
+  -- and 1e-400 are read); more is a Decimal, refused if its exponent leaves
+  -- -128...127 (checked digit by digit, then with the written exponent).
+  pfn serial_number_ok(s : String, i : Int, e : Int) : Bool needs () do
+    match number_token(s, i, e) do
+    None -> false
+    Some(t) -> do
+      if exp_chars(t) > 4 do
+        false
+      else
+        if serial_digits(t) <= 17 do
+          serial_double_ok(String.slice_bytes(s, i, e - i))
+        else
+          serial_decimal_ok(t)
+        end
+      end
+    end
+    end
+  end
+
+  pfn exp_chars(t : NumberToken) : Int needs () do
+    match t.exp_text do
+    None -> 0
+    Some(x) -> String.byte_size(x)
+    end
+  end
+
+  -- The digits JSONSerialization counts: a lone 0 before the point is not one.
+  pfn serial_digits(t : NumberToken) : Int needs () do
+    let whole = if t.int_digits == "0" do 0 else String.byte_size(t.int_digits) end
+    whole + String.byte_size(t.frac_digits)
+  end
+
+  pfn serial_double_ok(token : String) : Bool needs () do
+    match Json.parse(token) do
+    Ok(Json.Number(f)) -> f == f && (f -. f == 0.0 || f < 0.0)
+    Ok(_) -> false
+    Err(_) -> false
+    end
+  end
+
+  pfn serial_decimal_ok(t : NumberToken) : Bool needs () do
+    let (over, frac) = digit_exponent(t)
+    let x = over - frac + Option.unwrap_or(written_exponent(t), 0)
+    over <= 127 && frac <= 128 && x >= -128 && x <= 127
+  end
+
+  -- How JSONDecoder reads an Int from a token whose Double does not settle
+  -- it: an integer token exactly in Int64's range; another token through its
+  -- Double (which must be in Int64's range) and, from 2^53 up, a Decimal: a
+  -- mantissa below 2^128 (later digits dropped), trailing zeros taken off,
+  -- one with a fraction below 2^64, its whole part (truncated) at most
+  -- Int64.max either way, so -2^63 itself is refused.
+  type DecodedInt = ReadsAsDouble | ReadsBig(Bool) | DecoderRefuses
+
+  derive Eq, Show for DecodedInt
+
+  pfn int64_max_digits() : String needs () do
+    "9223372036854775807"
+  end
+
+  pfn decoded_int(t : NumberToken, f : Float) : DecodedInt needs () do
+    let big = int_to_float(safe_max()) +. 1.0
+    if is_integer_form(t) do
+      if String.byte_size(t.int_digits) <= 15 do
+        ReadsAsDouble
+      else
+        if !digits_at_most(t.int_digits, if t.negative do "9223372036854775808" else int64_max_digits() end) do
+          DecoderRefuses
+        else
+          if f < big && f > 0.0 -. big do
+            ReadsAsDouble
+          else
+            ReadsBig(t.negative)
+          end
+        end
+      end
+    else
+      if f != f || f >= int64_bound() || f < 0.0 -. int64_bound() || f < big && f > 0.0 -. big do
+        ReadsAsDouble
+      else
+        decimal_int(t)
+      end
+    end
+  end
+
+  pfn decimal_int(t : NumberToken) : DecodedInt needs () do
+    let ds = t.int_digits ++ t.frac_digits
+    let p = leading_zeros(ds, 0)
+    let kept = kept_digits(ds)
+    let m0 = String.slice_bytes(ds, p, kept - p)
+    let m_len = trailing_zeros(m0, String.byte_size(m0))
+    let m = String.slice_bytes(m0, 0, m_len)
+    let (over, frac) = digit_exponent(t)
+    let x =
+      over - frac + Option.unwrap_or(written_exponent(t), 0) + (String.byte_size(m0) - m_len)
+    let whole =
+      if x < 0 do
+        if digits_at_most(m, "18446744073709551615") do
+          Some(if m_len + x > 0 do String.slice_bytes(m, 0, m_len + x) else "0" end)
+        else
+          None
+        end
+      else
+        if m_len + x > 19 do None else Some(m ++ String.repeat("0", x)) end
+      end
+    match whole do
+    Some(w) -> do
+      if digits_at_most(w, int64_max_digits()) do
+        ReadsBig(t.negative)
+      else
+        DecoderRefuses
+      end
+    end
+    None -> DecoderRefuses
+    end
+  end
+
+  -- A number token past what a Double says, written so that Skee.Save.parse
+  -- and int_value give JSONDecoder's answer: one Swift reads past 2^53 as
+  -- 2^53 with its sign (held at 2^53-1 either way), one it refuses as 0.5.
+  -- Every other token is left as it is.
+  pfn decoder_token(s : String, i : Int, e : Int) : Option(String) needs () do
+    match number_token(s, i, e) do
+    None -> None
+    Some(t) -> do
+      match Json.parse(String.slice_bytes(s, i, e - i)) do
+      Ok(Json.Number(f)) -> do
+        match decoded_int(t, f) do
+        ReadsAsDouble -> None
+        ReadsBig(neg) -> Some(if neg do "-9007199254740992" else "9007199254740992" end)
+        DecoderRefuses -> Some("0.5")
+        end
+      end
+      Ok(_) -> None
+      Err(_) -> None
+      end
+    end
+    end
+  end
+
+  -- Past the closing quote of the string whose text starts at i, or -1.
+  pfn loose_string_end(s : String, i : Int) : Int needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      -1
+    else
+      if c == 34 do
+        i + 1
+      else
+        if c == 92 do
+          loose_string_end(s, i + 2)
+        else
+          loose_string_end(s, i + 1)
+        end
+      end
+    end
+  end
+
+  -- The pieces of s from `from`, with each number token outside a string
+  -- that decoder_token rewrites replaced, in reverse.
+  pfn decoder_pieces(s : String, from : Int, i : Int, acc : List(String)) : List(String) needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      Cons(String.slice_bytes(s, from, i - from), acc)
+    else
+      if c == 34 do
+        do
+          let e = loose_string_end(s, i + 1)
+          if e < 0 do
+            Cons(String.slice_bytes(s, from, String.byte_size(s) - from), acc)
+          else
+            decoder_pieces(s, from, e, acc)
+          end
+        end
+      else
+        if c == 45 || c >= 48 && c <= 57 do
+          do
+            let e = serial_number_end(s, i)
+            match decoder_token(s, i, e) do
+            None -> decoder_pieces(s, from, e, acc)
+            Some(r) -> do
+              decoder_pieces(s, e, e, Cons(r, Cons(String.slice_bytes(s, from, i - from), acc)))
+            end
+            end
+          end
+        else
+          decoder_pieces(s, from, i + 1, acc)
+        end
+      end
+    end
+  end
+
+  -- The reply's JSON with JSONDecoder's Int verdicts written in, for the
+  -- tokens a Double cannot settle (Int64's edges, 2^53 and up).
+  pfn decoder_numbers(s : String) : String needs () do
+    match decoder_pieces(s, 0, 0, []) do
+    Cons(one, Nil) -> one
+    pieces -> String.join(List.reverse(pieces), "")
+    end
+  end
+
   pfn first_choice(v : JsonValue) : Option(List((String, JsonValue))) needs () do
     match v do
     Json.Object(top) -> do
@@ -1344,13 +1851,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     match lookup(choice, "message") do
     Some(Json.Object(message)) -> do
       match lookup(message, "content") do
-      Some(Json.Str(text)) -> do
-        if text == Skee.Save.unread_mark() || text == Skee.Save.underflow_mark() do
-          None
-        else
-          Some(text)
-        end
-      end
+      Some(Json.Str(text)) -> Skee.Save.text_of(text)
       Some(_) -> None
       None -> None
       end
@@ -1378,7 +1879,7 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
     if status != 200 do
       Err(FailHttp(status, body))
     else
-      match Skee.Save.parse(body) do
+      match Result.flat_map(Skee.Save.parse(body), fn v -> if serialization_reads(body, 0) do Ok(v) else Err(SaveNotJson("JSONSerialization refuses it")) end) do
       Err(_) -> Err(FailMalformed(body))
       Ok(v) -> do
         match first_choice(v) do
@@ -1429,7 +1930,40 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   The relay fixes the model and the token limit itself.
   """
   fn request_body(c : HostCall) : String needs () do
-    Json.to_string(Json.Object([("model", Json.Str("deepseek-chat")), ("messages", Json.Array(List.map(c.call_messages, message_json))), ("max_tokens", Json.encode_int(300)), ("temperature", Json.Number(1.2)), ("response_format", Json.Object([("type", Json.Str("json_object"))]))]))
+    control_escaped(Json.to_string(Json.Object([("model", Json.Str("deepseek-chat")), ("messages", Json.Array(List.map(c.call_messages, message_json))), ("max_tokens", Json.encode_int(300)), ("temperature", Json.Number(1.2)), ("response_format", Json.Object([("type", Json.Str("json_object"))]))])))
+  end
+
+  -- Json.to_string writes U+0000-U+001F raw but for \b \t \n \f \r, and
+  -- Node's JSON.parse (relay.mjs) refuses a raw one: the relay would answer
+  -- 400 for good once one is in the history. JSONSerialization writes
+  -- `\u00XX`; so does this. Outside a string to_string writes none, and
+  -- no byte of a multi-byte UTF-8 character is below 0x80.
+  -- (tools/repros/json_to_string_controls.march)
+  pfn control_escaped(json : String) : String needs () do
+    escape_go(json, 0, 0, [])
+  end
+
+  pfn escape_go(s : String, from : Int, i : Int, acc : List(String)) : String needs () do
+    let c = string_byte_at(s, i)
+    if c < 0 do
+      match acc do
+      Nil -> s
+      Cons(_, _) -> do
+        String.join(List.reverse(Cons(String.slice_bytes(s, from, i - from), acc)), "")
+      end
+      end
+    else
+      if c < 32 do
+        escape_go(s, i + 1, i + 1, Cons(control_escape(c), Cons(String.slice_bytes(s, from, i - from), acc)))
+      else
+        escape_go(s, from, i + 1, acc)
+      end
+    end
+  end
+
+  pfn control_escape(c : Int) : String needs () do
+    let digits = "0123456789abcdef"
+    "\\u00" ++ String.slice_bytes(digits, c / 16, 1) ++ String.slice_bytes(digits, c % 16, 1)
   end
 
   pfn relay_message_ok(i : Int, m : ChatMessage) : Bool needs () do
@@ -1525,6 +2059,11 @@ Small talk is welcome. Chat about their day, family, food, the weather, old time
   doc """The ending's button."""
   fn close_label(h : Haggle) : String needs () do
     if is_arrival(h.haggle_visit) do "LEARN TO PLAY" else "CHECK IN" end
+  end
+
+  doc """The line under the offer: what the terms buy."""
+  fn terms_note() : String needs () do
+    "a night = one game with bonus tickets " ++ middle_dot() ++ " credit buys prizes"
   end
 
   doc """HostView's quick lines, sent as if typed."""

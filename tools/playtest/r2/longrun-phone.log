@@ -1,0 +1,66 @@
+ROUND 1 WARM-UP target 400 tickets 4 | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  card TOP SLOT! THE HOT SPOT
+  card A COMBO!
+COUNTER PRIZE COUNTER 12 HH Heavy Hand +40 chips for each 50 4 TIX GC Glass Cannon x3 mult. A gutter ball shatters the frame to 0 7 TIX Bar stamp Add a bar to a hole's reel 3 TIX F Feather Ball This ball passes over ring lips 2 TIX REROLL 1 NEXT ROUND
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/long-counter-1.png
+  TapBuyOffer(0): tickets 12 -> 8
+  card NEXT ROUND YOUR FIRST CHARM
+ROUND 1 FEATURE GAME target 520 tickets 8 | BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 8 TARGETS · hit one = combo HH NEW GAME GUIDE FRAME 1/3 · 9 BALLS FEATURE GAME REACH 520
+COUNTER PRIZE COUNTER 20 L Ladder x3 mult for three rings in a row, like 30-40-50 6 TIX ES Even Steven x2 mult if all three balls hit the same hole 6 TIX +10 Gild +10 chips on a hole, for good 3 TIX W Wild Ball This ball's symbol is a wild clover 2 TIX REROLL 1 NEXT ROUND
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/long-counter-2.png
+  TapBuyOffer(0): tickets 20 -> 14
+ROUND 1 TIGHT POCKETS target 640 tickets 14 | BAR 7 ANTE 1/8 TIGHT POCKETS 0 / 640 14 TARGETS · hit one = combo The 50 hole and the 100 pockets shrink. HH L FRAME 1/3 · 9 BALLS BOSS MACHINE REACH 640
+  card A BOSS MACHINE
+  card FEVER!
+COUNTER PRIZE COUNTER 25 HS Hot Streak +1 mult for each scoring ball in a row this round 5 TIX LP Lucky Penny +2 mult for each cherry in the frame 3 TIX Clover stamp Add a clover to a hole's reel 4 TIX F Feather Ball This ball passes over ring lips 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 25 -> 20
+ROUND 2 WARM-UP target 820 tickets 20 | BAR 7 ANTE 2/8 WARM-UP 0 / 820 20 TARGETS · hit one = combo HH L HS NEW GAME GUIDE FRAME 1/3 · 9 BALLS WARM-UP REACH 820
+  card BIGGER BETS
+COUNTER PRIZE COUNTER 32 TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX +10 Gild +10 chips on a hole, for good 3 TIX H Hold The reels don't spin after this ball 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 32 -> 27
+ROUND 2 FEATURE GAME target 1066 tickets 27 | BAR 7 ANTE 2/8 FEATURE GAME 0 / 1066 27 TARGETS · hit one = combo HH L HS TM FEVER FRAME 1/3 · 9 BALLS FEATURE GAME REACH 1066
+  card PICK YOUR BALL
+COUNTER PRIZE COUNTER 43 LP Lucky Penny +2 mult for each cherry in the frame 3 TIX EB Extra Ball +1 frame (3 balls) every round 8 TIX +10 Gild +10 chips on a hole, for good 3 TIX H Hold The reels don't spin after this ball 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 43 -> 40
+ROUND 2 TIGHT POCKETS target 1312 tickets 40 | BAR 7 ANTE 2/8 TIGHT POCKETS 0 / 1312 40 TARGETS · hit one = combo The 50 hole and the 100 pockets shrink. HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS BOSS
+COUNTER PRIZE COUNTER 55 HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX BR Bell Ringer +3 mult if the frame has a bell 4 TIX Clover stamp Add a clover to a hole's reel 4 TIX W Wild Ball This ball's symbol is a wild clover 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 55 -> 55
+ROUND 3 WARM-UP target 1320 tickets 55 | BAR 7 ANTE 3/8 WARM-UP 0 / 1320 55 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS WARM-UP REACH 1320
+COUNTER PRIZE COUNTER 68 EB Extra Ball +1 frame (3 balls) every round 8 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Clover stamp Add a clover to a hole's reel 4 TIX H Hold The reels don't spin after this ball 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 68 -> 68
+ROUND 3 FEATURE GAME target 1716 tickets 68 | BAR 7 ANTE 3/8 FEATURE GAME 0 / 1716 68 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FEVER FRAME 1/3 · 9 BALLS FEATURE GAME REACH 1716
+  card MULT FREE GAMES!
+COUNTER PRIZE COUNTER 85 CO Corner Office x1.5 mult for each 100 pocket 6 TIX EB Extra Ball +1 frame (3 balls) every round 8 TIX +10 Gild +10 chips on a hole, for good 3 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 85 -> 85
+ROUND 3 TALL LIPS target 2112 tickets 85 | BAR 7 ANTE 3/8 TALL LIPS 0 / 2112 85 TARGETS · hit one = combo Ring lips are taller and wider. Expect rattles. HH L HS TM LP NEW GAME GUIDE FEVER FRAME 1/3 · 9 
+COUNTER PRIZE COUNTER 104 GR Gutter Rat Gutter balls are worth 25 chips 3 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX Cherry stamp Add a cherry to a hole's reel 3 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 104 -> 104
+ROUND 4 WARM-UP target 1870 tickets 104 | BAR 7 ANTE 4/8 WARM-UP 0 / 1870 104 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FEVER FRAME 1/3 · 9 BALLS WARM-UP REACH 1870
+COUNTER PRIZE COUNTER 117 GC Glass Cannon x3 mult. A gutter ball shatters the frame to 0 7 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX Diamond stamp Add a diamond to a hole's reel 4 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 117 -> 117
+ROUND 4 FEATURE GAME target 2431 tickets 117 | BAR 7 ANTE 4/8 FEATURE GAME 0 / 2431 117 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS FEATURE GAME REACH 2431
+COUNTER PRIZE COUNTER 132 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX MB Mult Ball +4 mult 4 TIX Bar stamp Add a bar to a hole's reel 3 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 132 -> 132
+ROUND 4 THE MISER target 2992 tickets 132 | BAR 7 ANTE 4/8 THE MISER 0 / 2992 132 TARGETS · hit one = combo The 50 hole pays no chips. HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS BOSS MACHINE REACH 2
+COUNTER PRIZE COUNTER 150 HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX SS Seven Seas +1 mult per 7 in the frame, x2 on a pair or better of 7s 5 TIX Bar stamp Add a bar to a hole's reel 3 TIX H Hold The reels don't spin after this ball 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 150 -> 150
+ROUND 5 WARM-UP target 2530 tickets 150 | BAR 7 ANTE 5/8 WARM-UP 0 / 2530 150 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS WARM-UP REACH 2530
+COUNTER PRIZE COUNTER 162 HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX EB Extra Ball +1 frame (3 balls) every round 8 TIX Bar stamp Add a bar to a hole's reel 3 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 162 -> 162
+ROUND 5 FEATURE GAME target 3289 tickets 162 | BAR 7 ANTE 5/8 FEATURE GAME 0 / 3289 162 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS FEATURE GAME REACH 3289
+COUNTER PRIZE COUNTER 174 MB Mult Ball +4 mult 4 TIX SS Seven Seas +1 mult per 7 in the frame, x2 on a pair or better of 7s 5 TIX Seven stamp Add a seven to a hole's reel 4 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 174 -> 174
+ROUND 5 SLICK LANE target 4048 tickets 174 | BAR 7 ANTE 5/8 SLICK LANE 0 / 4048 174 TARGETS · hit one = combo The lane is waxed. Your usual power overshoots. HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALL
+COUNTER PRIZE COUNTER 197 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX MB Mult Ball +4 mult 4 TIX +10 Gild +10 chips on a hole, for good 3 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 197 -> 197
+ROUND 6 WARM-UP target 3300 tickets 197 | BAR 7 ANTE 6/8 WARM-UP 0 / 3300 197 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS WARM-UP REACH 3300
+COUNTER PRIZE COUNTER 210 CO Corner Office x1.5 mult for each 100 pocket 6 TIX BR Bell Ringer +3 mult if the frame has a bell 4 TIX +10 Gild +10 chips on a hole, for good 3 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  TapBuyOffer(0): tickets 210 -> 210
+ROUND 6 FEATURE GAME target 4290 tickets 210 | BAR 7 ANTE 6/8 FEATURE GAME 0 / 4290 210 TARGETS · hit one = combo HH L HS TM LP NEW GAME GUIDE FRAME 1/3 · 9 BALLS FEATURE GAME REACH 4290
+  card NOT TO WORRY
+END BAR 7 ANTE 6/8 FEATURE GAME 4176 / 4290 210 COMBO x1 · hit one to keep it HH L HS TM LP FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 6 BEST FRAME 12208 JACKPOTS 0 · RATTLES 112 +7460 WINNINGS NEW RUN PRIZES 7460
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/shots/func2/long-end.png
+final: BAR 7 ANTE 6/8 FEATURE GAME 4176 / 4290 210 COMBO x1 · hit one to keep it HH L HS TM LP FEVER FRAME 3/3 · 0 BALLS GAME OVER ANTE 6 BEST FRAME 12208 JACKPOTS 0 · RATTLES 112 +7460 WINNINGS NEW RUN PRIZES 7460
+thrown 162; rounds: ["1 WARM-UP target 400 tickets 4","1 FEATURE GAME target 520 tickets 8","1 TIGHT POCKETS target 640 tickets 14","2 WARM-UP target 820 tickets 20","2 FEATURE GAME target 1066 tickets 27","2 TIGHT POCKETS target 1312 tickets 40","3 WARM-UP target 1320 tickets 55","3 FEATURE GAME target 1716 tickets 68","3 TALL LIPS target 2112 tickets 85","4 WARM-UP target 1870 tickets 104","4 FEATURE GAME target 2431 tickets 117","4 THE MISER target 2992 tickets 132","5 WARM-UP target 2530 tickets 150","5 FEATURE GAME target 3289 tickets 162","5 SLICK LANE target 4048 tickets 174","6 WARM-UP target 3300 tickets 197","6 FEATURE GAME target 4290 tickets 210"]
+frame work over throws: n=37841 median=1.00ms p95=1.40ms p99=1.70ms max=3.10ms
+errors []

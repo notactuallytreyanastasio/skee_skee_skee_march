@@ -50,3 +50,57 @@ export function glue_mark(name, value) {
   const el = document.documentElement;
   if (el.getAttribute(name) !== value) el.setAttribute(name, value);
 }
+
+// ---- A DOM overlay's panes ----
+// A pane rewritten under a text field would drop what was typed, the focus
+// and the caret: this keeps all three for fields with an id.
+export function glue_set_html_keeping(pane, html) {
+  const active = document.activeElement;
+  const focused = active && pane.contains(active) && active.id ? active.id : null;
+  let caret = null;
+  if (focused && typeof active.selectionStart === "number") caret = [active.selectionStart, active.selectionEnd];
+  const values = new Map();
+  for (const f of pane.querySelectorAll("input[id], textarea[id]")) values.set(f.id, f.value);
+  pane.innerHTML = html;
+  for (const [id, v] of values) {
+    const f = document.getElementById(id);
+    if (f && pane.contains(f)) f.value = v;
+  }
+  if (focused) {
+    const f = document.getElementById(focused);
+    if (f && pane.contains(f) && !f.disabled) {
+      f.focus({ preventScroll: true });
+      if (caret) { try { f.setSelectionRange(caret[0], caret[1]); } catch (e) { } }
+    }
+  }
+}
+
+// ---- One JSON POST ----
+// reply((status, body)) when an HTTP answer came back, whatever its status;
+// fail((timedOut, message)) when none did: timedOut when nothing came within
+// timeoutMs, message the browser's words ("" when it gave none). The
+// callbacks run outside the fetch's promise chain, so an error in the game is
+// never reported as a network failure.
+export function glue_post_json(url, body, timeoutMs, reply, fail) {
+  let signal;
+  try { signal = AbortSignal.timeout(timeoutMs); } catch (e) { signal = undefined; }
+  fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+    cache: "no-store",
+    signal,
+  }).then(
+    (r) => r.text().then((text) => ({ ok: true, status: r.status, text }), (e) => ({ ok: false, e })),
+    (e) => ({ ok: false, e }),
+  ).then((res) => {
+    if (res.ok) {
+      reply._0(reply, { _0: res.status, _1: res.text });
+    } else {
+      const e = res.e;
+      const timedOut = !!(e && e.name === "TimeoutError");
+      const message = e && e.message ? String(e.message) : "";
+      fail._0(fail, { _0: timedOut, _1: message });
+    }
+  });
+}

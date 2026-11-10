@@ -1,12 +1,15 @@
 mod Arcade.Web.Input do
 
   -- Input for a game's shell, backed by arcade_input.mjs (march copies it
-  -- beside the build): one pointer followed on a canvas, and a queue of taps
-  -- (codes queued by DOM buttons, drained once a frame). Platform calls only.
+  -- beside the build): one pointer followed on a canvas, drag handles and
+  -- text fields in a DOM overlay, and a queue of taps (codes queued by DOM
+  -- buttons or Enter in a field, drained once a frame). Platform calls only.
   needs IO.Foreign
 
   extern "./arcade_input.mjs" : Cap(IO.Foreign) do
     fn input_on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : Unit
+    fn input_on_drag(root : Js.Dom.Node, down : (Float, Float) -> (), move : (Float, Float) -> (), up : (Float, Float) -> (), lost : () -> ()) : Unit
+    fn input_on_fields(root : Js.Dom.Node, typed : String -> ()) : Unit
     fn input_queue_tap(i : Int) : Unit
     fn input_drain_taps() : List(Int)
   end
@@ -18,6 +21,18 @@ mod Arcade.Web.Input do
   when the pointer is lost."""
   fn on_pointer(canvas : Js.Dom.Node, down : List((Float, Float, Float)) -> (), move : List((Float, Float, Float)) -> (), up : List((Float, Float, Float)) -> (), cancel : () -> ()) : () do
     input_on_pointer(canvas, down, move, up, cancel)
+  end
+
+  doc """Follow a pointer that goes down on a `data-drag` element under `root`, one at a
+  time: down, move and up get (x, y) in CSS pixels, lost when it is cancelled."""
+  fn on_drag(root : Js.Dom.Node, down : (Float, Float) -> (), move : (Float, Float) -> (), up : (Float, Float) -> (), lost : () -> ()) : () do
+    input_on_drag(root, down, move, up, lost)
+  end
+
+  doc """Text fields under `root`: an edit of one marked data-draft calls `typed` with its
+  value; Enter in one marked data-enter queues that tap code."""
+  fn on_fields(root : Js.Dom.Node, typed : String -> ()) : () do
+    input_on_fields(root, typed)
   end
 
   fn queue_tap(i : Int) : () do

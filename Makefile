@@ -10,7 +10,7 @@ SWIFT_FLAGS := -c release -Xswiftc -enable-testing
 GOLDEN_DIR := tools/golden
 GOLDEN_TARGETS := rng physics scoring items rooms run bots presentation
 
-.PHONY: test test-js test-native check check-purity format golden build web serve playtest audio-check selftest clean
+.PHONY: test test-js test-native check check-purity format golden build web serve playtest og blog audio-check selftest clean
 
 # Native: every test block, plus the purity guard and the engine's own suites
 # (native and JS).
@@ -119,6 +119,30 @@ serve: web
 # tools/playtest/shots/. Needs `npm install` in tools/playtest once.
 playtest:
 	node tools/playtest/playtest.mjs http://127.0.0.1:$(PORT)/
+
+# The share card, web/og.png, shot from the real game. Needs `make serve`
+# running in another shell.
+og:
+	node tools/playtest/og.mjs http://127.0.0.1:$(PORT)/
+
+# Package the web build into the blog at ~/code/blog, served at /skee.
+# Modules go under priv/static/static/skee/<hash>/ (Plug.Static's allowlist),
+# in a folder named for a hash of their contents so every build has new URLs:
+# the blog serves them `cache-control: public` with no max-age. The shell sits
+# at priv/static/skee.html behind a controller route. Older builds' folders
+# stay; `git rm` them in the blog when committing a new one.
+BLOG ?= $(HOME)/code/blog
+BLOG_FILES := skee.mjs skee_synth_worklet.mjs march_runtime.mjs march_dom.mjs march_canvas.mjs arcade_glue.mjs arcade_cell.mjs arcade_input.mjs arcade_canvas2d.mjs arcade_audio.mjs arcade_synth_cell.mjs arcade_worklet.mjs style.css
+blog: web
+	ver=$$(cd dist && cat $(BLOG_FILES) | shasum | cut -c1-12); \
+	mkdir -p $(BLOG)/priv/static/static/skee/$$ver && \
+	(cd dist && cp $(BLOG_FILES) $(BLOG)/priv/static/static/skee/$$ver/) && \
+	cp web/og.png $(BLOG)/priv/static/static/skee/ && \
+	sed -e "s#src=\"skee.mjs\"#src=\"/static/skee/$$ver/skee.mjs\"#" \
+	    -e "s#href=\"style.css\"#href=\"/static/skee/$$ver/style.css\"#" web/index.html > $(BLOG)/priv/static/skee.html && \
+	grep -q "/static/skee/$$ver/skee.mjs" $(BLOG)/priv/static/skee.html && \
+	grep -q "/static/skee/$$ver/style.css" $(BLOG)/priv/static/skee.html && \
+	echo "blog: $(BLOG)/priv/static/skee.html -> /static/skee/$$ver/"
 
 # The audio: the shipped worklet under node and in headless Chrome against the
 # Swift Synth's golden samples, then the game's AudioContext, both paths, and

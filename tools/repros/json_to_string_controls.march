@@ -1,0 +1,28 @@
+mod JsonToStringControls do
+
+  -- stdlib Json.to_string (stdlib/json.march, escape_of) escapes only
+  -- \" \\ \n \r \t \b \f. Every other code point below U+0020 is written raw,
+  -- which RFC 8259 forbids: Node's JSON.parse refuses it ("Bad control
+  -- character in string literal"), and so does Swift's JSONSerialization.
+  -- Expected: ["a\u0007b\u000bc\u0000d"]. Got: the three bytes raw.
+  -- Skee.Host.request_body works around it (control_escaped).
+  --   march --compile --opt 0 -o /tmp/jtsc tools/repros/json_to_string_controls.march && /tmp/jtsc
+  --   march --target js -o /tmp/jtsc.mjs tools/repros/json_to_string_controls.march && node /tmp/jtsc.mjs
+  needs IO.Console
+
+  fn raw_below_space(s : String, i : Int, n : Int) : Int do
+    let c = string_byte_at(s, i)
+    if c < 0 do n else raw_below_space(s, i + 1, if c < 32 do n + 1 else n end) end
+  end
+
+  fn ch(c : Int) : String do
+    Option.unwrap_or(String.from_codepoint(c), "")
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let text = "a" ++ ch(7) ++ "b" ++ ch(11) ++ "c" ++ ch(0) ++ "d"
+    let out = Json.to_string(Json.Array([Json.Str(text)]))
+    println("raw control bytes in the output: " ++ int_to_string(raw_below_space(out, 0, 0)) ++ " (want 0)")
+  end
+
+end

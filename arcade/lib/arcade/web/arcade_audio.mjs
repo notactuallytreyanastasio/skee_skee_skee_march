@@ -188,7 +188,9 @@ export function audio_install(synthRate, gainValue, url, processorName, globalNa
   gainLevel = gainValue;
   processor = processorName;
   try { globalThis[globalName] = debug; } catch (e) { }
-  workletUrl = url;
+  // Next to this module, not the page: a host may serve the page from one
+  // path and the build's modules from another.
+  workletUrl = new URL(url, import.meta.url).href;
   serveFn = serve;
   readyFn = ready;
   try {

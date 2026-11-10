@@ -223,7 +223,7 @@ mod HostSuite do
                   if name == "swear" do
                     Skee.HostGuard.swear_words()
                   else
-                    Skee.Host.perk_words(name)
+                    perk_list(name)
                   end
                 end
               end
@@ -231,6 +231,22 @@ mod HostSuite do
           end
         end
       end
+    end
+  end
+
+  -- The golden's "asks" row is askedForPerks' own set; the others are Perk's.
+  fn perk_list(name : String) : List(String) do
+    match List.find(Skee.Host.perks(), fn p -> perk_name(p) == name) do
+    Some(p) -> Skee.Host.perk_words(p)
+    None -> if name == "asks" do Skee.Host.ask_words() else [] end
+    end
+  end
+
+  fn perk_name(p : Perk) : String do
+    match p do
+    PerkNights -> "nights"
+    PerkTickets -> "tickets"
+    PerkCredit -> "credit"
     end
   end
 
@@ -715,7 +731,19 @@ mod HostSuite do
 
   -- What March would POST, read back as the generator read Swift's request.
   fn sent_tokens(c : HostCall) : List(String) do
-    match Json.parse(Skee.Host.request_body(c)) do
+    let body = Skee.Host.request_body(c)
+    let raw = raw_control_at(body, 0)
+    if raw >= 0 do
+      [
+        "raw control byte " ++ int_to_string(string_byte_at(body, raw)) ++ " at " ++ int_to_string(raw)
+      ]
+    else
+      sent_tokens_of(body)
+    end
+  end
+
+  fn sent_tokens_of(body : String) : List(String) do
+    match Json.parse(body) do
     Ok(v) -> do
       let ms =
         match json_field(v, "messages") do
@@ -759,7 +787,26 @@ mod HostSuite do
     let seated =
       Skee.Host.new_haggle(k(), room_of(room), Arcade.Test.GoldenIo.u64(seed), visit_of(visit))
     let lines = if said == "-" do [] else String.split(said, ",") end
-    List.fold_left(lines, seated, fn (h, l) -> Skee.Host.say(h, unhex(l)))
+    List.fold_left(lines, seated, wire_step)
+  end
+
+  -- r<hex>: a reply the host gave earlier (its JSON), heard; else a player line.
+  fn wire_step(h : Haggle, token : String) : Haggle do
+    if String.starts_with(token, "r") do
+      match Skee.Host.parse_reply(unhex(String.slice_bytes(token, 1, string_byte_length(token) - 1))) do
+      Ok(r) -> Skee.Host.hear(h, r)
+      Err(_) -> h
+      end
+    else
+      Skee.Host.say(h, unhex(token))
+    end
+  end
+
+  -- A raw byte below 0x20 anywhere in a body: Node's JSON.parse (relay.mjs)
+  -- refuses it ("Bad control character in string literal").
+  fn raw_control_at(s : String, i : Int) : Int do
+    let c = string_byte_at(s, i)
+    if c < 0 do -1 else if c < 32 do i else raw_control_at(s, i + 1) end end
   end
 
   fn wire_start(ask : String, h : Haggle) : WireRun do
@@ -830,6 +877,34 @@ mod HostSuite do
     )
   end
 
+  fn reply_failed(s : HostSession, kind : String, detail : String) : Outcome do
+    match Skee.Host.failure(s) do
+    Some(f) -> do
+      let mine = failure_kind(f)
+      let same_kind = mine == kind || mine == "malformed" && kind == "badjson"
+      let described =
+        if kind == "network" || kind == "badjson" do
+          Passed(1)
+        else
+          expect_string(Skee.Host.describe_failure(f), unhex(detail), "description")
+        end
+      all([expect(same_kind, "failure " ++ mine ++ ", want " ++ kind), described, expect(Skee.Host.can_retry(s), "can retry"), expect(Skee.Host.can_sign(s), "can sign")])
+    end
+    None -> Mismatch("no failure recorded, want " ++ kind)
+    end
+  end
+
+  fn greeting_failed(s : HostSession, kind : String) : Outcome do
+    let kept =
+      match Skee.Host.greeting_failure(s) do
+      Some(f) -> do
+        expect(failure_kind(f) == kind, "greeting failure " ++ failure_kind(f) ++ ", want " ++ kind)
+      end
+      None -> Mismatch("no greeting failure recorded, want " ++ kind)
+      end
+    all([expect(!Skee.Host.is_waiting(s) && !s.greeting_hidden && Option.is_none(Skee.Host.failure(s)), "a greeting that fails leaves the stock hello"), kept, expect(Skee.Host.can_retry(s) && Skee.Host.takes_lines(s) && Skee.Host.can_sign(s), "retry, talk or sign")])
+  end
+
   fn wire_result(ask : String, w : WireRun, result : List(String)) : Outcome do
     let s = w.wire_session
     let h = s.session_haggle
@@ -856,22 +931,9 @@ mod HostSuite do
     end
     Cons("fail", Cons(kind, Cons(detail, Nil))) -> do
       if ask == "greeting" do
-        expect(!Skee.Host.is_waiting(s) && !s.greeting_hidden && Option.is_none(Skee.Host.failure(s)), "a greeting that fails leaves the stock hello")
+        greeting_failed(s, kind)
       else
-        match Skee.Host.failure(s) do
-        Some(f) -> do
-          let mine = failure_kind(f)
-          let same_kind = mine == kind || mine == "malformed" && kind == "badjson"
-          let described =
-            if kind == "network" || kind == "badjson" do
-              Passed(1)
-            else
-              expect_string(Skee.Host.describe_failure(f), unhex(detail), "description")
-            end
-          all([expect(same_kind, "failure " ++ mine ++ ", want " ++ kind), described, expect(Skee.Host.can_retry(s), "can retry"), expect(Skee.Host.can_sign(s), "can sign")])
-        end
-        None -> Mismatch("no failure recorded, want " ++ kind)
-        end
+        reply_failed(s, kind, detail)
       end
     end
     _ -> Mismatch("bad result row")
@@ -896,8 +958,29 @@ mod HostSuite do
     end
   end
 
+  -- JSONSerialization over an envelope holding a number token in a field
+  -- DeepSeek.chat never reads: the content "hi" is read, or the body is refused.
+  fn serial_row(row : List(String)) : Outcome do
+    match row do
+    Cons(body, Cons(want, Nil)) -> do
+      let got =
+        match Skee.Host.read_response(200, unhex(body)) do
+        Ok(text) -> if text == "hi" do "ok" else "content " ++ text end
+        Err(FailMalformed(_)) -> "refused"
+        Err(FailHttp(_, _)) -> "http"
+        Err(FailTruncated) -> "truncated"
+        Err(FailNetwork(_)) -> "network"
+        Err(FailUnreadable(_)) -> "unreadable"
+        end
+      expect_string(got, want, "envelope " ++ body)
+    end
+    _ -> Mismatch("bad serial row")
+    end
+  end
+
   fn net_cases(all_rows : List(List(String))) : List(Case) do
     [
+      case("JSONSerialization's number rule over the envelope", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "serial"), serial_row))),
       case("DeepSeek.parse over the corpus", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "parse"), parse_row))),
       case("DeepSeek.guardedReply and greeting against a scripted relay", fn () -> all(List.map(Arcade.Test.GoldenIo.of_kind(all_rows, "wire"), fn w -> wire_case(all_rows, w))))
     ]
@@ -1380,6 +1463,28 @@ mod HostSuite do
     all([expect(Option.is_none(none) && Option.is_none(line) && List.length(quiet.session_haggle.lines) == 1, "nothing leaves before consent"), expect(Option.is_some(hello) && yes.greeting_hidden && List.is_empty(Skee.Host.shown_lines(yes)), "a yes asks for the hello, hiding the stock one"), expect_string(first_text(greeted.session_haggle), "Welcome in!", "the model's hello"), expect(same_comp(greeted.session_haggle.haggle_offer, h.haggle_offer), "words only"), expect(Option.is_none(nothing) && !Skee.Host.takes_lines(refused), "a no takes no lines"), expect(!failed.greeting_hidden && first_text(failed.session_haggle) == first_text(h) && Option.is_none(Skee.Host.failure(failed)), "a failed hello shows the stock one")])
   end
 
+  -- Every relay failure is typed and can be retried, the hello's too. The
+  -- stock hello stays showing meanwhile (Swift's `try?`), and the table still
+  -- takes lines: once the player speaks there is no hello left to ask for.
+  fn a_failed_greeting_is_typed_and_can_be_asked_again() : Outcome do
+    let h = seat(NeonLounge, 6, VisitReturning)
+    let (s0, c0) = Skee.Host.seat(h, ConsentGiven)
+    let (failed, none) = Skee.Host.call_failed(s0, call_id(c0), "offline")
+    let (again, c1) = Skee.Host.retry(failed)
+    let same =
+      match (c0, c1) do
+      (Some(a), Some(b)) -> do
+        messages_digest(a.call_messages) == messages_digest(b.call_messages) && b.attempt == 1 && b.call_id != a.call_id
+      end
+      _ -> false
+      end
+    let (greeted, _) =
+      Skee.Host.deliver(again, call_id(c1), 200, content_body("{\"say\": \"Back again!\", \"offer\": {\"nights\": 1, \"tickets\": 0, \"credit\": 0}, \"mood\": 0, \"walk\": false}"))
+    let (talked, _) = Skee.Host.player_says(failed, "one more night?")
+    let (_, nothing) = Skee.Host.retry(Skee.Host.reconsider(failed))
+    all([expect(Option.is_none(none), "nothing more is sent"), expect(Skee.Host.greeting_failure(failed) == Some(FailNetwork("offline")), "the reason is kept"), expect(!failed.greeting_hidden && first_text(failed.session_haggle) == first_text(h), "the stock hello shows"), expect(Skee.Host.can_retry(failed) && Skee.Host.takes_lines(failed) && Skee.Host.can_sign(failed), "retry, talk or sign"), expect(same && again.greeting_hidden && Skee.Host.is_waiting(again) && Option.is_none(Skee.Host.greeting_failure(again)), "retry asks for the hello again"), expect_string(first_text(greeted.session_haggle), "Back again!", "the model's hello"), expect(Option.is_none(Skee.Host.greeting_failure(talked)) && Skee.Host.is_waiting(talked), "a line ends the wait for a hello"), expect(Option.is_none(nothing) && !Skee.Host.can_retry(Skee.Host.reconsider(failed)), "no consent, no retry")])
+  end
+
   fn stale_and_busy() : Outcome do
     let s0 = ready(NeonLounge, 1, VisitNewRoom)
     let (s1, c1) = Skee.Host.player_says(s0, "two nights?")
@@ -1395,7 +1500,7 @@ mod HostSuite do
       Skee.Host.accept(said_then(seat(Boardwalk, 3, VisitArrival), "please", moody("Sure.", terms(2, 1, 0), 1)))
     let walked =
       said_then(seat(HighRoller, 1, VisitNewRoom), "MORE", { say: "Goodbye.", reply_terms: terms(1, 0, 0), mood: 0, walk: true, off_topic: None })
-    all([expect_string(Skee.Host.ending_title(arrival), "DEAL!", "title"), expect_string(Skee.Host.ending_terms(arrival), "you start with 2 nights " ++ dot ++ " +1 tix " ++ dot ++ " 0 credit", "arrival terms"), expect_string(Skee.Host.close_label(arrival), "LEARN TO PLAY", "arrival button"), expect_string(Skee.Host.subtitle(arrival), "your first loadout", "arrival subtitle"), expect_string(Skee.Host.ending_title(walked), "MR. WHITLOCK LEFT", "walked title"), expect_string(Skee.Host.ending_terms(walked), "The High Roller Suite is yours " ++ dot ++ " 1 night " ++ dot ++ " +0 tix " ++ dot ++ " 0 credit", "walked terms"), expect_string(Skee.Host.close_label(walked), "CHECK IN", "button"), expect_string(Skee.Host.subtitle(walked), "your host " ++ dot ++ " The High Roller Suite", "subtitle")])
+    all([expect_string(Skee.Host.ending_title(arrival), "DEAL!", "title"), expect_string(Skee.Host.ending_terms(arrival), "you start with 2 nights " ++ dot ++ " +1 tix " ++ dot ++ " 0 credit", "arrival terms"), expect_string(Skee.Host.close_label(arrival), "LEARN TO PLAY", "arrival button"), expect_string(Skee.Host.subtitle(arrival), "your first loadout", "arrival subtitle"), expect_string(Skee.Host.ending_title(walked), "MR. WHITLOCK LEFT", "walked title"), expect_string(Skee.Host.ending_terms(walked), "The High Roller Suite is yours " ++ dot ++ " 1 night " ++ dot ++ " +0 tix " ++ dot ++ " 0 credit", "walked terms"), expect_string(Skee.Host.close_label(walked), "CHECK IN", "button"), expect_string(Skee.Host.subtitle(walked), "your host " ++ dot ++ " The High Roller Suite", "subtitle"), expect_string(Skee.Host.terms_note(), "a night = one game with bonus tickets " ++ dot ++ " credit buys prizes", "the note under the offer")])
   end
 
   fn relay_rules() : Outcome do
@@ -1422,6 +1527,7 @@ mod HostSuite do
       case("a screened line is answered by the guard, never sent", fn () -> a_screened_line_is_answered_without_the_model()),
       case("after maxModelTurns the table takes no lines: deal or leave", fn () -> after_enough_turns_only_deal_or_leave()),
       case("consent comes first; the hello is the model's or the stock one", fn () -> consent_comes_first()),
+      case("a failed greeting is typed and can be asked again", fn () -> a_failed_greeting_is_typed_and_can_be_asked_again()),
       case("a busy table and a stale answer", fn () -> stale_and_busy()),
       case("HostView's texts", fn () -> the_table_texts()),
       case("relay.mjs's limits", fn () -> relay_rules())

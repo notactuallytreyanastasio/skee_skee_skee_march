@@ -5,12 +5,17 @@ mod Game do
   -- canvas, the frame loop and the events; this module says what they mean
   -- for skee:
   --
-  --   boot      the five stored strings and the launch seed to Skee.App.boot,
+  --   boot      the six stored strings and the launch seed to Skee.App.boot,
   --             and the speakers (Audio.start)
   --   msgs      the thumb's samples, visibility, resizes and the tick
-  --   overlay   the HUD (Hud.render), whose queued taps come back as MsgTap
-  --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate, and
-  --             every effect to Audio.apply (sound, rumble, drum)
+  --   listen    the lever's knob (a drag on the HUD) through Hud.lever_touch,
+  --             and an edit of the host's text field as MsgHostDraft
+  --   overlay   the HUD (Hud.render), whose queued taps come back as MsgTap;
+  --             then Hud.sync_fields writes the draft back
+  --   effects   FxSave to localStorage, FxHaptic to navigator.vibrate,
+  --             FxHostPost to the same-origin relay (its answer comes back
+  --             as MsgHostReply or MsgHostFailed), and every effect to
+  --             Audio.apply (sound, rumble, drum)
   --   marks     what the playtest reads off <html>
   --
   -- Every rule is in Skee.App; nothing here looks at the game.
@@ -45,6 +50,7 @@ mod Game do
     KeyTips -> "skee.tipsSeen"
     KeyWalkthroughDone -> "skee.walkthroughDone"
     KeyArrivalDone -> "skee.arrivalDone"
+    KeyHostConsent -> "skee.hostConsent"
     end
   end
 
@@ -58,7 +64,8 @@ mod Game do
       saved_run: stored(KeyRun),
       saved_tips: stored(KeyTips),
       saved_walk_done: stored(KeyWalkthroughDone),
-      saved_arrival_done: stored(KeyArrivalDone)
+      saved_arrival_done: stored(KeyArrivalDone),
+      saved_host_consent: stored(KeyHostConsent)
     }
   end
 
@@ -77,7 +84,7 @@ mod Game do
     end
   end
 
-  fn effect(e : Skee.App.Effect) : () do
+  fn effect(dispatch : Skee.App.Msg -> (), e : Skee.App.Effect) : () do
     match e do
     FxSave(key, text) -> Js.Dom.store_set(storage_key(key), text)
     FxHaptic(h) -> do
@@ -89,11 +96,42 @@ mod Game do
     FxSound(_) -> ()
     FxRumble(_) -> ()
     FxDrum(_) -> ()
+    FxHostPost(key, body) -> host_post(dispatch, key, body)
     end
   end
 
-  fn perform(effects : List(Skee.App.Effect)) : () do
-    List.each(effects, effect)
+  -- FxHostPost: the one network call. What came back goes to the model
+  -- under the call's key, as it came.
+  fn host_post(dispatch : Skee.App.Msg -> (), key : Skee.App.CallKey, body : String) : () do
+    Arcade.Web.Glue.post_json("/skee-host/chat", body, Skee.App.host_timeout_ms(), fn answer -> host_replied(dispatch, key, answer), fn why -> host_failed(dispatch, key, why))
+  end
+
+  fn host_replied(dispatch : Skee.App.Msg -> (), key : Skee.App.CallKey, answer : (Int, String)) : () do
+    let (status, body) = answer
+    dispatch(MsgHostReply(key, status, body))
+  end
+
+  fn host_failed(dispatch : Skee.App.Msg -> (), key : Skee.App.CallKey, why : (Bool, String)) : () do
+    let (timed_out, message) = why
+    dispatch(MsgHostFailed(key, host_failure(timed_out, message)))
+  end
+
+  -- The player's words for no HTTP answer: the browser's own after "could
+  -- not reach", or the timeout in whole seconds (Math.round).
+  fn host_failure(timed_out : Bool, message : String) : String do
+    if timed_out do
+      "no answer from the host's relay in " ++ int_to_string((Skee.App.host_timeout_ms() + 500) / 1000) ++ " s"
+    else
+      if message == "" do
+        "could not reach the host's relay"
+      else
+        "could not reach the host's relay: " ++ message
+      end
+    end
+  end
+
+  fn perform(dispatch : Skee.App.Msg -> (), effects : List(Skee.App.Effect)) : () do
+    List.each(effects, fn e -> effect(dispatch, e))
     Audio.apply(effects)
   end
 
@@ -122,6 +160,30 @@ mod Game do
     end
   end
 
+  -- ---- The lever's knob (a drag on the HUD, not the alley) ----
+  fn knob_down(p : (Float, Float)) : Skee.HudView.LeverTouch do
+    let (x, y) = p
+    LeverDown(x, y)
+  end
+
+  fn knob_move(p : (Float, Float)) : Skee.HudView.LeverTouch do
+    let (x, y) = p
+    LeverMove(x, y)
+  end
+
+  fn knob_up(p : (Float, Float)) : Skee.HudView.LeverTouch do
+    let (x, y) = p
+    LeverUp(x, y)
+  end
+
+  -- The HUD's other event sources: the knob's pointer steps the lever's view
+  -- state against the current model, and the host's field sends its draft.
+  fn listen(hud : Hud.HudHandle, model : () -> Boxed, dispatch : Skee.App.Msg -> ()) : () do
+    let touch = fn t -> List.each(Hud.lever_touch(hud, unbox(model()), t), dispatch)
+    Arcade.Web.Input.on_drag(hud.hud_root, fn p -> touch(knob_down(p)), fn p -> touch(knob_move(p)), fn p -> touch(knob_up(p)), fn () -> touch(LeverLost))
+    Arcade.Web.Input.on_fields(hud.hud_root, fn text -> dispatch(MsgHostDraft(text)))
+  end
+
   -- ---- Marks ----
   -- What the playtest reads off <html>: the top layer, whether a throw is
   -- possible, whether the presentation is busy, and the crease's height.
@@ -145,16 +207,18 @@ mod Game do
       hook_num: k.num,
       hook_boot: fn (w, h, seed) -> boot(k, w, h, seed),
       hook_update: fn (b, msg) -> boxed(Skee.App.update(unbox(b), msg)),
-      hook_perform: fn effects -> perform(effects),
+      hook_perform: fn (dispatch, effects) -> perform(dispatch, effects),
       hook_tick: fn t -> MsgTick(t),
       hook_resize: fn (w, h) -> MsgResize(w, h),
       hook_down: fn raw -> pointer_down(raw),
       hook_move: fn raw -> Some(MsgPointerMove(samples(raw))),
       hook_up: fn raw -> Some(MsgPointerUp(samples(raw))),
       hook_cancel: Some(MsgPointerCancel),
+      hook_listen: fn (model, dispatch) -> listen(hud, model, dispatch),
       hook_visible: fn shown -> MsgVisible(shown),
       hook_scene: fn b -> Skee.App.scene_ops(unbox(b)),
       hook_overlay: fn b -> Hud.render(hud, unbox(b)),
+      hook_settle: fn b -> Hud.sync_fields(unbox(b)),
       hook_marks: fn b -> marks(unbox(b))
     }
   end

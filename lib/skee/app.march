@@ -14,14 +14,17 @@ mod Skee.App do
   -- presentation, and the display link reading cues and the HUD), MsgTick does
   -- both, in that order, at the time the shell gives it.
   --
-  -- The host (Haggle, DeepSeek, HostGuard, ScriptedHost) is not ported: where
-  -- GameModel seats the host, this seats a labelled placeholder (`HostTable`,
-  -- shown as HudState's HostPlaceholder) whose only button closes it. See
-  -- docs/PORT.md, "Skee.App", for what closing it does instead of a deal.
+  -- The host's table is Skee.Host's HostSession. The model never touches the
+  -- network: a call the session wants made is an FxHostPost effect (the body
+  -- to POST), and what came back is MsgHostReply (status and body) or
+  -- MsgHostFailed. There is no scripted host: a failure is shown, typed, with
+  -- RETRY, and the offer on the table can still be signed. See docs/PORT.md,
+  -- "Skee.App".
   cap pure
 
   -- ---- What the shell sends ----
-  -- The HUD's buttons, Swift's HUDActions minus the host's chat. Never strings.
+  -- The HUD's buttons, Swift's HUDActions. Never strings: what the player
+  -- types at the host's table arrives as MsgHostDraft, and SAY sends it.
   type Intent =
     TapStart
     | TapHowToPlay
@@ -49,13 +52,30 @@ mod Skee.App do
     | TapAskNewGame
     | TapKeepPlaying
     | TapNewRun
+    | TapHostNudge(Int)
+    | TapHostSend
+    | TapHostDeal
+    | TapHostRetry
+    | TapHostConsent(Bool)
+    | TapHostReconsider
 
   derive Eq, Show for Intent
+
+  -- Which host call an answer is for: the table (one per seating, so an
+  -- answer for a table already left can never match a new one) and the
+  -- session's call id.
+  type CallKey = { key_table : Int, key_call : Int }
+
+  derive Show for CallKey
 
   -- Browser events. Times are seconds on one clock (performance.now / 1000:
   -- requestAnimationFrame's time and every pointer event's timeStamp).
   -- Pointer positions are CSS pixels in the canvas. MsgAutoplay is
   -- LaunchArguments' -autoplay: throws to make, one per idle frame.
+  -- MsgHostDraft is the host table's text field as the player edits it;
+  -- MsgHostReply is the relay's HTTP status and body for a call, and
+  -- MsgHostFailed a call that got no HTTP answer (offline, timed out), with
+  -- the browser's words for why.
   type Msg =
     MsgTick(Float)
     | MsgPointerDown(FlickSample)
@@ -66,6 +86,9 @@ mod Skee.App do
     | MsgResize(Float, Float)
     | MsgVisible(Bool)
     | MsgAutoplay(List(Launch))
+    | MsgHostDraft(String)
+    | MsgHostReply(CallKey, Int, String)
+    | MsgHostFailed(CallKey, String)
 
   -- ---- What the shell does ----
   -- Where a save goes. The shell owns the storage keys.
@@ -75,6 +98,7 @@ mod Skee.App do
     | KeyTips
     | KeyWalkthroughDone
     | KeyArrivalDone
+    | KeyHostConsent
 
   derive Eq, Show for SaveKey
 
@@ -96,12 +120,15 @@ mod Skee.App do
     | HapticBuzz(Float)
     | HapticBuzzStop
 
+  -- FxHostPost: POST this body to the host's relay and answer with
+  -- MsgHostReply or MsgHostFailed under the same key.
   type Effect =
     FxSound(Skee.Cues.Sound)
     | FxRumble(Float)
     | FxDrum(Bool)
     | FxSave(SaveKey, String)
     | FxHaptic(Haptic)
+    | FxHostPost(CallKey, String)
 
   -- ---- What the shell read from storage at launch ----
   type SavedStrings = {
@@ -109,25 +136,11 @@ mod Skee.App do
     saved_run : Option(String),
     saved_tips : Option(String),
     saved_walk_done : Option(String),
-    saved_arrival_done : Option(String)
+    saved_arrival_done : Option(String),
+    saved_host_consent : Option(String)
   }
 
   -- ---- The model ----
-  -- What closing the placeholder host does: the arrival leads into the
-  -- walkthrough, a host who sat down for the next game starts it, and one
-  -- opened from a button just closes.
-  type AfterHost = ThenWalkthrough | ThenNewGame | ThenNothing
-
-  derive Eq, Show for AfterHost
-
-  -- Where GameModel seats a Haggle. `host_visit` and `host_room` are the
-  -- Haggle's, kept for when the host is ported.
-  type HostTable = {
-    host_visit : Skee.Rooms.HostVisit,
-    host_room : Room,
-    host_after : AfterHost
-  }
-
   -- GameModel.parked: the real run, waiting out the walkthrough.
   type Parked = {
     parked_seed : Arcade.U64.U64,
@@ -168,7 +181,10 @@ mod Skee.App do
     parked : Option(Parked),
     walk_done : Bool,
     arrival_done : Bool,
-    host : Option(HostTable),
+    host : Option(Skee.Host.HostSession),
+    host_tables : Int,
+    consent : Skee.Host.HostConsent,
+    draft : String,
     bet : Bet,
     autoplay : List(Launch),
     flick : List(FlickSample),
@@ -201,6 +217,16 @@ mod Skee.App do
 
   type TrailDot = { dot : ScreenPoint, dot_age : Float }
 
+  -- HostView's HostState: the session, whether AI chat is on (this build
+  -- always has the relay, so Swift's `aiChat` is never nil), whether the AI
+  -- chat card is asking, and the text field's draft.
+  type HostShown = {
+    table : Skee.Host.HostSession,
+    ai_chat : Bool,
+    asking : Bool,
+    host_draft : String
+  }
+
   -- HUDState's fields GameModel.refreshHUD sets beyond HUDState.make.
   type AppHud = {
     app_hud : HudState,
@@ -215,6 +241,7 @@ mod Skee.App do
     guide_line : List(ScreenPoint),
     aiming_now : Bool,
     trail_dots : List(TrailDot),
+    host_shown : Option(HostShown),
     top : Layer
   }
 
@@ -252,7 +279,8 @@ mod Skee.App do
       saved_run: None,
       saved_tips: None,
       saved_walk_done: None,
-      saved_arrival_done: None
+      saved_arrival_done: None,
+      saved_host_consent: None
     }
   end
 
@@ -472,8 +500,21 @@ mod Skee.App do
     m.screen
   end
 
-  fn host_of(m : Model) : Option(HostTable) needs () do
+  fn host_of(m : Model) : Option(Skee.Host.HostSession) needs () do
     m.host
+  end
+
+  fn draft_of(m : Model) : String needs () do
+    m.draft
+  end
+
+  fn consent_of(m : Model) : Skee.Host.HostConsent needs () do
+    m.consent
+  end
+
+  doc """DeepSeek's `timeout`: how long the shell waits for the relay before a call counts as failed."""
+  fn host_timeout_ms() : Int needs () do
+    30000
   end
 
   fn bet_of(m : Model) : Bet needs () do
@@ -603,7 +644,15 @@ mod Skee.App do
     TapCloseGuide -> top == LayerGuide
     TapReplayLesson -> top == LayerGuide
     TapArrivalNext -> top == LayerArrival
-    TapCloseHost -> top == LayerHost
+    TapCloseHost -> host_ready(m, top) && host_can_close(m)
+    TapHostNudge(n) -> do
+      host_ready(m, top) && host_takes_lines(m) && n >= 0 && n < List.length(Skee.Host.nudges())
+    end
+    TapHostSend -> host_ready(m, top) && host_takes_lines(m)
+    TapHostDeal -> host_ready(m, top) && host_check(m, Skee.Host.can_sign)
+    TapHostRetry -> host_ready(m, top) && host_check(m, Skee.Host.can_retry)
+    TapHostConsent(_) -> top == LayerHost && host_asking(m)
+    TapHostReconsider -> host_ready(m, top)
     TapGotIt -> (top == LayerCoachBlock || top == LayerBase) && coach_showing(m)
     TapSkipWalkthrough -> (top == LayerCoachBlock || top == LayerBase) && coach_showing(m)
     TapNewRun -> top == LayerConfirmNew || on_game(m, top)
@@ -689,7 +738,9 @@ mod Skee.App do
     carry_arrival_done : Bool,
     carry_viewport : Arcade.Camera.Viewport,
     carry_seeds : Arcade.Rng.Rng,
-    carry_now : Float
+    carry_now : Float,
+    carry_consent : Skee.Host.HostConsent,
+    carry_tables : Int
   }
 
   -- GameModel.init(fresh:toGame:).
@@ -738,6 +789,9 @@ mod Skee.App do
       walk_done: c.carry_walk_done,
       arrival_done: c.carry_arrival_done,
       host: None,
+      host_tables: c.carry_tables,
+      consent: c.carry_consent,
+      draft: "",
       bet: BetOne,
       autoplay: [],
       flick: [],
@@ -771,7 +825,9 @@ mod Skee.App do
         carry_arrival_done: Skee.Save.load_flag(saved.saved_arrival_done),
         carry_viewport: Arcade.Camera.viewport(width, height),
         carry_seeds: Arcade.Rng.seed(seed),
-        carry_now: 0.0
+        carry_now: 0.0,
+        carry_consent: load_consent(saved.saved_host_consent),
+        carry_tables: 0
       }
     flush(build(k, carry, saved.saved_run, false, false))
   end
@@ -795,6 +851,9 @@ mod Skee.App do
     MsgResize(w, h) -> flush(resized(m, w, h))
     MsgVisible(shown) -> flush(visible(m, shown))
     MsgAutoplay(ls) -> flush({ m with autoplay: List.append(m.autoplay, ls) })
+    MsgHostDraft(text) -> flush(drafted(m, text))
+    MsgHostReply(key, status, body) -> flush(host_answered(m, key, status, body))
+    MsgHostFailed(key, reason) -> flush(host_lost(m, key, reason))
     end
   end
 
@@ -1122,8 +1181,14 @@ mod Skee.App do
     TapLeaveCounter -> send_action({ m with selected_offer: None }, LeaveCounter)
     TapCharm(n) -> tap_charm(m, n)
     TapPickRoom(r) -> pick_room(m, r)
-    TapOpenHost -> tap(open_host(m, ThenNothing))
+    TapOpenHost -> tap(open_host(m))
     TapCloseHost -> close_host(m)
+    TapHostNudge(n) -> host_say(m, Option.unwrap_or(List.nth_opt(Skee.Host.nudges(), n), ""))
+    TapHostSend -> host_say({ m with draft: "" }, m.draft)
+    TapHostDeal -> host_deal(m)
+    TapHostRetry -> host_retry(m)
+    TapHostConsent(yes) -> host_consent(m, yes)
+    TapHostReconsider -> host_reconsider(m)
     TapSkipWalkthrough -> tap(skip_walkthrough(m))
     TapGotIt -> tap(got_it(m))
     TapNewRun -> next_game({ m with confirm_new: false })
@@ -1182,18 +1247,24 @@ mod Skee.App do
       if beat + 1 < List.length(arrival_beats()) do
         { m with arrival: Some(beat + 1) }
       else
-        seat({ m with arrival: None }, { host_visit: VisitArrival, host_room: Boardwalk, host_after: ThenWalkthrough })
+        seat({ m with arrival: None }, Boardwalk, VisitArrival)
       end
     end
     end
   end
 
-  pfn seat(m : Model, h : HostTable) : Model needs () do
-    { m with host: Some(h) }
+  -- GameModel.seat: a fresh Haggle at a new table, and the greeting call
+  -- if the player has said yes to AI chat. The seed is drawn from the
+  -- launch's stream, as new games' are (GameModel uses Date()).
+  pfn seat(m : Model, room : Room, visit : Skee.Rooms.HostVisit) : Model needs () do
+    let (seed, seeds) = Arcade.Rng.next(m.seeds)
+    let (s, call) = Skee.Host.seat(Skee.Host.new_haggle(m.k, room, seed, visit), m.consent)
+    let table = m.host_tables + 1
+    post({ m with seeds: seeds, host: Some(s), host_tables: table, draft: "" }, call)
   end
 
   -- GameModel.openHost: only when the host is due.
-  pfn open_host(m : Model, after : AfterHost) : Model needs () do
+  pfn open_host(m : Model) : Model needs () do
     match Skee.Rooms.host_due(m.wallet) do
     None -> m
     Some(room) -> do
@@ -1203,26 +1274,234 @@ mod Skee.App do
         else
           VisitNewRoom
         end
-      seat(m, { host_visit: visit, host_room: room, host_after: after })
+      seat(m, room, visit)
     end
     end
   end
 
-  -- GameModel.closeHost, for a table where no deal was made. The arrival is
-  -- settled as done (Swift does that when its haggle closes) and leads into
-  -- the walkthrough; a host who sat down for the next game starts it.
+  pfn is_arrival(h : Skee.Host.Haggle) : Bool needs () do
+    match h.haggle_visit do
+    VisitArrival -> true
+    VisitNewRoom -> false
+    VisitReturning -> false
+    end
+  end
+
+  pfn is_open(h : Skee.Host.Haggle) : Bool needs () do
+    match h.haggle_status do
+    HaggleOpen -> true
+    HaggleSigned -> false
+    HaggleWalked -> false
+    end
+  end
+
+  -- GameModel.closeHost: the arrival leads into the walkthrough; a finished
+  -- deal (signed, or the host walked) checks you into the deal's room with a
+  -- model built fresh for it, on the game screen. A table left open (only
+  -- reachable here while it takes no line: no AI chat, a failure showing, or
+  -- the model's turns used up) settles nothing.
   pfn close_host(m : Model) : Model needs () do
     match m.host do
     None -> m
-    Some(h) -> do
-      let left = { m with host: None }
-      match h.host_after do
-      ThenWalkthrough -> do
-        start_walkthrough(emit({ left with arrival_done: true }, FxSave(KeyArrivalDone, Skee.Save.encode_flag(true))), true)
+    Some(s) -> do
+      let h = s.session_haggle
+      let left = { m with host: None, draft: "" }
+      if is_arrival(h) do
+        start_walkthrough(left, true)
+      else
+        if is_open(h) do left else rebuild(left, true) end
       end
-      ThenNewGame -> new_game(left)
-      ThenNothing -> left
+    end
+    end
+  end
+
+  -- ---- The host's table ----
+  -- HostView's text field: cut to HostGuard.maxLine Characters as it is
+  -- typed (its onChange).
+  pfn drafted(m : Model, text : String) : Model needs () do
+    match m.host do
+    None -> m
+    Some(_) -> do
+      let cut =
+        if Skee.SwiftText.count(text) > Skee.HostGuard.max_line() do
+          Skee.SwiftText.prefix(text, Skee.HostGuard.max_line())
+        else
+          text
+        end
+      { m with draft: cut }
+    end
+    end
+  end
+
+  -- The table this key is for, if it is the one seated now.
+  pfn table_for(m : Model, key : CallKey) : Option(Skee.Host.HostSession) needs () do
+    if key.key_table == m.host_tables do m.host else None end
+  end
+
+  pfn host_answered(m : Model, key : CallKey, status : Int, body : String) : Model needs () do
+    match table_for(m, key) do
+    None -> m
+    Some(s) -> stepped(m, s, Skee.Host.deliver(s, key.key_call, status, body))
+    end
+  end
+
+  pfn host_lost(m : Model, key : CallKey, reason : String) : Model needs () do
+    match table_for(m, key) do
+    None -> m
+    Some(s) -> stepped(m, s, Skee.Host.call_failed(s, key.key_call, reason))
+    end
+  end
+
+  -- GameModel.hostSay (SAY, Enter, or a nudge): the session trims it, and
+  -- screens it or asks the model.
+  pfn host_say(m : Model, text : String) : Model needs () do
+    match m.host do
+    None -> m
+    Some(s) -> stepped(m, s, Skee.Host.player_says(s, text))
+    end
+  end
+
+  -- GameModel.hostDeal: sign, the prize buzz, and settle.
+  pfn host_deal(m : Model) : Model needs () do
+    match m.host do
+    None -> m
+    Some(s) -> do
+      let signed = Skee.Host.sign(s)
+      notify(stepped(m, s, (signed, None)), NoticeSuccess)
+    end
+    end
+  end
+
+  pfn host_retry(m : Model) : Model needs () do
+    match m.host do
+    None -> m
+    Some(s) -> stepped(m, s, Skee.Host.retry(s))
+    end
+  end
+
+  -- `hostConsent`: the answer is kept, and a yes asks for the hello.
+  pfn host_consent(m : Model, yes : Bool) : Model needs () do
+    match m.host do
+    None -> m
+    Some(s) -> do
+      let (next, call) = Skee.Host.answer_consent(s, yes)
+      let saved =
+        emit({ m with consent: next.consent }, FxSave(KeyHostConsent, encode_consent(next.consent)))
+      stepped(saved, s, (next, call))
+    end
+    end
+  end
+
+  -- `hostReconsider`: the answer is forgotten, and the card asks again.
+  pfn host_reconsider(m : Model) : Model needs () do
+    match m.host do
+    None -> m
+    Some(s) -> do
+      let next = Skee.Host.reconsider(s)
+      emit({ m with host: Some(next), consent: next.consent }, FxSave(KeyHostConsent, encode_consent(next.consent)))
+    end
+    end
+  end
+
+  pfn host_lines_said(h : Skee.Host.Haggle) : Int needs () do
+    List.length(List.filter(h.lines, fn l -> l.speaker == SpeakerHost))
+  end
+
+  -- The session after a step: a host line heard taps (askHost's
+  -- haptics.tap), a haggle that has just finished is settled, and a call the
+  -- session wants made goes out.
+  pfn stepped(m : Model, before : Skee.Host.HostSession, step : (Skee.Host.HostSession, Option(Skee.Host.HostCall))) : Model needs () do
+    let (s, call) = step
+    let h0 = before.session_haggle
+    let h = s.session_haggle
+    let placed = { m with host: Some(s) }
+    let heard = if host_lines_said(h) > host_lines_said(h0) do tap(placed) else placed end
+    let settled = if is_open(h0) && !is_open(h) do settle(heard, h) else heard end
+    post(settled, call)
+  end
+
+  -- GameModel.settle: Wallet.close, saved; the arrival is done.
+  pfn settle(m : Model, h : Skee.Host.Haggle) : Model needs () do
+    let closed =
+      save_wallet({ m with wallet: Skee.Rooms.close_deal(m.wallet, Skee.Host.final_comp(h), h.haggle_visit) })
+    if is_arrival(h) do
+      emit({ closed with arrival_done: true }, FxSave(KeyArrivalDone, Skee.Save.encode_flag(true)))
+    else
+      closed
+    end
+  end
+
+  pfn post(m : Model, call : Option(Skee.Host.HostCall)) : Model needs () do
+    match call do
+    None -> m
+    Some(c) -> do
+      emit(m, FxHostPost({ key_table: m.host_tables, key_call: c.call_id }, Skee.Host.request_body(c)))
+    end
+    end
+  end
+
+  pfn host_ready(m : Model, top : Layer) : Bool needs () do
+    top == LayerHost && is_some(m.host) && !host_asking(m)
+  end
+
+  -- HostState.asking: the AI chat card is up until it is answered.
+  pfn host_asking(m : Model) : Bool needs () do
+    host_check(m, fn s -> s.consent == ConsentUnasked)
+  end
+
+  pfn host_check(m : Model, f : Skee.Host.HostSession -> Bool) : Bool needs () do
+    match m.host do
+    Some(s) -> f(s)
+    None -> false
+    end
+  end
+
+  pfn host_takes_lines(m : Model) : Bool needs () do
+    host_check(m, Skee.Host.takes_lines)
+  end
+
+  doc """
+  Whether the table can be left: once it has ended (CHECK IN, LEARN TO PLAY),
+  or while it is open but takes no line and has no call out (AI chat off, a
+  failure showing, the model's turns used up), where Swift's scripted host
+  would have kept talking. Then only DEAL or LEAVE.
+  """
+  fn can_leave(s : Skee.Host.HostSession) : Bool needs () do
+    let h = s.session_haggle
+    !is_open(h) || !Skee.Host.is_waiting(s) && !Skee.Host.takes_lines(s)
+  end
+
+  pfn host_can_close(m : Model) : Bool needs () do
+    host_check(m, can_leave)
+  end
+
+  -- UserDefaults' hostConsent: true, false, or nothing (asked again).
+  pfn encode_consent(c : Skee.Host.HostConsent) : String needs () do
+    match c do
+    ConsentGiven -> Skee.Save.encode_flag(true)
+    ConsentRefused -> Skee.Save.encode_flag(false)
+    ConsentUnasked -> ""
+    end
+  end
+
+  pfn load_consent(saved : Option(String)) : Skee.Host.HostConsent needs () do
+    match saved do
+    None -> ConsentUnasked
+    Some(text) -> do
+      match Skee.Save.decode_flag(text) do
+      Ok(true) -> ConsentGiven
+      Ok(false) -> ConsentRefused
+      Err(_) -> ConsentUnasked
       end
+    end
+    end
+  end
+
+  pfn host_shown(m : Model) : Option(HostShown) needs () do
+    match m.host do
+    None -> None
+    Some(s) -> do
+      Some({ table: s, ai_chat: s.consent == ConsentGiven, asking: s.consent == ConsentUnasked, host_draft: m.draft })
     end
     end
   end
@@ -1299,7 +1578,7 @@ mod Skee.App do
         m
       end
     if real && is_some(Skee.Rooms.host_due(counted.wallet)) do
-      open_host(counted, ThenNewGame)
+      open_host(counted)
     else
       new_game(counted)
     end
@@ -1336,7 +1615,9 @@ mod Skee.App do
         carry_arrival_done: m.arrival_done,
         carry_viewport: m.viewport,
         carry_seeds: m.seeds,
-        carry_now: m.now
+        carry_now: m.now,
+        carry_consent: m.consent,
+        carry_tables: m.host_tables
       }
     let built = build(m.k, carry, None, true, to_game)
     { built with out: List.append(built.out, m.out), last_render: m.last_render }
@@ -1404,8 +1685,7 @@ mod Skee.App do
         bet: affordable_bet(m)
       }
     let made = with_machine(Skee.HudState.make(m.pres, inputs), m)
-    let hosted =
-      { made with host: if is_some(m.host) do HostPlaceholder else HostClosed end }
+    let hosted = { made with host: if is_some(m.host) do HostAtTable else HostClosed end }
     let shown = if walk_running(m) do { hosted with over: None } else hosted end
     {
       app_hud: shown,
@@ -1420,6 +1700,7 @@ mod Skee.App do
       guide_line: guide_points(m),
       aiming_now: m.aiming,
       trail_dots: trail_dots(m),
+      host_shown: host_shown(m),
       top: top_layer(m)
     }
   end

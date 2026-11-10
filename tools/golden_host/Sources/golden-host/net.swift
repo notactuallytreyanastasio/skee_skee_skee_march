@@ -7,7 +7,7 @@ import GoldenSupport
 // Rows:
 //   parse <text> ok <say> <n> <t> <c> <mood> <walk> <offTopic>   DeepSeek.parse
 //   parse <text> nil
-//   wire <id> <ask: reply|greeting> <room> <visit> <seed> <lines: hex,hex or ->
+//   wire <id> <ask: reply|greeting> <room> <visit> <seed> <lines: hex,hex or ->  (r<hex>: a reply heard)
 //   answer <id> <k> <status or net> <body>      what the mock relay answers, in order
 //   sent <id> <k> <model> <max_tokens> <temperature bits> <response_format or -> <messages digest> <last message role> <last message>
 //   result <id> ok <say> <n> <t> <c> <mood> <walk> <offTopic>
@@ -65,6 +65,17 @@ func parseRows(_ g: inout GoldenFile) {
         "{\"offer\": {\"nights\": 1, \"tickets\": 0, \"credit\": 0}, \"mood\": 0, \"walk\": false, \"say\": \"Last\"}",
         "{\"say\": \"Hi\", \"offer\": {\"nights\": 1, \"tickets\": 0, \"credit\": 0}, \"mood\": 0, \"walk\": false,}",
         "{\"say\": \"Hi\" , \"offer\" : { \"nights\" : 1 , \"tickets\" : 0 , \"credit\" : 0 } , \"mood\" : 0 , \"walk\" : false }",
+        // Text that spells Skee.Save.parse's in-band marks (repair round 2):
+        // Swift reads each as the string it is.
+        with("say", "\"\\u0007skee-unreadable\\u0007\""), with("say", "\"\\u0007skee-underflow\\u0007\""),
+        with("say", "\"\\u0007\""), with("say", "\"\\u0007\\u0007x\""), with("say", "\"\\u0007\\u0007skee-unreadable\\u0007\""),
+        with("say", "\"Ding\\u0007 dong, one more ticket.\""), with("say", "\"\\u000bvertical\\u001ftab\""),
+        with("\\u0007skee-unreadable\\u0007", "1"), with("\\u0007skee-underflow\\u0007", "1"), with("\\u0007say", "\"Shadow\""),
+        with("mood", "\"\\u0007skee-underflow\\u0007\""), with("mood", "\"\\u0007skee-unreadable\\u0007\""),
+        with("walk", "\"\\u0007skee-unreadable\\u0007\""), with("offTopic", "\"\\u0007skee-underflow\\u0007\""),
+        offer("{\"nights\": \"\\u0007skee-underflow\\u0007\", \"tickets\": 1, \"credit\": 0}"),
+        offer("{\"nights\": 2, \"tickets\": 1, \"credit\": 0, \"\\u0007skee-unreadable\\u0007\": 0}"),
+        with("extra", "{\"\\u0007skee-unreadable\\u0007\": \"\\u0007skee-underflow\\u0007\"}"),
         "{\n  \"say\": \"Pretty\",\n  \"offer\": {\n    \"nights\": 3,\n    \"tickets\": 2,\n    \"credit\": 300\n  },\n  \"mood\": -1,\n  \"walk\": true,\n  \"offTopic\": false\n}",
     ]
     var fz = Fuzz(state: 0x9A25E)
@@ -133,6 +144,8 @@ func envelope(_ content: String, finish: String = "stop") -> String {
     return String(decoding: data, as: UTF8.self)
 }
 
+let heardTag = "\u{0}heard:"
+
 struct Wire { let greeting: Bool; let room: Room; let visit: Haggle.Visit; let seed: UInt64; let said: [String]; let answers: [(Int?, String)] }
 
 func wireRows(_ g: inout GoldenFile) {
@@ -174,10 +187,56 @@ func wireRows(_ g: inout GoldenFile) {
                      "{\"choices\": [{\"message\": {\"content\": \"" + okBody.replacingOccurrences(of: "\"", with: "\\\"") + "\"}}], \"usage\": {\"x\": 1}}"]
     for m in malformed { wires.append(Wire(greeting: false, room: .boardwalk, visit: .newRoom, seed: 11, said: ask, answers: [(200, m)])) }
 
+    // JSONSerialization over the envelope (repair round 2): what it refuses
+    // in text that DeepSeek.chat never reads, beside the content it does.
+    let content = "\"content\": \"" + okBody.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    func env(_ before: String, _ after: String = "") -> String { "{" + before + "\"choices\": [{\"message\": {" + content + "}" + after + "}]}" }
+    let deep = String(repeating: "[", count: 600) + String(repeating: "]", count: 600)
+    let envelopes = [
+        env("\"id\": \"a\u{01}b\", "), env("\"id\": \"tab\there\", "), env("\"id\": \"line\nbreak\", "), env("\"x\u{1F}\": 1, "),
+        env("\"id\": \"del\u{7F}\", "), env("\"id\": \"\\x41\", "), env("\"id\": \"\\uZZZZ\", "), env("\"id\": \"\\ud800\", "),
+        env("\"id\": \"\\udc00x\", "), env("\"id\": \"\\u0007\", "), env("\"n\": 1., "), env("\"n\": 01, "), env("\"n\": -, "),
+        env("\"n\": 1e400, "), env("\"n\": 1e-400, "), env("\"n\": +1, "), env("\"n\": tru, "), env("\"n\": [1, 2,], "),
+        env("\"n\": " + deep + ", "), env("\"n\": " + String(repeating: "[", count: 300) + String(repeating: "]", count: 300) + ", "),
+        env("", ", \"logprobs\": \"a\u{01}b\""), env("", ", \"finish_reason\": \"stop\u{01}\""),
+        "\u{FEFF}" + env(""), " \n" + env("") + "\n ", env("\"choices\": [], "), env("\"choices\": 5, "),
+        env("") .replacingOccurrences(of: "}]}", with: "}], \"choices\": []}"),
+        "{\"choices\": [{\"message\": {\"content\": \"" + okBody.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "Two", with: "Two\u{01}") + "\"}}]}",
+        "{\"choices\": [{\"message\": {\"content\": \"" + okBody.replacingOccurrences(of: "\"", with: "\\\"").replacingOccurrences(of: "Two", with: "\\u0007skee-unreadable\\u0007") + "\"}}]}",
+        "{\"choices\": [{\"message\": {\"content\": \"\\u0007skee-unreadable\\u0007\"}}]}",
+        "{\"choices\": [{\"message\": {\"content\": \"\\u0007skee-underflow\\u0007\"}}]}",
+        env("\"\\u0007skee-unreadable\\u0007\": 1, "), env("", ", \"finish_reason\": \"\\u0007skee-unreadable\\u0007\""),
+        // JSONSerialization's number rule (repair round 3): more than 17
+        // digits is a Decimal, an exponent of more than four characters is
+        // refused, and -inf is read.
+        "{\"choices\": [{\"message\": {\"role\": \"assistant\", \"content\": \"hi\"}, \"finish_reason\": \"stop\", \"x\": 9.99999999999999999999e307}]}",
+        env("", ", \"x\": 9.99999999999999999999e307"), env("\"n\": 0." + String(repeating: "0", count: 200) + "1, "),
+        env("\"n\": 1" + String(repeating: "0", count: 200) + ", "), env("\"n\": 1e00001, "), env("\"n\": 1e-1000, "),
+        env("\"n\": -1e400, "), env("\"n\": 9.9999999999999999e307, "), env("\"n\": 123456789012345678901234567890, "),
+    ]
+    // Each three times, so content that reads but is no reply runs out its tries.
+    for m in envelopes { wires.append(Wire(greeting: false, room: .boardwalk, visit: .newRoom, seed: 11, said: ask, answers: [(200, m), (200, m), (200, m)])) }
+
+    // Text with control characters in the history (repair round 2): a heard
+    // reply's say and a player's line both go back to the relay, escaped.
+    let bell = #"{"say": "Ding\u0007 dong, one more ticket.", "offer": {"nights": 2, "tickets": 1, "credit": 0}, "mood": 0, "walk": false}"#
+    var controls = ""
+    for c in 1..<32 { controls.unicodeScalars.append(Unicode.Scalar(UInt32(c))!) }
+    wires += [
+        Wire(greeting: false, room: .neonLounge, visit: .newRoom, seed: 1, said: ask + [heardTag + bell, "and one more?"], answers: [(200, envelope(okBody))]),
+        Wire(greeting: false, room: .neonLounge, visit: .newRoom, seed: 1, said: ["more\u{0B}tickets please"], answers: [(200, envelope(okBody))]),
+        Wire(greeting: false, room: .highRoller, visit: .returning, seed: 8, said: ["more " + controls + " credit"], answers: [(200, envelope(link)), (200, envelope(okBody))]),
+        Wire(greeting: false, room: .boardwalk, visit: .arrival, seed: 3, said: ["\u{0}nul first"], answers: [(200, envelope(bell))]),
+    ]
+
     for (id, w) in wires.enumerated() {
         var h = Haggle(room: w.room, seed: w.seed, visit: w.visit)
-        for line in w.said { h.say(line) }
-        g.line("wire", i(id), w.greeting ? "greeting" : "reply", roomName(w.room), visitName(w.visit), u64(w.seed), w.said.isEmpty ? "-" : w.said.map(hex).joined(separator: ","))
+        for line in w.said {
+            if line.hasPrefix(heardTag) { h.hear(DeepSeek.parse(String(line.dropFirst(heardTag.count)))!) } else { h.say(line) }
+        }
+        // A heard reply travels as r<hex of its JSON>, a player's line as its hex.
+        let saidToken = w.said.map { $0.hasPrefix(heardTag) ? "r" + hex(String($0.dropFirst(heardTag.count))) : hex($0) }
+        g.line("wire", i(id), w.greeting ? "greeting" : "reply", roomName(w.room), visitName(w.visit), u64(w.seed), w.said.isEmpty ? "-" : saidToken.joined(separator: ","))
         for (k, a) in w.answers.enumerated() { g.line("answer", i(id), i(k), a.0.map(String.init) ?? "net", hex(a.1)) }
         WireScript.shared.answers = w.answers
         WireScript.shared.sent = []

@@ -447,10 +447,36 @@ mod Skee.Save do
     end
   end
 
+  pfn bell() : String needs () do
+    Option.unwrap_or(String.from_codepoint(7), "")
+  end
+
+  -- The marks are in-band: each is a string that starts with U+0007 and then
+  -- "skee-". So that text can never spell one, every string or key that
+  -- really starts with U+0007 is given one more in front (the JSON string
+  -- from i to e, quotes included, with `\u0007` after its opening quote), and
+  -- `text_of` takes it off again. A real string is then never a mark: it
+  -- starts with two U+0007s where a mark has one.
+  pfn bell_escaped(s : String, i : Int, e : Int) : String needs () do
+    "\"\\u0007" ++ String.slice_bytes(s, i + 1, e - i - 1)
+  end
+
+  doc """A decoded string as the text sent: None for a mark (text Swift's decoder refuses, or a number that underflowed), the extra U+0007 taken off a string that started with one."""
+  fn text_of(s : String) : Option(String) needs () do
+    if s == unread_mark() || s == underflow_mark() do
+      None
+    else
+      if String.starts_with(s, bell()) do
+        Some(String.slice_bytes(s, 1, string_byte_length(s) - 1))
+      else
+        Some(s)
+      end
+    end
+  end
+
   doc """What a string or number Json.parse cannot read becomes: Swift's scanner passes it, and only a decoder that reads it refuses it. `string_of` and `object_of` refuse this text, and nothing else reads a value or key it could stand in for."""
   fn unread_mark() : String needs () do
-    let bell = Option.unwrap_or(String.from_codepoint(7), "")
-    bell ++ "skee-unreadable" ++ bell
+    bell() ++ "skee-unreadable" ++ bell()
   end
 
   pfn unread_json() : String needs () do
@@ -459,8 +485,7 @@ mod Skee.Save do
 
   doc """What a number that rounds to zero from non-zero digits (`1e-400`) becomes. Swift's JSONDecoder refuses it as a Double, reads it as 0 for an Int or UInt64, and only scans it in a field nothing reads."""
   fn underflow_mark() : String needs () do
-    let bell = Option.unwrap_or(String.from_codepoint(7), "")
-    bell ++ "skee-underflow" ++ bell
+    bell() ++ "skee-underflow" ++ bell()
   end
 
   pfn underflow_json() : String needs () do
@@ -531,7 +556,17 @@ mod Skee.Save do
         None
       end
     end
-    Json.Str(_) -> if has_control(s, i, e) do Some(unread_json()) else None end
+    Json.Str(v) -> do
+      if has_control(s, i, e) do
+        Some(unread_json())
+      else
+        if String.starts_with(v, bell()) do
+          Some(bell_escaped(s, i, e))
+        else
+          None
+        end
+      end
+    end
     Json.Null -> None
     Json.Bool(_) -> None
     Json.Array(_) -> None
@@ -778,7 +813,10 @@ mod Skee.Save do
       if s == unread_mark() do
         Err(SaveNotJson("unreadable text at " ++ path))
       else
-        if s == underflow_mark() do Err(SaveWrongType(path)) else Ok(s) end
+        match text_of(s) do
+        Some(text) -> Ok(text)
+        None -> Err(SaveWrongType(path))
+        end
       end
     end
     Json.Null -> Err(SaveWrongType(path))

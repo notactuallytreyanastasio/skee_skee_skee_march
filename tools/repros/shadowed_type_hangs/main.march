@@ -1,0 +1,18 @@
+mod Main do
+  -- Another record called `Table`, holding a Shapes.Holder (which holds a
+  -- Shapes.Table). The compiler type-checks this, then never finishes: its
+  -- memory grows without bound (JS and native alike). Rename this type and
+  -- it compiles in a second.
+  needs IO.Console
+
+  type Table = { at : Shapes.Holder, key : Option(Int) }
+
+  fn make() : Table do
+    { at: Shapes.holder(), key: None }
+  end
+
+  fn main(_c : Cap(IO.Console)) : () do
+    let t = make()
+    println(float_to_string(Shapes.width(t.at)))
+  end
+end

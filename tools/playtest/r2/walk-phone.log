@@ -1,0 +1,161 @@
+[0] layer=LayerBase card=- live=TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk)
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-01-_.png
+[1] layer=LayerArrival card=- live=TapArrivalNext
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 WELCOME TO SKEE SKEE SKEE SAL Well, look who walked in! I'm Sal. I
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-02-_.png
+[6] layer=LayerHost card=- live=TapCloseHost
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 THE HOST PLACEHOLDER The host's table, where you haggle for free n
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-03-_.png
+[7] layer=LayerCoachBlock card=YOUR FIRST LOADOUT live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets YOUR FIRST LOADOUT SKIP This is a practice game. It doesn't count, you can't get it wrong, and nobody's in a hurry.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-04-YOUR_FIRST_LOADOUT.png
+[8] layer=LayerBase card=PULL THE LEVER live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets PULL THE LEVER SKIP Every turn starts at the slot machine. Drag the lever down, or tap SPIN.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-05-PULL_THE_LEVER.png
+[9] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo WILD WILD 2X WILD ... FRAME 1/3 · 9 BALLS
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-06-_.png
+[26] layer=LayerBase card=MULT ROLL THE BALL live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 9 BALLS 3 balls = 1 line · match symbols for MULT ROLL THE BALL SKIP Put your thumb on the dotted line, flick straight up and let go. A faster flick rolls farther. Don't worry about aiming y
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-07-MULT_ROLL_THE_BALL.png
+  flick {} launch=null -> ANTE 1/8 WARM-UP 0 / 60 | 
+[27] layer=LayerBase card=EVERY HOLE HAS A PICTURE live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 8 BALLS match the · glowing rings pair it +48 EVERY HOLE HAS A PICTURE SKIP Your ball took the picture of the hole it landed in. Look for it in the row of three. Roll another.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-08-EVERY_HOLE_HAS_A_PIC.png
+  flick {"gap":18} launch=null -> ANTE 1/8 WARM-UP 0 / 60 | 
+[28] layer=LayerBase card=THREE BALLS, ONE LINE live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 7 BALLS no match yet · glowing rings pair +12 THREE BALLS, ONE LINE SKIP Your three balls make a slot line, just like three reels. Two matching pictures pay well. Three pay big. Roll your la
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-09-THREE_BALLS_ONE_LINE.png
+  flick {"gap":10,"steps":6} launch=null -> ANTE 1/8 WARM-UP 60 / 60 | 
+[29] layer=LayerCoachBlock card=HOW SCORING WORKS live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 60 HOW SCORING WORKS SKIP Holes pay chips, and the far ones pay most. Matches raise your multiplier. Your score for the t
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-10-HOW_SCORING_WORKS.png
+[30] layer=LayerBase card=NEXT TURN live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 60 NEXT TURN SKIP Pull again. This time, watch the middle row of the machine.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-11-NEXT_TURN.png
+[31] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 TARGETS · hit one = combo BONUS ... FRAME 2/3 · 6 BALLS
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-12-_.png
+[55] layer=LayerBase card=MULT WIN 25 AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 6 BALLS 3 balls = 1 line · match symbols for MULT WIN 25 AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try to h
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-13-MULT_WIN_25_AIM_FOR_.png
+  flick {"xoff":30,"dx":-20} launch=null -> ANTE 1/8 WARM-UP 60 / 60 | 
+[56] layer=LayerBase card=TOP SLOT! AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 COMBO x1 · hit one to keep it FRAME 2/3 · 5 BALLS match the · glowing rings pair it +36 TOP SLOT! AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try t
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-14-TOP_SLOT_AIM_FOR_YOU.png
+  flick {"xoff":-30,"dx":25,"gap":14} launch=null -> ANTE 1/8 WARM-UP 60 / 60 | 
+[57] layer=LayerBase card=AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 60 / 60 4 COMBO x2 · hit one to keep it FRAME 2/3 · 4 BALLS no match yet · glowing rings pair +48 HOT SPOT! x2 COMBO x2 AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictures
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-15-AIM_FOR_YOUR_PICTURE.png
+  flick {"gap":22,"steps":10} launch=null -> ANTE 1/8 WARM-UP 550 / 60 | 
+[58] layer=LayerBase card=LAST TURN live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 550 / 60 7 TARGETS · hit one = combo WILD SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets 490 LAST TURN SKIP One more turn in this round. Pull the lever.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-16-LAST_TURN.png
+[59] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 550 / 60 7 TARGETS · hit one = combo BONUS WILD BONUS ... FRAME 3/3 · 3 BALLS 490
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-17-_.png
+[76] layer=LayerBase card=MULT BEAT THE TARGET live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 550 / 60 7 TARGETS · hit one = combo FRAME 3/3 · 3 BALLS 3 balls = 1 line · match symbols for MULT BEAT THE TARGET SKIP The goal of every round is the target score at the top of the screen. Reach it before your balls run out. Roll your l
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-18-MULT_BEAT_THE_TARGET.png
+  flick {"gap":12} launch=null -> ANTE 1/8 WARM-UP 550 / 60 | 
+[77] layer=LayerBase card=BEAT THE TARGET live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 550 / 60 7 TARGETS · hit one = combo FRAME 3/3 · 2 BALLS match the · glowing rings pair it +48 BEAT THE TARGET SKIP The goal of every round is the target score at the top of the screen. Reach it before your balls run out. Roll your last 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-19-BEAT_THE_TARGET.png
+  flick {} launch=null -> ANTE 1/8 WARM-UP 550 / 60 | 
+  flick {"gap":18} launch=null -> ANTE 1/8 WARM-UP 1118 / 60 | 
+[79] layer=LayerBase card=TIX REROLL 1 NEXT ROUND THE PRIZE COUNTER live=TapBuyOffer(0),TapBuyOffer(1),TapSelectOffer(Some(2)),TapBuyOffer(3),TapReroll,TapLeaveCounter,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 1118 / 60 16 COMBO x1 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 16 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to a hole's reel 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-20-TIX_REROLL_1_NEXT_RO.png
+COUNTER text: BAR 7 ANTE 1/8 WARM-UP 1118 / 60 16 COMBO x1 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 16 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to a hole's reel 3 TIX W Wild Ball This ball's symbol is a wild clover 2 TIX REROLL 1 NEXT ROUND THE PRIZE COUNTER SKIP Clearing a round pays tickets. Spend them here on things that help, or save them. Tap NEXT ROUND when you're ready.
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-21-counter.png
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 WARM-UP 1118 / 60 10 COMBO x1 · hit one to keep it ES FRAME 3/3 · 0 BALLS PRIZE COUNTER 10 SOLD GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to a hole's ree
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-22-bought.png
+[80] layer=LayerBase card=- live=TapCharm(0)
+    BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 10 TARGETS · hit one = combo ES FRAME 1/3 · 9 BALLS FEATURE GAME REACH 520
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-23-_.png
+[92] layer=LayerCoachBlock card=THAT'S ALL YOU NEED live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 10 TARGETS · hit one = combo ES WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets THAT'S ALL YOU NEED SKIP Now for a real game. There's more to discover, and I'll show you each new thing as it 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-24-THAT_S_ALL_YOU_NEED.png
+[93] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-25-_.png
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.935,"skid":0,"speed":4.388,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 0 / 400 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.096,"fold":0,"from":0,"power":0.431,"skid":0,"speed":3.529,"spin":0,"start":0.181} -> ANTE 1/8 WARM-UP 0 / 400 | 
+[115] layer=LayerCoachBlock card=TOP SLOT! A COMBO! live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it FRAME 1/3 · 7 BALLS no match yet · glowing rings pair +36 TOP SLOT! A COMBO! SKIP That ball matched one of your targets. Keep matching, ball after ball, and each one adds more to your score. A miss
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-26-TOP_SLOT_A_COMBO_.png
+[116] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 7 BALLS no match yet · glowing rings pair TOP SLOT!
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-27-_.png
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.102,"fold":0,"from":0,"power":0.386,"skid":0,"speed":3.454,"spin":0,"start":-0.181} -> ANTE 1/8 WARM-UP 300 / 400 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.157,"skid":0,"speed":3.063,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 300 / 400 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.499,"skid":0,"speed":3.646,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 300 / 400 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.444,"skid":0,"speed":3.552,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 480 / 400 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.288,"skid":0,"speed":3.286,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 480 / 400 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.896,"skid":0,"speed":4.323,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 480 / 400 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.074,"fold":0,"from":0,"power":0.419,"skid":0,"speed":3.509,"spin":0,"start":0.181} -> ANTE 1/8 WARM-UP 804 / 400 | 
+[163] layer=LayerCoachBlock card=TIX REROLL 1 NEXT ROUND THE HOT SPOT live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 804 / 400 9 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 GR Gutter Rat Gutter balls are worth 25 chips 3 TIX CO Corner Office x1.5 mult for each 100 pocket 6 TIX Clover stamp Add a clover to a hole's reel 4 TIX G Golden 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-28-TIX_REROLL_1_NEXT_RO.png
+[164] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide,TapBuyOffer(0),TapBuyOffer(1),TapSelectOffer(Some(2)),TapBuyOffer(3),TapReroll,TapLeaveCounter
+    BAR 7 ANTE 1/8 WARM-UP 804 / 400 9 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 GR Gutter Rat Gutter balls are worth 25 chips 3 TIX CO Corner Office x1.5 mult for each 100 pocket 6 TIX Clover stamp Add a clover to a hole's reel 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-29-_.png
+COUNTER text: BAR 7 ANTE 1/8 WARM-UP 804 / 400 9 TARGETS · hit one = combo NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 GR Gutter Rat Gutter balls are worth 25 chips 3 TIX CO Corner Office x1.5 mult for each 100 pocket 6 TIX Clover stamp Add a clover to a hole's reel 4 TIX G Golden Ball This ball's chips x3 2 TIX REROLL 1 NEXT ROUND
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-30-counter.png
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 WARM-UP 804 / 400 6 TARGETS · hit one = combo GR FRAME 3/3 · 0 BALLS PRIZE COUNTER 6 SOLD CO Corner Office x1.5 mult for each 100 pocket 6 TIX Clover stamp Add a clover to a hole's reel
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-31-bought.png
+  card TIX REROLL 1 NEXT ROUND YOUR FIRST CHARM
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.093,"fold":0,"from":0,"power":0.406,"skid":0,"speed":3.488,"spin":0,"start":-0.181} -> ANTE 1/8 FEATURE GAME 0 / 520 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.152,"skid":0,"speed":3.055,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 0 / 520 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.494,"skid":0,"speed":3.637,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 199 / 520 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.443,"skid":0,"speed":3.55,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 199 / 520 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.298,"skid":0,"speed":3.303,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 199 / 520 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":1,"skid":0,"speed":4.5,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 577 / 520 | 
+[229] layer=LayerCoachBlock card=FEVER! live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 FEATURE GAME 577 / 520 6 TARGETS · hit one = combo GR WILD BONUS SPIN FEVER FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets FEVER! SKIP Rattles and gutter balls filled the meter, so your next turn scores double. Even a bad roll 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-32-FEVER_.png
+[230] layer=LayerBase card=- live=TapCharm(0),TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 FEATURE GAME 577 / 520 6 TARGETS · hit one = combo GR NEW GAME GUIDE WILD BONUS SPIN FEVER FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-33-_.png
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.096,"fold":0,"from":0,"power":0.444,"skid":0,"speed":3.552,"spin":0,"start":0.181} -> ANTE 1/8 FEATURE GAME 577 / 520 | 
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.102,"fold":0,"from":0,"power":0.354,"skid":0,"speed":3.399,"spin":0,"start":-0.181} -> ANTE 1/8 FEATURE GAME 577 / 520 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.149,"skid":0,"speed":3.049,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 1303 / 520 | 
+COUNTER text: BAR 7 ANTE 1/8 FEATURE GAME 1303 / 520 14 TARGETS · hit one = combo GR NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 14 CO Corner Office x1.5 mult for each 100 pocket 6 TIX TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX × Purge Take the showing symbol off a hole's reel 3 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-34-counter.png
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 FEATURE GAME 1303 / 520 8 TARGETS · hit one = combo GR CO NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 8 SOLD TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX × Purge Take the s
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-35-bought.png
+[267] layer=LayerCoachBlock card=A BOSS MACHINE live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 TALL LIPS 0 / 640 8 TARGETS · hit one = combo Ring lips are taller and wider. Expect rattles. GR CO BONUS 2X WILD WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets A BOSS MACHINE SKIP The third round of every ante 
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-36-A_BOSS_MACHINE.png
+[268] layer=LayerBase card=- live=TapCharm(0),TapCharm(1),TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 TALL LIPS 0 / 640 8 TARGETS · hit one = combo Ring lips are taller and wider. Expect rattles. GR CO NEW GAME GUIDE BONUS 2X WILD WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-37-_.png
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.474,"skid":0,"speed":3.604,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 0 / 640 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.411,"skid":0,"speed":3.495,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 0 / 640 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.285,"skid":0,"speed":3.281,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 486 / 640 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":1,"skid":0,"speed":4.5,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 486 / 640 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.096,"fold":0,"from":0,"power":0.425,"skid":0,"speed":3.52,"spin":0,"start":0.181} -> ANTE 1/8 TALL LIPS 486 / 640 | 
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.12,"fold":0,"from":0,"power":0.38,"skid":0,"speed":3.443,"spin":0,"start":-0.181} -> ANTE 1/8 TALL LIPS 1166 / 640 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.143,"skid":0,"speed":3.04,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 1166 / 640 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.461,"skid":0,"speed":3.581,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 1166 / 640 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.446,"skid":0,"speed":3.556,"spin":0,"start":0} -> ANTE 1/8 TALL LIPS 1673 / 640 | 
+COUNTER text: BAR 7 ANTE 1/8 TALL LIPS 1673 / 640 17 TARGETS · hit one = combo Ring lips are taller and wider. Expect rattles. GR CO NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 17 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX EB Extra Ball +1 frame (3 balls) every round 8 TIX Cherry stamp Add a cherry to a hole's reel 3 TIX M Magnet Ball Holes and pockets grab this ball from further away 2 TIX REROLL 1 NEXT ROUND
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-38-counter.png
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 TALL LIPS 1673 / 640 11 TARGETS · hit one = combo Ring lips are taller and wider. Expect rattles. GR CO ES NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 11 SOLD EB Extra Ball +1 fram
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-39-bought.png
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.283,"skid":0,"speed":3.277,"spin":0,"start":0} -> ANTE 2/8 WARM-UP 0 / 820 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.975,"skid":0,"speed":4.457,"spin":0,"start":0} -> ANTE 2/8 WARM-UP 0 / 820 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.081,"fold":0,"from":0,"power":0.424,"skid":0,"speed":3.518,"spin":0,"start":0.181} -> ANTE 2/8 WARM-UP 286 / 820 | 
+[399] layer=LayerCoachBlock card=BIGGER BETS live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 2/8 WARM-UP 286 / 820 11 TARGETS · hit one = combo GR CO ES GRAND 2650 MAJOR 680 MINOR 190 MINI 70 MAX BET FOR JACKPOTS WILD BONUS BONUS WILD 1 LINE FREE 3 LINES 1 TIX 5 LINES 2 TIX SPIN FEVER FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-40-BIGGER_BETS.png
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/walk-phone-41-end.png
+storage {
+ "skee.run": "{\"actions\":[{\"pull\":{\"_0\":1}},{\"throwBall\":{\"_0\":{\"aim\":\"0000000000000000\",\"fold\":\"0000000000000000\",\"from\":\"0000000000000000\",\"power\":\"3fede7d4c4756b62\",\"skid\":\"0000000000000000\",\"speed\":\"40118dc26cc",
+ "skee.wallet": "{\"balance\":0,\"comps\":[],\"gamesSinceHost\":0,\"hostVisits\":0,\"lifetime\":0,\"owned\":[],\"progressive\":{\"meters\":[\"mini\",70,\"minor\",190,\"major\",680,\"grand\",2650]},\"room\":\"boardwalk\",\"rooms\":[\"boardwalk\"]}",
+ "skee.arrivalDone": "true",
+ "skee.tipsSeen": "[\"combo\",\"hotSpot\",\"charm\",\"boss\",\"bets\",\"fever\"]",
+ "skee.walkthroughDone": "true"
+}
+errors []

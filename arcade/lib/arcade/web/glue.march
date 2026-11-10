@@ -3,7 +3,8 @@ mod Arcade.Web.Glue do
   -- The browser calls a game's shell needs that Js.Dom and Js.Canvas lack,
   -- backed by arcade_glue.mjs (march copies it beside the build): the clock,
   -- the frame, the window, the launch seed, visibility, vibration and the
-  -- data-* marks a playtest reads. Each is one platform call; none decides
+  -- data-* marks a playtest reads, a DOM pane rewrite that keeps its text
+  -- fields, and one JSON POST. Each is one platform call; none decides
   -- anything about the game. Pointers and the tap queue are Arcade.Web.Input,
   -- the shell's state cell is Arcade.Web.Cell.
   needs IO.Foreign
@@ -18,6 +19,8 @@ mod Arcade.Web.Glue do
     fn glue_on_visibility(cb : Bool -> ()) : Unit
     fn glue_vibrate(ms : Int) : Unit
     fn glue_mark(name : String, value : String) : Unit
+    fn glue_set_html_keeping(pane : Js.Dom.Node, html : String) : Unit
+    fn glue_post_json(url : String, body : String, timeout_ms : Int, reply : (Int, String) -> (), fail : (Bool, String) -> ()) : Unit
   end
 
   -- ---- Public names: extern declarations are private to this module ----
@@ -60,6 +63,21 @@ mod Arcade.Web.Glue do
   doc """Set a data-* attribute on <html>, for the playtest to read. Writes only on change."""
   fn mark(name : String, value : String) : () do
     glue_mark(name, value)
+  end
+
+  doc """Replace a pane's HTML, keeping what its text fields (those with an id) hold,
+  which one has focus, and its caret."""
+  fn set_html_keeping(pane : Js.Dom.Node, html : String) : () do
+    glue_set_html_keeping(pane, html)
+  end
+
+  doc """
+  POST a JSON `body` to `url`, aborted after `timeout_ms`. `reply` gets the HTTP
+  status and body of any answer; `fail` gets (timed out, the browser's message,
+  "" when it gave none) when there was no HTTP answer.
+  """
+  fn post_json(url : String, body : String, timeout_ms : Int, reply : (Int, String) -> (), fail : (Bool, String) -> ()) : () do
+    glue_post_json(url, body, timeout_ms, reply, fail)
   end
 
 end

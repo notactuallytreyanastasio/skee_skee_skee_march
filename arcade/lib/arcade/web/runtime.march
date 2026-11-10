@@ -8,7 +8,8 @@ mod Arcade.Web.Runtime do
   --             boot the model and perform its effects, then listen
   --   events    pointer samples, visibility and resizes become the game's msgs
   --   per frame follow the view's size, the tick msg, paint scene_ops, the
-  --             overlay's msgs (a DOM HUD, say), then the data-* marks
+  --             overlay's msgs (a DOM HUD, say), then settle and the data-*
+  --             marks on the model those msgs left
   --
   -- Every rule is the game's: the runtime never looks inside a model, msg or fx.
   -- Effects go to the game's `perform` in the order its update returned them.
@@ -23,32 +24,41 @@ mod Arcade.Web.Runtime do
   --   hook_num        the constants Arcade.Web.Paint draws with
   --   hook_boot       (width, height, seed) to the first model and its effects
   --   hook_update     one msg
-  --   hook_perform    run a batch of effects (storage, haptics, audio, ...)
+  --   hook_perform    run a batch of effects (storage, haptics, audio, ...);
+  --                   its first argument dispatches a msg, for an effect
+  --                   whose answer comes later (a network call)
   --   hook_tick       the frame msg, at rAF's time
   --   hook_resize     the view's new CSS size
   --   hook_down/move/up  one pointer's (t, x, y) samples (Arcade.Web.Input);
   --                   None sends nothing
   --   hook_cancel     the pointer was lost
+  --   hook_listen     once at launch, after the canvas's pointer: wire any
+  --                   other event source (a DOM overlay's drags or fields).
+  --                   Its arguments read the current model and dispatch a msg
   --   hook_visible    the page was shown (true) or hidden
   --   hook_scene      the frame's DrawOps
   --   hook_overlay    after painting: anything drawn outside the canvas,
   --                   returning the msgs it produced (dispatched in order)
-  --   hook_marks      after the overlay: data-* attributes for <html>, set
-  --                   in order (Arcade.Web.Glue.mark)
+  --   hook_settle     after the overlay's msgs, with the model they left:
+  --                   write model state back into the DOM (a text field)
+  --   hook_marks      after settle, on the same model: data-* attributes
+  --                   for <html>, set in order (Arcade.Web.Glue.mark)
   type WebHooks(model, msg, fx) = {
     hook_num : Numerics,
     hook_boot : Float -> Float -> U64 -> (model, List(fx)),
     hook_update : model -> msg -> (model, List(fx)),
-    hook_perform : List(fx) -> (),
+    hook_perform : (msg -> ()) -> List(fx) -> (),
     hook_tick : Float -> msg,
     hook_resize : Float -> Float -> msg,
     hook_down : List((Float, Float, Float)) -> Option(msg),
     hook_move : List((Float, Float, Float)) -> Option(msg),
     hook_up : List((Float, Float, Float)) -> Option(msg),
     hook_cancel : Option(msg),
+    hook_listen : (() -> model) -> (msg -> ()) -> (),
     hook_visible : Bool -> msg,
     hook_scene : model -> List(DrawOp),
     hook_overlay : model -> List(msg),
+    hook_settle : model -> (),
     hook_marks : model -> List((String, String))
   }
 
@@ -72,12 +82,18 @@ mod Arcade.Web.Runtime do
     Arcade.Web.Cell.put(s)
   end
 
+  doc """The model as it is now."""
+  fn current(h : WebHooks(model, msg, fx)) : model do
+    let s = run_get(h)
+    s.run_model
+  end
+
   doc """One msg: update, keep the new model, perform its effects."""
   fn dispatch(h : WebHooks(model, msg, fx), x : msg) : () do
     let s = run_get(h)
     let (m, effects) = h.hook_update(s.run_model, x)
     run_put(h, { s with run_model: m })
-    h.hook_perform(effects)
+    h.hook_perform(fn y -> dispatch(h, y), effects)
   end
 
   fn dispatch_some(h : WebHooks(model, msg, fx), x : Option(msg)) : () do
@@ -118,7 +134,9 @@ mod Arcade.Web.Runtime do
     let s = run_get(h)
     Arcade.Web.Paint.frame(s.run_ctx, h.hook_num, s.run_dpr, s.run_width, s.run_height, h.hook_scene(s.run_model))
     List.each(h.hook_overlay(s.run_model), fn y -> dispatch(h, y))
-    List.each(h.hook_marks(s.run_model), mark)
+    let after = current(h)
+    h.hook_settle(after)
+    List.each(h.hook_marks(after), mark)
     Arcade.Web.Glue.request_frame(fn next -> frame(h, next))
   end
 
@@ -165,8 +183,9 @@ mod Arcade.Web.Runtime do
         run_dpr: dpr
       }
     run_put(h, s)
-    h.hook_perform(effects)
+    h.hook_perform(fn y -> dispatch(h, y), effects)
     Arcade.Web.Input.on_pointer(canvas, fn raw -> dispatch_some(h, h.hook_down(raw)), fn raw -> dispatch_some(h, h.hook_move(raw)), fn raw -> dispatch_some(h, h.hook_up(raw)), fn () -> dispatch_some(h, h.hook_cancel))
+    h.hook_listen(fn () -> current(h), fn y -> dispatch(h, y))
     Arcade.Web.Glue.on_visibility(fn shown -> dispatch(h, h.hook_visible(shown)))
     Arcade.Web.Glue.request_frame(fn t -> frame(h, t))
   end

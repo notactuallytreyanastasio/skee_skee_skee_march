@@ -1,0 +1,118 @@
+[0] layer=LayerBase card=- live=TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk)
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000
+[1] layer=LayerArrival card=- live=TapArrivalNext
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 WELCOME TO SKEE SKEE SKEE SAL Well, look who walked 
+[6] layer=LayerHost card=- live=TapCloseHost
+    BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500 HIGH ROLLER 5000 PENTHOUSE 12000 THE HOST PLACEHOLDER The host's table, where you hag
+[7] layer=LayerCoachBlock card=YOUR FIRST LOADOUT live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets YOUR FIRST LOADOUT SKIP This is a practice game. It doesn't count, you can't get it wrong, and nobody
+[8] layer=LayerBase card=PULL THE LEVER live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets PULL THE LEVER SKIP Every turn starts at the slot machine. Drag the lever down, or tap SPIN.
+[9] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo WILD WILD 2X WILD ... FRAME 1/3 · 9 BALLS
+[27] layer=LayerBase card=MULT ROLL THE BALL live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 9 BALLS 3 balls = 1 line · match symbols for MULT ROLL THE BALL SKIP Put your thumb on the dotted line, flick straight up and let go. A faster flick rolls farther. Don't worry 
+  flick {} launch=null -> ANTE 1/8 WARM-UP 0 / 60 | 
+[28] layer=LayerBase card=TOP SLOT! EVERY HOLE HAS A PICTURE live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 COMBO x1 · hit one to keep it FRAME 1/3 · 8 BALLS match the · glowing rings pair it +36 TOP SLOT! EVERY HOLE HAS A PICTURE SKIP Your ball took the picture of the hole it landed in. Look for it in the row of three. 
+  flick {"gap":18} launch=null -> ANTE 1/8 WARM-UP 0 / 60 | 
+[29] layer=LayerBase card=THREE BALLS, ONE LINE live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 TARGETS · hit one = combo FRAME 1/3 · 7 BALLS no match yet · glowing rings pair +12 THREE BALLS, ONE LINE SKIP Your three balls make a slot line, just like three reels. Two matching pictures pay well. Three pay big
+  flick {"gap":10,"steps":6} launch=null -> ANTE 1/8 WARM-UP 96 / 60 | 
+[30] layer=LayerCoachBlock card=HOW SCORING WORKS live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 96 HOW SCORING WORKS SKIP Holes pay chips, and the far ones pay most. Matches raise your multiplier. Your s
+[31] layer=LayerBase card=NEXT TURN live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 TARGETS · hit one = combo WILD WILD SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets 96 NEXT TURN SKIP Pull again. This time, watch the middle row of the machine.
+[32] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 TARGETS · hit one = combo BONUS ... FRAME 2/3 · 6 BALLS
+[56] layer=LayerBase card=MULT WIN 25 AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 TARGETS · hit one = combo FRAME 2/3 · 6 BALLS 3 balls = 1 line · match symbols for MULT WIN 25 AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictures 
+  flick {"xoff":30,"dx":-20} launch=null -> ANTE 1/8 WARM-UP 96 / 60 | 
+[57] layer=LayerBase card=TOP SLOT! AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 COMBO x1 · hit one to keep it FRAME 2/3 · 5 BALLS match the · glowing rings pair it +36 TOP SLOT! AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictur
+  flick {"xoff":-30,"dx":25,"gap":14} launch=null -> ANTE 1/8 WARM-UP 96 / 60 | 
+[58] layer=LayerBase card=AIM FOR YOUR PICTURES live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 96 / 60 4 COMBO x2 · hit one to keep it FRAME 2/3 · 4 BALLS PAIR! one more = ×5 +36 COMBO x2 AIM FOR YOUR PICTURES SKIP The middle row is now at the top of the screen: your targets. Holes showing those pictures glow. Try to
+  flick {"gap":22,"steps":10} launch=null -> ANTE 1/8 WARM-UP 532 / 60 | 
+[59] layer=LayerBase card=PAIR OF BELLS 436 LAST TURN live=TapPull,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 532 / 60 4 TARGETS · hit one = combo WILD SPIN FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets PAIR OF BELLS 436 LAST TURN SKIP One more turn in this round. Pull the lever.
+[60] layer=LayerBase card=- live=
+    BAR 7 ANTE 1/8 WARM-UP 532 / 60 4 TARGETS · hit one = combo BONUS WILD BONUS ... FRAME 3/3 · 3 BALLS PAIR OF BELLS 436
+[78] layer=LayerBase card=MULT BEAT THE TARGET live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 532 / 60 4 TARGETS · hit one = combo FRAME 3/3 · 3 BALLS 3 balls = 1 line · match symbols for MULT BEAT THE TARGET SKIP The goal of every round is the target score at the top of the screen. Reach it before your balls run ou
+  flick {"gap":12} launch=null -> ANTE 1/8 WARM-UP 532 / 60 | 
+[79] layer=LayerBase card=BEAT THE TARGET live=TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 532 / 60 4 TARGETS · hit one = combo FRAME 3/3 · 2 BALLS match the · glowing rings pair it +48 BEAT THE TARGET SKIP The goal of every round is the target score at the top of the screen. Reach it before your balls run out. R
+  flick {} launch=null -> ANTE 1/8 WARM-UP 532 / 60 | 
+  flick {"gap":18} launch=null -> ANTE 1/8 WARM-UP 1100 / 60 | 
+[81] layer=LayerBase card=TIX REROLL 1 NEXT ROUND THE PRIZE COUNTER live=TapBuyOffer(0),TapBuyOffer(1),TapSelectOffer(Some(2)),TapBuyOffer(3),TapReroll,TapLeaveCounter,TapSkipWalkthrough
+    BAR 7 ANTE 1/8 WARM-UP 1100 / 60 12 COMBO x1 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 12 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to 
+COUNTER text: BAR 7 ANTE 1/8 WARM-UP 1100 / 60 12 COMBO x1 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 12 ES Even Steven x2 mult if all three balls hit the same hole 6 TIX GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add 
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 WARM-UP 1100 / 60 6 COMBO x1 · hit one to keep it ES FRAME 3/3 · 0 BALLS PRIZE COUNTER 6 SOLD GR Gutter Rat Gutter balls are worth 25 chips 3 TIX Bell stamp Add a bell to a hole's reel 
+[82] layer=LayerBase card=- live=TapCharm(0)
+    BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 6 TARGETS · hit one = combo ES FRAME 1/3 · 9 BALLS FEATURE GAME REACH 520
+[94] layer=LayerCoachBlock card=THAT'S ALL YOU NEED live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 FEATURE GAME 0 / 520 6 TARGETS · hit one = combo ES WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets THAT'S ALL YOU NEED SKIP Now for a real game. There's more to discover, and I'll show you each new
+[95] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.945,"skid":0,"speed":4.406,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 0 / 400 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.081,"fold":0,"from":0,"power":0.444,"skid":0,"speed":3.552,"spin":0,"start":0.19} -> ANTE 1/8 WARM-UP 0 / 400 | 
+[117] layer=LayerCoachBlock card=TOP SLOT! A COMBO! live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it FRAME 1/3 · 7 BALLS no match yet · glowing rings pair +36 TOP SLOT! A COMBO! SKIP That ball matched one of your targets. Keep matching, ball after ball, and each one adds more to your
+[118] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide
+    BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 7 BALLS no match yet · glowing rings pair +36 TOP SLOT!
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.12,"fold":0,"from":0,"power":0.383,"skid":0,"speed":3.449,"spin":0,"start":-0.19} -> ANTE 1/8 WARM-UP 252 / 400 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.151,"skid":0,"speed":3.054,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 252 / 400 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.459,"skid":0,"speed":3.578,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 252 / 400 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.423,"skid":0,"speed":3.516,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 504 / 400 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.295,"skid":0,"speed":3.298,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 504 / 400 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.933,"skid":0,"speed":4.386,"spin":0,"start":0} -> ANTE 1/8 WARM-UP 504 / 400 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.096,"fold":0,"from":0,"power":0.453,"skid":0,"speed":3.568,"spin":0,"start":0.19} -> ANTE 1/8 WARM-UP 927 / 400 | 
+[165] layer=LayerCoachBlock card=TIX REROLL 1 NEXT ROUND THE HOT SPOT live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 WARM-UP 927 / 400 9 COMBO x1 · hit one to keep it FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX Seven stamp
+[166] layer=LayerBase card=- live=TapAskNewGame,TapOpenGuide,TapBuyOffer(0),TapBuyOffer(1),TapSelectOffer(Some(2)),TapBuyOffer(3),TapReroll,TapLeaveCounter
+    BAR 7 ANTE 1/8 WARM-UP 927 / 400 9 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 
+COUNTER text: BAR 7 ANTE 1/8 WARM-UP 927 / 400 9 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 TM Ticket Muncher +1 ticket for each 50 or 100 5 TIX HW Hinge Whisperer +3 mult for each ball thrown with the hinge half
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 WARM-UP 927 / 400 4 COMBO x1 · hit one to keep it TM FRAME 3/3 · 0 BALLS PRIZE COUNTER 4 SOLD HW Hinge Whisperer +3 mult for each ball thrown with the hinge half folded 5 TIX Seven stam
+  card TIX REROLL 1 NEXT ROUND YOUR FIRST CHARM
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.102,"fold":0,"from":0,"power":0.387,"skid":0,"speed":3.456,"spin":0,"start":-0.19} -> ANTE 1/8 FEATURE GAME 0 / 520 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.152,"skid":0,"speed":3.055,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 0 / 520 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.464,"skid":0,"speed":3.587,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 120 / 520 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.432,"skid":0,"speed":3.532,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 120 / 520 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.293,"skid":0,"speed":3.296,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 120 / 520 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.942,"skid":0,"speed":4.4,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 288 / 520 | 
+[226] layer=LayerCoachBlock card=FEVER! live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 FEATURE GAME 288 / 520 4 TARGETS · hit one = combo TM WILD 2X WILD SPIN FEVER FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets FEVER! SKIP Rattles and gutter balls filled the meter, so your next turn scores double. 
+[227] layer=LayerBase card=- live=TapCharm(0),TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 FEATURE GAME 288 / 520 4 TARGETS · hit one = combo TM NEW GAME GUIDE WILD 2X WILD SPIN FEVER FRAME 3/3 · 3 BALLS PULL · the middle row = this frame's targets
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.096,"fold":0,"from":0,"power":0.439,"skid":0,"speed":3.544,"spin":0,"start":0.19} -> ANTE 1/8 FEATURE GAME 288 / 520 | 
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.12,"fold":0,"from":0,"power":0.425,"skid":0,"speed":3.52,"spin":0,"start":-0.19} -> ANTE 1/8 FEATURE GAME 288 / 520 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.15,"skid":0,"speed":3.051,"spin":0,"start":0} -> ANTE 1/8 FEATURE GAME 792 / 520 | 
+COUNTER text: BAR 7 ANTE 1/8 FEATURE GAME 792 / 520 9 TARGETS · hit one = combo TM NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 9 HH Heavy Hand +40 chips for each 50 4 TIX LP Lucky Penny +2 mult for each cherry in the frame 3 TIX +10 Gild +10 chi
+  bought TapBuyOffer(0) -> BAR 7 ANTE 1/8 FEATURE GAME 792 / 520 5 TARGETS · hit one = combo TM HH NEW GAME GUIDE FRAME 3/3 · 0 BALLS PRIZE COUNTER 5 SOLD LP Lucky Penny +2 mult for each cherry in the frame 3 TIX +10 Gild +10 c
+[264] layer=LayerCoachBlock card=A BOSS MACHINE live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 THE HOUSE 0 / 640 5 TARGETS · hit one = combo Pairs pay nothing. Only three of a kind counts. TM HH WILD WILD SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets A BOSS MACHINE SKIP The third round of every ante b
+[265] layer=LayerBase card=- live=TapCharm(0),TapCharm(1),TapAskNewGame,TapOpenGuide,TapPull
+    BAR 7 ANTE 1/8 THE HOUSE 0 / 640 5 TARGETS · hit one = combo Pairs pay nothing. Only three of a kind counts. TM HH NEW GAME GUIDE WILD WILD SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.467,"skid":0,"speed":3.591,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 0 / 640 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.415,"skid":0,"speed":3.502,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 0 / 640 | 
+  flick {"gap":18} launch={"aim":0,"fold":0,"from":0,"power":0.302,"skid":0,"speed":3.311,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 435 / 640 | 
+  flick {"gap":10,"steps":6} launch={"aim":0,"fold":0,"from":0,"power":0.909,"skid":0,"speed":4.344,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 435 / 640 | 
+  flick {"xoff":30,"dx":-20} launch={"aim":-0.081,"fold":0,"from":0,"power":0.427,"skid":0,"speed":3.524,"spin":0,"start":0.19} -> ANTE 1/8 THE HOUSE 435 / 640 | 
+  flick {"xoff":-30,"dx":25,"gap":14} launch={"aim":0.102,"fold":0,"from":0,"power":0.412,"skid":0,"speed":3.498,"spin":0,"start":-0.19} -> ANTE 1/8 THE HOUSE 519 / 640 | 
+  flick {"gap":22,"steps":10} launch={"aim":0,"fold":0,"from":0,"power":0.152,"skid":0,"speed":3.055,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 519 / 640 | 
+  flick {"gap":12} launch={"aim":0,"fold":0,"from":0,"power":0.467,"skid":0,"speed":3.591,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 519 / 640 | 
+  flick {} launch={"aim":0,"fold":0,"from":0,"power":0.431,"skid":0,"speed":3.53,"spin":0,"start":0} -> ANTE 1/8 THE HOUSE 611 / 640 | 
+[346] layer=LayerCoachBlock card=WINNINGS NEW RUN PRIZES 156 NOT TO WORRY live=TapSkipWalkthrough,TapGotIt
+    BAR 7 ANTE 1/8 THE HOUSE 611 / 640 8 TARGETS · hit one = combo Pairs pay nothing. Only three of a kind counts. TM HH FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 504 JACKPOTS 0 · RATTLES 11 +156 WINNINGS NEW RUN PRIZES 156 NOT TO WORRY SKIP Ev
+[347] layer=LayerBase card=- live=TapCharm(0),TapCharm(1),TapNewRun,TapOpenShop
+    BAR 7 ANTE 1/8 THE HOUSE 611 / 640 8 TARGETS · hit one = combo Pairs pay nothing. Only three of a kind counts. TM HH FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 504 JACKPOTS 0 · RATTLES 11 +156 WINNINGS NEW RUN PRIZES 156
+GAME OVER
+storage {
+ "skee.run": "{\"actions\":[{\"pull\":{\"_0\":1}},{\"throwBall\":{\"_0\":{\"aim\":\"0000000000000000\",\"fold\":\"0000000000000000\",\"from\":\"0000000000000000\",\"power\":\"3fee3ac92500a31c\",\"skid\":\"0000000000000000\",\"speed\":\"40119f6f389",
+ "skee.wallet": "{\"balance\":156,\"comps\":[],\"gamesSinceHost\":1,\"hostVisits\":0,\"lifetime\":156,\"owned\":[],\"progressive\":{\"meters\":[\"mini\",68,\"minor\",186,\"major\",672,\"grand\",2635]},\"room\":\"boardwalk\",\"rooms\":[\"boardwalk\"]"
+ "skee.arrivalDone": "true",
+ "skee.tipsSeen": "[\"combo\",\"hotSpot\",\"charm\",\"boss\",\"fever\",\"gameOver\"]",
+ "skee.walkthroughDone": "true"
+}
+errors []

@@ -1,8 +1,15 @@
 // Headless Chrome playtest of the HUD (shell/hud.march over Skee.HudView).
-//   node tools/playtest/hud_playtest.mjs [url]   (default http://127.0.0.1:8137/)
-// Needs `npm install` in tools/playtest once, and a running `make serve`.
+//   node tools/playtest/hud_playtest.mjs [url] [mock]
+//   (defaults http://127.0.0.1:8137/ and http://127.0.0.1:8790)
+// Needs `npm install` in tools/playtest once, the mock relay
+// (node tools/playtest/mock_relay.mjs 8790) and serve.mjs pointed at it:
+//   SKEE_HOST_RELAY=http://127.0.0.1:8790/chat node tools/serve/serve.mjs dist 8137
+// No real relay or model is ever called.
 // For a 390x844 touch phone (taps) and a 1280x800 mouse desktop (clicks):
-// title, the prize shop, Sal, the host placeholder, the first coach card,
+// title, the prize shop, Sal, the first host (phone: AI chat on, the hello,
+// a typed line and its reply moving the offer, a forced 429 with RETRY,
+// Enter to send, DEAL, and the deal in the run; desktop: AI chat off, then
+// DEAL), the first coach card,
 // the machine, the Guide (contents and a page), a pull, a flick and the
 // settled frame, every step driven through the HUD's own buttons by their
 // data-intent. Checks: each screen's words, that idle frames rewrite no pane,
@@ -17,6 +24,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const shots = join(here, "shots");
 mkdirSync(shots, { recursive: true });
 const url = process.argv[2] || "http://127.0.0.1:8137/";
+const mock = process.argv[3] || "http://127.0.0.1:8790";
+const mockPost = (path, body) => fetch(mock + path, { method: "POST", body: JSON.stringify(body || {}) }).then((r) => r.json());
+const mockLog = () => fetch(mock + "/mock/log").then((r) => r.json());
+// Responses the playtest asks the mock to fail: not console noise.
+let forced = 0;
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -95,13 +107,132 @@ async function flick(page, w, h, crease, touch, steps = 8, gap = 14) {
   }
 }
 
+async function hostText(page) {
+  return page.evaluate(() => document.getElementById("hud-host").innerText.replace(/\s+/g, " "));
+}
+
+async function waitText(page, pred, what, ms = 8000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const t = await hostText(page);
+    if (pred(t)) return t;
+    await sleep(50);
+  }
+  const t = await hostText(page);
+  fail(`timed out waiting for ${what}: ${t.slice(0, 300)}`);
+  return t;
+}
+
+const draft = (page) => page.evaluate(() => document.getElementById("host-draft")?.value ?? null);
+// The offer card's numbers: nights, tickets a night, credit.
+const offer = (page) => page.evaluate(() => [...document.querySelectorAll("#hud-host .host-term > .cel:first-child")].map((e) => e.textContent));
+
+async function typeLine(page, text, touch) {
+  if (touch) await page.tap("#host-draft"); else await page.click("#host-draft");
+  await page.type("#host-draft", text, { delay: 8 });
+  await sleep(120);
+}
+
+// The phone: AI chat on, against the mock relay.
+let dealt = null;
+async function liveHost(page, name, touch) {
+  await press(page, "TapHostConsent(true)", touch);
+  let t = await waitText(page, (t) => t.includes("Welcome in! Mock host here"), "the model's hello");
+  check(!t.includes("Here's my offer"), "the stock hello gave way to the model's");
+  let log = await mockLog();
+  check(log.length === 1 && log[0].body.includes("The guest has just sat down."), `one greeting request reached the mock (${log.length})`);
+  const idle = await rewrites(page, 1000);
+  check(idle === 0, `an idle host table rewrites no pane (${idle} mutations in 1 s)`);
+  await shot(page, name, "4b", "host-hello");
+
+  const before = await offer(page);
+  await typeLine(page, "Could I get two nights?", touch);
+  check((await draft(page)) === "Could I get two nights?", "the field holds what was typed");
+  await press(page, "TapHostSend", touch);
+  check((await draft(page)) === "", "SAY empties the field");
+  t = await waitText(page, (t) => t.includes("All right, 2 nights"), "the host's reply");
+  const after = await offer(page);
+  check(t.includes("Could I get two nights?"), "the line is on the table");
+  check(JSON.stringify(before) !== JSON.stringify(after), `the reply moved the offer: ${before.join("/")} -> ${after.join("/")}`);
+  await shot(page, name, "4c", "host-reply");
+
+  await mockPost("/mock/next", { mode: "429" });
+  forced++;
+  await typeLine(page, "keep this", touch);
+  await press(page, "TapHostNudge(1)", touch);
+  t = await waitText(page, (t) => t.includes("COULDN'T ANSWER"), "the 429");
+  check(t.includes("HTTP 429") && t.includes("RETRY") && t.includes("LEAVE"), "the typed failure with RETRY and LEAVE");
+  check(!t.includes("All right, 3 nights"), "no host line was invented");
+  const failed = await marks(page);
+  check(failed.live.includes("TapHostRetry") && failed.live.includes("TapHostDeal") && !failed.live.includes("TapHostSend"), "RETRY and DEAL, no SAY");
+  check((await page.$eval("#hud-host [data-failure]", (e) => e.dataset.failure)) === "FailHttp(429)", "data-failure names it");
+  check((await draft(page)) === "keep this", "the typed text survived the table's rewrites");
+  await shot(page, name, "4d", "host-429");
+  await press(page, "TapHostRetry", touch);
+  t = await waitText(page, (t) => t.includes("All right, 3 nights"), "the retried reply");
+  check(!t.includes("COULDN'T ANSWER"), "the failure is gone");
+  log = await mockLog();
+  check(log.length === 4 && log[2].body === log[3].body, `RETRY sent the same request again (${log.length} requests)`);
+
+  await page.focus("#host-draft");
+  await page.$eval("#host-draft", (e) => e.select());
+  await page.keyboard.type("Thanks for that!", { delay: 8 });
+  await page.keyboard.press("Enter");
+  await waitText(page, (t) => t.includes("Thanks for that!"), "Enter sends the line");
+  await waitText(page, (t) => (t.match(/All right, 3 nights/g) || []).length >= 2, "the reply to Enter");
+  check((await draft(page)) === "", "Enter empties the field");
+
+  dealt = await offer(page);
+  await press(page, "TapHostDeal", touch);
+  t = await waitText(page, (t) => t.includes("DEAL!"), "the deal");
+  const nights = Number(dealt[0]), tix = Number(dealt[1].replace("+", ""));
+  check(t.includes(`you start with ${nights} night${nights === 1 ? "" : "s"} · +${tix} tix`), `the ending's terms are the offer signed (${dealt.join("/")})`);
+  check(t.includes("LEARN TO PLAY"), "LEARN TO PLAY");
+  const w = await page.evaluate(() => JSON.parse(localStorage.getItem("skee.wallet")));
+  check(JSON.stringify(w.comps).includes(`"nights":${nights}`), "the deal is banked in the wallet: " + JSON.stringify(w.comps));
+  check((await page.evaluate(() => localStorage.getItem("skee.arrivalDone"))) === "true", "the arrival is done");
+  check((await page.evaluate(() => localStorage.getItem("skee.hostConsent"))) === "true", "the AI chat answer is saved");
+  await shot(page, name, "4e", "host-deal");
+}
+
+// After the walkthrough the first real game checks in: one night used, its tickets added.
+async function dealInRun(page) {
+  if (!dealt) return;
+  const nights = Number(dealt[0]), tix = Number(dealt[1].replace("+", ""));
+  const run = await page.evaluate(() => JSON.parse(localStorage.getItem("skee.run")));
+  const w = await page.evaluate(() => JSON.parse(localStorage.getItem("skee.wallet")));
+  check((run.extraTickets ?? 0) === tix, `the run starts with the deal's +${tix} tickets (${run.extraTickets})`);
+  const left = nights - 1;
+  check(left === 0 ? !JSON.stringify(w.comps).includes("nights") : JSON.stringify(w.comps).includes(`"nights":${left}`), `one night used, ${left} left: ` + JSON.stringify(w.comps));
+  dealt = null;
+}
+
+// The desktop: AI chat off. Nothing is sent; only DEAL or LEAVE.
+async function quietHost(page, name, touch) {
+  const sent = (await mockLog()).length;
+  await press(page, "TapHostConsent(false)", touch);
+  const t = await waitText(page, (t) => t.includes("AI chat is off"), "AI chat off");
+  check(t.includes("AI CHAT IS OFF") && t.includes("LEAVE"), "only DEAL or LEAVE");
+  const m = await marks(page);
+  check(!m.live.includes("TapHostSend") && m.live.includes("TapHostDeal"), "SAY is off");
+  check((await page.$eval("#host-draft", (e) => e.disabled)), "the field is disabled");
+  check((await mockLog()).length === sent, "nothing reached the relay");
+  await shot(page, name, "4b", "host-off");
+  await press(page, "TapHostDeal", touch);
+  await waitText(page, (t) => t.includes("DEAL!"), "the deal");
+}
+
 async function run(browser, name, viewport, touch) {
   console.log(`--- ${name} ${viewport.width}x${viewport.height}`);
   const page = await browser.newPage();
   const errors = [];
-  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") errors.push(`${m.type()}: ${m.text()}`); });
+  const expected = (t) => forced > 0 && /status of 429/.test(t);
+  page.on("console", (m) => { if ((m.type() === "error" || m.type() === "warning") && !expected(m.text())) errors.push(`${m.type()}: ${m.text()}`); });
   page.on("pageerror", (e) => errors.push("pageerror: " + e.message));
-  page.on("response", (r) => { if (r.status() >= 400) errors.push(`http ${r.status()}: ${r.url()}`); });
+  page.on("response", (r) => {
+    if (r.status() === 429 && r.url().endsWith("/skee-host/chat") && forced > 0) return;
+    if (r.status() >= 400) errors.push(`http ${r.status()}: ${r.url()}`);
+  });
   await page.setViewport(viewport);
   await page.goto(url, { waitUntil: "load" });
   await page.evaluate(() => localStorage.clear());
@@ -128,16 +259,20 @@ async function run(browser, name, viewport, touch) {
   await shows(page, ["WELCOME TO", "SKEE SKEE SKEE", "SAL", "Well, look who walked in!", "GO ON"], "arrival");
   await shot(page, name, 3, "sal");
   for (let i = 0; i < 5; i++) await press(page, "TapArrivalNext", touch);
-  await waitFor(page, (m) => m.layer === "LayerHost", "the host placeholder");
-  await shows(page, ["THE HOST", "PLACEHOLDER", "CLOSE"], "host");
-  await shot(page, name, 4, "host");
+  await waitFor(page, (m) => m.layer === "LayerHost", "the first host");
+  await shows(page, ["TALK TO AN AI HOST?", "YES, USE THE AI", "NO, KEEP IT ON MY PHONE"], "the AI chat card");
+  const card = await marks(page);
+  check(!card.live.includes("TapHostDeal") && card.live.includes("TapHostConsent(true)"), "the card covers the table");
+  await shot(page, name, 4, "host-ask");
+  if (touch) await liveHost(page, name, touch); else await quietHost(page, name, touch);
   await press(page, "TapCloseHost", touch);
   await waitFor(page, (m) => m.layer === "LayerCoachBlock", "the first coach card");
   await shows(page, ["YOUR FIRST LOADOUT", "SKIP", "GOT IT"], "coach");
   await shot(page, name, 5, "coach");
   await press(page, "TapSkipWalkthrough", touch);
   let m = await waitFor(page, (m) => m.layer === "LayerBase" && m.busy === "0" && m.live.includes("TapPull"), "the machine");
-  await shows(page, ["ANTE 1/8", "WARM-UP", "SPIN", "FRAME 1/3 · 9 BALLS", "NEW GAME", "GUIDE"], "machine");
+  await dealInRun(page);
+  await shows(page, ["ANTE 1/12", "WARM-UP", "SPIN", "FRAME 1/3 · 9 BALLS", "NEW GAME", "GUIDE"], "machine");
   await shot(page, name, 6, "machine");
 
   await press(page, "TapOpenGuide", touch);
@@ -191,6 +326,7 @@ async function run(browser, name, viewport, touch) {
   return errors;
 }
 
+await mockPost("/mock/reset");
 const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ["--autoplay-policy=no-user-gesture-required"] });
 try {
   const phone = await run(browser, "phone", { width: 390, height: 844, deviceScaleFactor: 3, isMobile: true, hasTouch: true }, true);

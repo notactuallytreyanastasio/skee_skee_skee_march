@@ -267,16 +267,18 @@ mod PuttShell do
       hook_num: Arcade.Numerics.make(),
       hook_boot: fn (w, h, seed) -> boot(w, h, seed),
       hook_update: fn (b, x) -> held(update(unheld(b), x)),
-      hook_perform: fn effects -> perform(effects),
+      hook_perform: fn (_dispatch, effects) -> perform(effects),
       hook_tick: fn t -> PmTick(t),
       hook_resize: fn (w, h) -> PmResize(w, h),
       hook_down: fn raw -> Some(PmDown(track(raw))),
       hook_move: fn raw -> Some(PmMove(track(raw))),
       hook_up: fn raw -> Some(PmUp(track(raw))),
       hook_cancel: Some(PmCancel),
+      hook_listen: fn (_model, _dispatch) -> (),
       hook_visible: fn shown -> PmVisible(shown),
       hook_scene: fn b -> scene(unheld(b)),
       hook_overlay: fn _ -> [],
+      hook_settle: fn _ -> (),
       hook_marks: fn b -> marks(unheld(b))
     }
   end

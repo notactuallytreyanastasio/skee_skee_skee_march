@@ -1,0 +1,35 @@
+=== reloadspin (phone)
+  spinning: busy=1 BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 2X WILD 3X WILD BONUS ... FRAME 1/3 · 9 BALLS
+  after reload during spin: layer=LayerBase can=1 live=TapAskNewGame,TapOpenGuide | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE FRAME 1/3 · 9 BALLS 3 balls = 1 line · match symbols for MULT thumb down on your line then flick straight up
+  run save unchanged by reload: true
+  after 3 balls: ANTE 1/8 WARM-UP 324 / 400 4 | BAR 7 ANTE 1/8 WARM-UP 324 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS 2X WILD WILD BONUS SPIN FRAME 2/3 · 6 BALLS PULL · the middle row = this frame's targets PAIR OF BARS 324
+  after reload: ANTE 1/8 WARM-UP 324 / 400 4 same=true live=TapAskNewGame,TapOpenGuide,TapPull
+  console: clean
+=== walkreload (phone)
+  start: layer LayerCoachBlock card YOUR FIRST LOADOUT live TapSkipWalkthrough,TapGotIt
+    card YOUR FIRST LOADOUT
+  mid-practice: card TOP SLOT! EVERY HOLE HAS A PICTURE | BAR 7 ANTE 1/8 WARM-UP 0 / 60 4 COMBO x1 · hit one to keep it FRAME 1/3 · 8 BALLS match the · glowing rings pair it +36 
+  after reload: layer LayerBase card - live TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk) | BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 0 HOW TO PLAY BOARDWALK OPEN NEON 1500
+  storage ["skee.arrivalDone","skee.run","skee.wallet"]
+  console: clean
+=== lose (phone)
+  wallet before: {"balance":0,"comps":[],"gamesSinceHost":0,"hostVisits":0,"lifetime":0,"owned":[],"progressive":{"meters":["mini",50,"minor",150,"major",600,"grand",2500]},"room":"boardwalk","rooms":["boardwalk"]}
+    card WINNINGS NEW RUN PRIZES 3 NOT TO WORRY
+  END: layer LayerBase live TapNewRun,TapOpenShop | BAR 7 ANTE 1/8 WARM-UP 60 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 60 JACKPOTS 0 · RATTLES 0 +3 WINNINGS NEW RUN PRIZES 3
+  after cards: BAR 7 ANTE 1/8 WARM-UP 60 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 60 JACKPOTS 0 · RATTLES 0 +3 WINNINGS NEW RUN PRIZES 3
+  wallet after: {"balance":3,"comps":[],"gamesSinceHost":1,"hostVisits":0,"lifetime":3,"owned":[],"progressive":{"meters":["mini",56,"minor",162,"major",624,"grand",2545]},"room":"boardwalk","rooms":["boardwalk"]}
+  run after: {"actions":[{"pull":{"_0":1}},{"throwBall":{"_0":{"aim":"0000000000000000","fold":"0000000000000000","from":"00000000000
+  tips ["gameOver"]
+  reload at game over: layer LayerBase live TapNewRun,TapOpenShop | BAR 7 ANTE 1/8 WARM-UP 60 / 400 4 TARGETS · hit one = combo FRAME 3/3 · 0 BALLS GAME OVER ANTE 1 BEST FRAME 60 JACKPOTS 0 · RATTLES 0 +3 WINNINGS NEW RUN PRIZES 3
+  wallet after reload same: true
+  after NEW RUN: layer LayerBase live TapAskNewGame,TapOpenGuide,TapPull | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  console: clean
+=== newgame (phone)
+    card TOP SLOT! A COMBO!
+  live TapAskNewGame,TapOpenGuide
+  confirm: layer LayerConfirmNew live TapKeepPlaying,TapNewRun |  WARM-UP 0 / 400 4 COMBO x1 · hit one to keep it NEW GAME GUIDE FRAME 1/3 · 8 BALLS match the · glowing rings pair it TOP SLOT! START A NEW GAME? This run ends. Your prizes stay. KEEP PLAYING NEW GAME
+  after TapKeepPlaying: LayerBase balls 8 BALLS
+  yes intent TapNewRun
+  after confirm: layer LayerBase live TapAskNewGame,TapOpenGuide,TapPull | BAR 7 ANTE 1/8 WARM-UP 0 / 400 4 TARGETS · hit one = combo NEW GAME GUIDE BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  gamesSinceHost 0 -> 1
+  console: clean

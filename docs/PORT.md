@@ -63,9 +63,9 @@ foundation: ask before changing it.
 | synth | `arcade/lib/arcade/float32.march`, `synth.march` (`Arcade.Float32`, `Arcade.Synth`, tuning `Arcade.Synth.tuning()`); `lib/skee/cues.march` (`Skee.Cues`: `Sound` and `voices_for`) | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
-| app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
-| painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Canvas2d`, `Glue`, `Cell`, `Input`); the shell: `shell/game.march`; `web/` (index.html, style.css); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
-| hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
+| app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, the host's table: seat, openHost, hostSay, askHost, askGreeting, hostDeal, settle, closeHost, HostConsent; refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
+| painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Canvas2d`, `Glue`, `Cell`, `Input`); the shell: `shell/game.march`; `web/` (index.html, style.css); `tools/serve` (with the `/skee-host/chat` route), `tools/playtest` (with `mock_relay.mjs`) | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
+| hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView` (with `RoomPicker`); `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
 | audio | `arcade/lib/arcade/synth_feed.march` (`Arcade.SynthFeed`: `AudioCmd(cue)`, `Levels`; every call that may play a cue takes the game's `voices`, here `Skee.Cues.voices_for`); `lib/skee/sound_out.march` (`Skee.SoundOut`); `shell/audio.march`, `synth_names.march`, `synth_worklet.march` (the worklet's entry); the engine's `Arcade.Web.Audio`, `SynthHost`, `SynthWorklet` with `arcade_audio.mjs`, `arcade_synth_cell.mjs`, `arcade_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 | host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
 
@@ -145,6 +145,7 @@ constants passes `k.num : Arcade.Numerics.Numerics`.
 | `make web` | The game as a static site in `dist/`: skee.mjs, March's runtime modules, web/'s files |
 | `make serve` | `make web`, then serve `dist/` at http://127.0.0.1:8137/ (`PORT=` to change) |
 | `make playtest` | Headless Chrome against a running `make serve`: 390x844 touch and 1280x800 mouse, first launch to a thrown ball, console must be clean; shots in `tools/playtest/shots/` (`npm install` in `tools/playtest` once) |
+| `node tools/playtest/hud_playtest.mjs [url] [mock]` | The HUD in headless Chrome, with the live host against the mock relay: `node tools/playtest/mock_relay.mjs 8790` and `SKEE_HOST_RELAY=http://127.0.0.1:8790/chat node tools/serve/serve.mjs dist 8137` first. The phone: AI chat on, the hello, a typed line moving the offer, a forced 429 and RETRY, Enter, DEAL, the deal in the run; the desktop: AI chat off, DEAL |
 | `make selftest` | Plants a violation for every guard and requires it to go red (3 minutes) |
 
 Suites: `foundation`, `rng`, `physics`, `scoring`, `items`, `rooms`, `reducer`, `bots`, `presentation`, `scene`, `app`, `painter`, `hud`, `audio`, `host`.
@@ -450,13 +451,16 @@ Skee.App.scene_ops(model), Skee.App.hud(model)                         every fra
 ```
 
 `Msg` is `MsgTick(now)`, `MsgPointerDown/Move/Up` (FlickSamples: seconds,
-CSS pixels), `MsgPointerCancel`, `MsgTap(Intent)`, `MsgResize`, `MsgVisible`
-and `MsgAutoplay` (LaunchArguments' `-autoplay`). Every HUD button is an
-`Intent` constructor; `Skee.App.accepts` says whether it is on screen and on
-top, so a tap under an overlay does nothing, as in SwiftUI. `Effect` is
-`FxSound(Skee.Cues.Sound)`, `FxRumble`, `FxDrum`, `FxSave(SaveKey, text)` and
-`FxHaptic`. The shell owns the storage key for each `SaveKey` and hands the
-stored strings back at boot as `SavedStrings`. Rumble and drum effects are
+CSS pixels), `MsgPointerCancel`, `MsgTap(Intent)`, `MsgResize`, `MsgVisible`,
+`MsgAutoplay` (LaunchArguments' `-autoplay`), and the host's three:
+`MsgHostDraft(text)` (the table's text field as typed), `MsgHostReply(key,
+status, body)` and `MsgHostFailed(key, reason)`. Every HUD button is an
+`Intent` constructor; `Skee.App.accepts` says whether it is on screen, enabled
+and on top, so a tap under an overlay or on a disabled button does nothing, as
+in SwiftUI. `Effect` is `FxSound(Skee.Cues.Sound)`, `FxRumble`, `FxDrum`,
+`FxSave(SaveKey, text)`, `FxHaptic` and `FxHostPost(key, body)`. The shell owns
+the storage key for each `SaveKey` and hands the stored strings back at boot as
+`SavedStrings`. Rumble and drum effects are
 sent only when the level changes; Swift sets them every frame to the same value.
 
 Times: one clock for everything, `performance.now() / 1000`, which is what
@@ -470,25 +474,85 @@ Deviations from GameModel:
   the scene's `present`, and autoplay.
 - New games are seeded from a SplitMix64 stream started from the boot seed,
   not from `Date()` seconds. The shell passes the launch's seed.
-- The host is a placeholder (`HostTable`, `HudState.HostPlaceholder`) with one
-  button, close. Swift's open haggle only closes, which would leave a player
-  whose host is due unable to start a game, so closing behaves as a table left
-  without a deal: after Sal's lines it marks the arrival done (Swift's `settle`
-  does that) and starts the walkthrough; after NEW GAME it starts the game;
-  opened from a button it just closes. `games_since_host` is not reset, so the
-  placeholder sits down again before every new game until the host is ported.
-  Sal's five arrival lines are ported (`arrival_beats`).
+- The host's table is a `Skee.Host.HostSession` in the model (see "The host's
+  table" below). Sal's five arrival lines are ported (`arrival_beats`).
+- A new haggle's seed is drawn from the same SplitMix64 stream as new games,
+  not `Date()` seconds.
 - `MsgVisible` has no Swift counterpart (iOS pauses the display link): hidden
   stops the stroke, the rumble, the buzz and the drum, and restarts the clock.
 - No hinge: `fold` is 0. No safe-area insets.
 - Haptics are effects; the browser may vibrate or ignore them.
 
-`make test-app` (about 22 s native, 7 s on node) drives `update` with Msg
-sequences: the first launch through Sal, the placeholder and the walkthrough
+#### The host's table
+
+GameModel's host, as Msgs and one effect. Every rule is Skee.Host's; Skee.App
+only routes, persists the consent, settles and taps:
+
+```
+seat / openHost      Skee.Host.seat(new_haggle(...), consent)       FxHostPost if a hello is wanted
+MsgHostDraft(text)   the draft, cut to HostGuard.maxLine Characters (HostView's onChange)
+TapHostSend          player_says(session, draft), draft cleared     FxHostPost, or HostGuard's own answer
+TapHostNudge(i)      player_says(session, nudges()[i])
+MsgHostReply         deliver(session, call, status, body)           FxHostPost again for a refused reply
+MsgHostFailed        call_failed(session, call, reason)
+TapHostRetry         retry(session)                                 FxHostPost
+TapHostDeal          sign(session)                                  NoticeSuccess (haptics.prize)
+TapHostConsent(yes)  answer_consent; FxSave(KeyHostConsent, "true"/"false")
+TapHostReconsider    reconsider; FxSave(KeyHostConsent, "")         the AI chat card asks again
+TapCloseHost         closeHost
+```
+
+- `CallKey` is `{ key_table, key_call }`: the table counts seatings, so an
+  answer for a table already left (or a call already answered) is ignored and
+  can never land on a new table whose call ids restart at 1.
+- Settling is Swift's `settle`, run when a step takes the haggle from open to
+  signed or walked: `Skee.Rooms.close_deal(wallet, final, visit)` saved, and
+  for the arrival `arrivalDone`. A host line heard (the count of host lines
+  grew: a reply, or HostGuard's deflection) is `haptics.tap()`.
+- closeHost as Swift: the arrival starts the walkthrough (fresh); a finished
+  table rebuilds the model in the deal's room on the game screen (SkeeApp's
+  `rebuild(true)`, which checks in and uses a comped night); an open table
+  just goes.
+- `HostConsent` is saved as `skee.hostConsent` ("true", "false", or "" for
+  asked again) and carried across rebuilds. This build always has a relay,
+  so Swift's `aiChat` is never nil and the card shows until it is answered.
+- `accepts`: the card's two buttons only while it asks; SAY and the nudges
+  only while `takes_lines`; DEAL while `can_sign`; RETRY while `can_retry`;
+  close (CHECK IN, LEARN TO PLAY, LEAVE) when `Skee.App.can_leave`: the
+  haggle has ended, or it is open with no call out and takes no line.
+- `Skee.App.host_timeout_ms()` is DeepSeek's `timeout` (30 s), which the shell
+  passes to the fetch.
+
+Deviations (the user's direction, and what follows from it):
+
+- No scripted host. Every failure (no answer, any HTTP status including 429,
+  truncated, unreadable, three guard-refused replies) shows typed with RETRY;
+  the offer can still be signed. Swift's HostView has no way to leave an open
+  table (its scripted host always answers); here LEAVE is shown wherever the
+  table takes no line and nothing is out: a failure showing, AI chat refused,
+  or the model's 25 turns used. LEAVE is Swift's closeHost on an open haggle:
+  nothing is settled, the host stays due, and from the arrival the
+  walkthrough starts with the arrival not done (Sal comes back next launch).
+- With AI chat refused nothing is sent and no line is taken: DEAL or LEAVE.
+  The card's words are still Swift's, including "With no, Sal sticks to
+  simpler replies" and "KEEP IT ON MY PHONE", which no longer describe what
+  happens (no scripted replies; a browser, not a phone). Changing them is the
+  user's call.
+
+`make test-app` (about 25 s native, 8 s on node) drives `update` with Msg
+sequences: the first launch through Sal, the first host and the walkthrough
 (skipped, and played to its end), strokes and fouls, the lever, the counter,
 the shop, rooms, the host's seat, tips, and a run from the title to ante 2
 throwing the bot's aim book's best launches, whose saved strings boot back
-into the same run. Ten hand mutations of `app.march` (saving the practice
+into the same run. Nineteen host cases drive the table against canned relay
+answers: the AI chat card first, the hello, a line and its reply moving the
+offer, a nudge, the draft's length, a 429 and RETRY (the same body again),
+every failure typed, a refused reply asked again then FailUnreadable, a
+screened line answered without a call, stale answers ignored, DEAL banking
+the offer into the first real game's tickets, a deal for the next room, a
+host who walks, no to AI chat, reconsidering, a failed hello, the 25-turn
+limit, and leaving a failed table. Mutations: dropping the settle, or
+matching an answer to any table, turns it red. Ten hand mutations of `app.march` (saving the practice
 run, the trail's life, the overlay gate, the board tap, counting abandoned
 games, the host's close, a cue's sound, the rumble, the tip save, the bet
 gate) each turn the suite red.
@@ -533,6 +597,38 @@ and `Arcade.Web.Input.drain_taps()` are a tap queue for HUD buttons. `<html>` ca
 `data-layer`, `data-can-throw`, `data-busy` and `data-crease-y` for the
 playtest.
 
+The host's one network call: `FxHostPost(key, body)` becomes
+`Arcade.Web.Glue.post_json("/skee-host/chat", body, Skee.App.host_timeout_ms(),
+reply, fail)`, a same-origin `fetch` POST aborted after 30 s; any HTTP answer
+comes back as `MsgHostReply(key, status, body)`, no answer as
+`MsgHostFailed(key, reason)`, the reason worded by `Game.host_failure` from
+whether it timed out and the browser's message (the callbacks run outside the
+promise chain, so an error in the game is never reported as a network
+failure). The shell's `hook_perform` gets the runtime's dispatch for this.
+`Arcade.Web.Input.on_fields` (wired in `hook_listen`) sends the field's edits
+as `MsgHostDraft` and queues Enter; `Hud.sync_fields` (`hook_settle`) writes
+the draft back after each frame's taps. `Arcade.Web.Input.on_drag` follows the
+lever's knob (`data-drag`) into `Hud.lever_touch`, and
+`Arcade.Web.Glue.set_html_keeping` rewrites a HUD pane without losing a text
+field's value, focus or caret.
+`tools/serve/serve.mjs` serves `POST /skee-host/chat` as well as `dist/`: it
+forwards the body unchanged to `https://bobbby.online/skee-host/chat`
+(`SKEE_HOST_RELAY` overrides it) and streams back the upstream's status and
+body. No key is anywhere in the project or the page: the relay holds it.
+Bodies over 32 KB (relay.mjs's own limit) get 413 unsent; an unreachable
+upstream 502, one silent for 28 s 504 (under the browser's 30 s, so the
+player sees an HTTP failure and can retry). Static files keep gzip and
+`no-store`.
+
+`tools/playtest/mock_relay.mjs [port]` (default 8790) stands in for the relay
+in tests: relay.mjs's request checks (400 "not a haggle"), canned DeepSeek
+chat completions (a hello for a greeting request; otherwise one more night
+than the player has asked for, at most three, and two tickets), and a queue
+of forced answers (`POST /mock/next {"mode": "429" | "500" | "garbage" |
+"truncated" | "refused" | "drop" | "timeout" | "reply", "say", "offer",
+"walk"}`), `POST /mock/reset`, `GET /mock/log`. Nothing in tests calls the
+real relay or a model.
+
 FFI added (now the engine's `Arcade.Web.Glue`, `Cell` and `Input`, with
 `arcade_glue.mjs`, `arcade_cell.mjs` and `arcade_input.mjs`): the clock
 and rAF in seconds, view size, devicePixelRatio, canvas sizing, seed limbs,
@@ -567,11 +663,12 @@ Skee.HudView.settle(local, hud)                  the Guide forgets its page when
   interprets a tap. Skee.App still gates every Intent with `accepts`.
 - Panes under the top `Layer` are drawn `inert` (no `data-act`), as SwiftUI's
   overlay takes every touch over what is under it. The suite checks, over
-  eleven model states, that every button drawn is one `Skee.App.accepts`, and
+  seventeen model states (six of them the host's table), that every button drawn is one `Skee.App.accepts`, and
   that the title under Sal or the shop is not tappable.
 - GuideView's `@State` (topic, page) is `HudLocal`, kept by the shell as text in
-  `#hud`'s `data-local` (`save_local`, `load_local`). Nothing else is view
-  state: the lever, bets, offers and charms are all model Intents.
+  `#hud`'s `data-local` (`save_local`, `load_local`), with the lever's drag
+  (Lever's `@State drag`). Nothing else is view state: bets, offers and
+  charms are all model Intents.
 - A pane is rewritten only when its HTML changed (the last text is in the
   pane's `data-src`): an idle frame mutates nothing (the playtest measures 0
   mutations a second on the title), and a press on a button is not lost to a
@@ -589,13 +686,40 @@ Skee.HudView.settle(local, hud)                  the Guide forgets its page when
 
 Deviations from SkeeHUD:
 
-- The lever is tapped, not dragged (SPIN does the same in Swift). No spring.
+- (Was: the lever is tapped, not dragged. Fixed after playtest round 1.) The
+  knob is a drag handle as in Swift's Lever: `Skee.HudView.lever_touch` takes
+  its pointer (`LeverDown/Move/Up/Lost`, from `Glue.on_drag`, captured on the
+  HUD root because the knob is rewritten as it moves); past 2pt it follows the
+  thumb, clamped to its 156pt travel; let go past half way it sends
+  `TapPull`; a tap does nothing; it springs home with SwiftUI's
+  `.spring(response: 0.25, dampingFraction: 0.45)` on the HUD clock, kept in
+  `HudLocal.lever` (saved in `data-local`). A second grab during the spring
+  starts from the top, not from where the spring has got to.
 - No safe-area insets: `topInset` is 0, so the top bar sits 8px down and
   "TARGETS · hit one = combo" always shows when there is no combo, as in
   Swift with no island.
-- The host is a labelled placeholder (THE HOST, PLACEHOLDER, CLOSE), the
-  `HostSeam` seam; the title's room picker and "THE HOST WANTS A WORD" buttons
-  are real (`TapOpenHost`), as is GameOverView's.
+- HostView is `host_pane`, from `AppHud.host_shown` (Skee.App's HostShown:
+  the session, aiChat, asking, the draft); `HudState.host` is `HostClosed |
+  HostAtTable`. Header, offer card (terms, patience dots, terms note),
+  transcript (bubbles newest at the bottom, the stock hello hidden while the
+  model writes one, "X is thinking..."), then the nudges, the text field, SAY
+  and DEAL, or the ending (DEAL! / X LEFT, the terms, LEARN TO PLAY / CHECK
+  IN), and the AI chat card over it all until answered (the table under it is
+  `inert`). Disabled controls are dimmed and carry no `data-act`.
+- Not in Swift (there is no scripted host): a failure card in the transcript
+  (`<NAME> COULDN'T ANSWER`, `failure_words`, RETRY; `data-failure` names the
+  HostFailure for the playtest), the same for a hello that failed while the
+  stock one shows, a one-line note when the table takes no line (AI chat off,
+  or the 25 turns used), and LEAVE (see Skee.App above).
+- The text field is `<input id="host-draft" data-draft data-enter=CODE>`; its
+  value is never in the pane's HTML, so typing never rewrites a pane. The
+  shell sends each edit as MsgHostDraft, writes the model's draft back only
+  when the two differ (after SAY clears it, or the core cuts it), and a pane
+  rewritten under the field keeps its text, focus and caret
+  (`Glue.set_html_keeping`). Enter queues the `data-enter` code (TapHostSend)
+  with the taps. No keyboard layout: Swift's typing mode (header, offer and
+  nudges hidden while the keyboard is up) is not ported; the browser scrolls
+  the field into view.
 - SwiftUI's springs and `.transition(.opacity)` on Sal's lines are not
   animated; popups, the banner, the tally, coins and the hot spot follow the
   same per-frame formulas as Swift.
@@ -671,7 +795,7 @@ Skee.Host.answer_consent(s, yes), reconsider(s)                    the AI chat c
 Skee.Host.player_says(s, text) -> (HostSession, Option(HostCall))  hostSay + askHost
 Skee.Host.deliver(s, call_id, status, body) -> (HostSession, Option(HostCall))
 Skee.Host.call_failed(s, call_id, reason) -> (HostSession, Option(HostCall))
-Skee.Host.retry(s), sign(s)                                        after a failure; DEAL
+Skee.Host.retry(s), sign(s)                                        after a failure (a reply's or the hello's); DEAL
 Skee.Host.request_body(call) -> String                             the JSON to POST
 ```
 
@@ -681,7 +805,19 @@ Skee.Host.request_body(call) -> String                             the JSON to P
   POSTs `request_body(call)` and passes the HTTP status and body to
   `deliver`, or a network error to `call_failed`. An answer to a call the
   session is no longer waiting for is ignored.
+- `request_body` writes every code point below U+0020 as `\u00XX`, as
+  JSONSerialization does. stdlib `Json.to_string` writes all but `\b \t \n
+  \f \r` raw, which Node's JSON.parse in relay.mjs refuses (400 "not a
+  haggle"), so one such character in a reply's `say` or a player's line
+  (U+000B comes with text pasted from Word) would have broken every later
+  call of the haggle (`tools/repros/json_to_string_controls.march`; wire
+  rows 68 to 71, and the suite's check that no body holds a raw byte below
+  0x20).
 - `deliver` reads the response as DeepSeek.chat does (not 200: `FailHttp`;
+  a body JSONSerialization refuses: `FailMalformed`, including a raw control
+  character, a bad escape, a lone surrogate or a bad or infinite number in a
+  field nothing reads, which JSONDecoder would only scan (`serialization_reads`;
+  trailing commas, a BOM and `1e-400` it reads, wire rows 35 to 67);
   no `choices[0].message.content` text: `FailMalformed`; `finish_reason:
   "length"`: `FailTruncated`), parses the content as DeepSeek.parse does
   (`parse_reply`: trim, ``` fence, JSONDecoder's rules through
@@ -691,9 +827,19 @@ Skee.Host.request_body(call) -> String                             the JSON to P
   most three tries, then `FailUnreadable`. Accepted: `hear` (or `greet`).
 - View state (`HostState`): `is_waiting` (thinking), `shown_lines` (the stock
   hello hidden while the model writes one), `thinking_text`, `takes_lines`,
-  `can_sign`, `can_retry`, `failure`, `subtitle`, `ending_title`,
-  `ending_terms`, `close_label`, `nudges`; `describe_failure` is
-  DeepSeek.Failure's console text.
+  `can_sign`, `can_retry`, `failure`, `greeting_failure`, `subtitle`,
+  `terms_note`, `ending_title`, `ending_terms`, `close_label`, `nudges`;
+  `describe_failure` is DeepSeek.Failure's console text. While the hello is
+  being written `takes_lines` and `can_sign` are false: HostView disables
+  SAY, the nudges and DEAL on `host.thinking`, which GameModel sets to
+  `hostThinking || hostGreeting`, though `hostSay` and `hostDeal` themselves
+  check only `hostThinking`. The AI chat card's texts are the HUD's.
+- `Skee.Save.parse` marks text Swift's decoder refuses with in-band strings
+  (U+0007 "skee-unreadable" U+0007, and "skee-underflow"). A string or key
+  that really starts with U+0007 gets one more U+0007 in front, and
+  `Skee.Save.text_of` takes it off, so no input can spell a mark (parse rows:
+  a `say`, an ignored key and a `mood` spelled as a mark read as Swift reads
+  them).
 
 Deviations, deliberate (the user's direction): no scripted fallback host.
 
@@ -710,14 +856,30 @@ Deviations, deliberate (the user's direction): no scripted fallback host.
 - A line `HostGuard.screen` flags is answered at once by the guard's own fixed
   reply (`deflection`: the 988 line, personal details, real money, and the
   host's off-topic wave-offs from the Phrasebook) and never sent to the model:
-  `deflects(concern)` is true for every concern. In Swift's live path only
+  `deflects(concern)` is true for every concern. The task names crisis,
+  personal details, real money and the off-topic/adult wave-offs; trickery
+  is not named. Deflecting it is the port author's reading, because Swift's
+  `deflection` answers `.offTopic, .trickery` in one arm with the same
+  Phrasebook wave-off; it is a decision for the user (`deflects` is one
+  line). It reaches beyond Swift's live path, since the phrases are matched
+  as substrings: "in fact as a friend, more tickets?" holds "act as" and is
+  waved off without the model being asked, as a money phrase inside a longer
+  word is. In Swift's live path only
   personal details and crisis were kept off the wire (as stand-in notes) and
   the rest went to the model. The deflection is heard through `hear`, so an
   adult line at the last of a host's patience still walks them out, as with
   Swift's scripted host. Later `messages` are Swift's own: crisis and personal
   lines become "(removed)", other screened lines are sent verbatim as history.
 - A greeting that cannot be had leaves the stock hello showing (Swift's
-  `try?`); it is the haggle's own opening line, not an invented reply.
+  `try?`); it is the haggle's own opening line, not an invented reply. The
+  failure is kept, typed, as `greeting_failure` (until the player speaks,
+  when there is no hello left to ask for), and `retry` asks for the hello
+  again. It blocks nothing: the player may talk or sign meanwhile.
+- Safety consequence of the above: while `takes_lines` is false (consent
+  refused or not given, 25 lines said, a failure showing, a call out) no line
+  is screened, so the 988 deflection cannot be reached in those states, where
+  Swift's scripted host would have answered a crisis line. The input is
+  disabled there, so nothing typed goes unanswered.
 
 Findings, kept as Swift has them:
 
@@ -730,9 +892,31 @@ Findings, kept as Swift has them:
 - A number past 2^53-1 in a reply is held at 2^53-1 with its sign (every term
   is clamped and mood is read for its sign, so the rules give Swift's
   result), but `Haggle.json` then writes 9007199254740991 where Swift writes
-  the number sent. A number from 2^63 up is refused as in Swift, except that
-  9223372036854775807 and the 511 below it round to 2^63 as doubles and are
-  refused here, where Swift reads them.
+  the number sent. Whether Swift reads such a number at all is decided from
+  the token's text, not its Double (`decoder_numbers`, before
+  `Skee.Save.parse`): JSONDecoder reads an integer token exactly in Int64's
+  range (so 2^63-1 is read and -2^63-1, which is -2^63 as a Double, is
+  refused); any other token through its Double, which must lie in Int64's
+  range, and from 2^53 up through a Decimal (mantissa below 2^128, later
+  digits dropped, trailing zeros off, below 2^64 if it has a fraction, whole
+  part truncated and at most Int64.max, so `-9223372036854775808.0` is
+  refused while `-9223372036854775808` is read, and `9007199254740991.5`
+  reads as 9007199254740991). Repair round 3; the earlier round's note that
+  2^63-512..2^63-1 were refused here is fixed, and it had missed the negative
+  side (-2^63-1 down to -2^63-1024, then read here as -(2^53-1)).
+- JSONSerialization's number rule, which `serialization_reads` applies to
+  every token of the envelope: an exponent written in more than four
+  characters is refused (`1e00001`, `1e-1000`; `1e-400` is read); up to 17
+  digits (a lone `0` before the point not counted) is a Double, refused only
+  at +inf (`-1e400` is read, as -inf); more is a Decimal, refused if its
+  exponent leaves -128...127, checked digit by digit and then with the
+  written exponent (`1` and 200 zeros, `0.` 200 zeros `1`, even `0.` and 200
+  zeros, `9.99999999999999999999e307`). Probed on this machine's Foundation
+  (macOS 27.2, Swift 6.4.2) over about 100000 tokens against a model
+  (`tools/num_probe/model.py`, `batch.swift`), and pinned by golden rows:
+  690 tokens as `serial` envelopes, the same tokens as a reply's mood and as
+  offer.nights (with an unread copy) in `parse` rows, and wire rows 68 to 76.
+  These are Foundation's rules, which another OS release could change.
 
 Swift's String, as `Skee.SwiftText`: every comparison the guard makes is
 Character by Character with canonical equivalence (`"kill myself\u{301}"`
@@ -748,8 +932,8 @@ so a lookup allocates nothing and reads no string on JS (a 4-entry byte-view
 cache made a table string thrash). Segmentation is UAX #29's rules (GB3 to
 GB13, GB9c included) over those classes.
 
-Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 48437
-rows, 4.6 MB; reproducible run to run): 9868 strings' Characters (with each
+Parity, against the real SkeeCore and SkeeNet (`make golden-host`, 50788
+rows, 5.5 MB; reproducible run to run): 9868 strings' Characters (with each
 one's letter, number, whitespace and ASCII key), lowercasing and every
 lowercase mapping, 5936 scalars' properties, prefix and count; HostGuard.screen
 over 8720 lines (every phrase and word in about forty spellings: case, punctuation,
@@ -762,16 +946,24 @@ haggles (every Haggle and HostGuard test in Swift, plus 160 fuzzed) step by step
 offer, patience, status, wantsModel, askedForPerks, final, last line and a
 digest of every message, with 110 system prompts (60 distinct) and 235
 transcript messages compared whole; standIn, accepts, json, deflection; DeepSeek.parse
-over 507 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
-escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting); and
-35 runs of DeepSeek's real client (guardedReply and greeting) against a
+over 1896 texts (fences, BOM, Unicode whitespace, wrong types, Int edge cases,
+escapes, lone surrogates, corrupted and repeated keys, 600-deep nesting, text
+spelling Save.parse's marks, and 686 number tokens as mood and as
+offer.nights); JSONSerialization over the same 686 tokens in an envelope; and
+81 runs of DeepSeek's real client (guardedReply and greeting) against a
 URLProtocol standing in for the relay, comparing every request body and the
-outcome. All exact on native and JS. `make test-host`: 56 cases, about 12 s
-native, 8 s on node. Sixteen hand mutations (a crisis phrase, Unicode
+outcome (envelopes JSONSerialization refuses or reads, and histories holding
+every control character), and each March body must hold no raw byte below
+0x20. All exact on native and JS. `make test-host`: 58 cases, about 12 s
+native, 8 s on node. Eighteen hand mutations (a crisis phrase, Unicode
 whitespace, GB9c, GB11, GB12, the canonical singletons, the digit separators,
 the sweetener, a prompt word, the try count, truncation, the fence, the
-trickery deflection, the turn limit, the failure state, the push rule) each
-turn the suite red.
+trickery deflection, the turn limit, the failure state, the push rule, the
+control escape in `request_body`, the envelope check), and nine more in repair
+round 3 (the 17-digit Double limit, the four-character exponent, -inf read,
+the 39th mantissa digit, -2^63 as an integer token, the 2^64 mantissa bound,
+skipping `decoder_numbers`, the fraction's exponent check, a Perk left out
+of `perks`) each turn the suite red.
 
 ## Arcade engine
 
@@ -1047,6 +1239,17 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   `ambiguous_constructor`. Rename yours.
 - `Json`'s constructors (`Str`, `Array`, `Object`, `Number`, `Null`, `Bool`) clash
   with `Msgpack` and `IOList`: write them `Json.Str` and so on, in patterns too.
+- **A type named like a type in another module captures that name.** A test
+  module's `type Table = { at : Skee.App.Model, ... }` (Skee.App.Model reaches
+  Skee.Types.Table) type-checked, then `march --target js` and `--compile`
+  ran for minutes past 19 GB without a message; in a small program the other
+  module's field reads as the new type (`expected { table : Table } but got
+  { table : Table }`). `scripts/check_core.py` already rejects a type name
+  defined twice in lib/, test/ or shell/: run `make check` before a build.
+  (`shadowed_type_hangs/`)
+- Two functions of one name in a module (a `pfn offer_card` added 250 lines
+  after another) are read as clauses of one function: "clauses of `x` must
+  be adjacent" in the build log. Pick a new name.
 - `then` is a keyword: a function called `then` is a parse error at its name.
   So are `affine` (a function), `len` and `by` (pattern variables).
 - The stdlib owns the type `Stage` (`flow.march`) and the constructor `Trace`
@@ -1058,6 +1261,12 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
 - **`Json.parse` overflows the stack on deep nesting.** A few thousand `[` crash
   it (SIGBUS natively, `RangeError` on JS). Untrusted text goes through
   `Skee.Save.parse`, which counts depth first. (`json_deep_nesting.march`)
+- **`Json.to_string` writes most control characters raw.** Its `escape_of`
+  escapes only `\" \\ \n \r \t \b \f`; U+0000-U+0007, U+000B and
+  U+000E-U+001F come out as raw bytes, which RFC 8259, Node's JSON.parse and
+  JSONSerialization all refuse. Text that leaves the device goes through
+  `Skee.Host.request_body`, which escapes them as `\u00XX`.
+  (`json_to_string_controls.march`)
 - **`Json.parse` overflows a native stack well before Swift's limit.** Objects
   350-400 deep crash it natively (SIGBUS); node manages 1024. Swift's
   JSONDecoder reads 512 levels and refuses the 513th. `Skee.Save.parse` checks

@@ -124,6 +124,9 @@ async function game(browser, wantPath) {
   rate === 44100 ? ok("context at the synth's 44100 Hz") : fail("context rate " + rate);
 
   for (let i = 0; i < 5; i++) await tap(page, "TapArrivalNext");
+  // The first host: no to AI chat (nothing is sent), DEAL, LEARN TO PLAY.
+  await tap(page, "TapHostConsent(false)");
+  await tap(page, "TapHostDeal");
   await tap(page, "TapCloseHost");
   await tap(page, "TapSkipWalkthrough");
   let m = await waitFor(page, (m) => m.layer === "LayerBase" && m.busy === "0", "the game, idle");

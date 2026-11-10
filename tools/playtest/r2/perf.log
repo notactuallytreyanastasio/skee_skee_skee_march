@@ -1,0 +1,12 @@
+phone: title->game idle work n=121 med=1.20 p95=1.40 p99=1.70 max=1.80 | interval n=121 med=16.70 p95=16.70 p99=16.80 max=16.80
+phone: spin work n=94 med=1.40 p95=1.50 p99=2.60 max=2.60 | interval n=94 med=16.70 p95=16.70 p99=16.80 max=16.80
+phone: throws work n=196 med=1.40 p95=2.10 p99=2.60 max=3.10 | interval n=196 med=16.70 p95=16.80 p99=16.80 max=16.80 | frames>20ms 0 >34ms 0
+phone: heap 28.2MB errors 0
+phone-4xCPU: title->game idle work n=120 med=5.20 p95=5.90 p99=6.10 max=6.90 | interval n=120 med=16.70 p95=16.70 p99=16.80 max=16.80
+phone-4xCPU: spin work n=291 med=5.90 p95=7.70 p99=8.60 max=14.20 | interval n=291 med=16.70 p95=16.70 p99=16.80 max=16.80
+phone-4xCPU: throws work n=49 med=6.70 p95=8.40 p99=11.70 max=11.70 | interval n=49 med=16.70 p95=16.70 p99=16.80 max=16.80 | frames>20ms 0 >34ms 0
+phone-4xCPU: heap 24.8MB errors 0
+desktop: title->game idle work n=120 med=1.30 p95=1.70 p99=1.90 max=1.90 | interval n=120 med=16.70 p95=16.70 p99=16.80 max=16.80
+desktop: spin work n=97 med=1.40 p95=1.60 p99=2.20 max=2.20 | interval n=97 med=16.70 p95=16.70 p99=16.80 max=16.80
+desktop: throws work n=193 med=1.30 p95=1.70 p99=2.10 max=2.80 | interval n=193 med=16.70 p95=16.80 p99=16.80 max=16.80 | frames>20ms 0 >34ms 0
+desktop: heap 24.1MB errors 0

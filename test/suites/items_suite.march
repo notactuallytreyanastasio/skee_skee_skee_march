@@ -780,8 +780,9 @@ mod ItemsSuite do
   fn later_antes_tighten_the_table() : Outcome do
     let k = Skee.Consts.make()
     let std = Skee.Types.standard_table(k)
-    let early = difficulty_table(1, std, 8)
-    let late = difficulty_table(8, std, 8)
+    let cfg = Skee.Types.standard_config()
+    let early = difficulty_table(1, std, cfg.antes)
+    let late = difficulty_table(cfg.antes, std, cfg.antes)
     let e = early.board
     let l = late.board
     all([expect(l.center_hole_radius < e.center_hole_radius, "the 50 did not shrink"), expect(l.lip_band > e.lip_band, "the lips did not widen")])
@@ -808,7 +809,9 @@ mod ItemsSuite do
     match row do
     Cons(boss, Cons(best, Nil)) -> do
       let b = lookup(all_bosses(), boss_raw, boss)
-      let t = modify_for_boss(b, difficulty_table(8, Skee.Types.standard_table(k), 8))
+      let cfg = Skee.Types.standard_config()
+      let t =
+        modify_for_boss(b, difficulty_table(cfg.antes, Skee.Types.standard_table(k), cfg.antes))
       let found = best_window(k, t, aims, 0.0)
       all([Arcade.Test.GoldenIo.expect_float(found, best, boss ++ " window"), expect(found >= 0.015, boss ++ ": no window for the 50 at the last ante")])
     end

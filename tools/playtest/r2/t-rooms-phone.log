@@ -1,0 +1,12 @@
+=== rooms (phone)
+  title live TapStart,TapOpenShop,TapHowToPlay,TapPickRoom(Boardwalk),TapPickRoom(NeonLounge) | BAR 7 SKEE SKEE SKEE TAP TO PLAY THE BOARDWALK ARCADE Where everyone starts. Sticky floors, honest machines. PRIZE SHOP · 300 HOW TO PLAY BOARDWALK OPEN NEON 2 COMP HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-1-title.png
+  picked neon: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE NEON LOUNGE Rings set high and tight, pockets pulled in. The machine runs hot on wilds. PRIZE SHOP · 300 HOW TO PLAY BOARDWALK OPEN NEON 1 COMP HIGH ROLLER 5000 PENTHOUSE 12000
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-2-neon.png
+  wallet room neonLounge
+  after reload: BAR 7 SKEE SKEE SKEE TAP TO PLAY THE NEON LOUNGE Rings set high and tight, pockets pulled in. The machine runs hot on wilds. PRIZE SHOP · 300 HOW TO PLAY BOARDWALK OPEN NEON 1 COMP HIGH ROLLER 5000 PE
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-3-neon-reload.png
+  start in neon: layer LayerBase | BAR 7 ANTE 1/8 WARM-UP 0 / 520 7 TARGETS · hit one = combo NEW GAME GUIDE WILD 2X WILD BONUS WILD BONUS SPIN FRAME 1/3 · 9 BALLS PULL · the middle row = this frame's targets
+  shot /Users/bobdawg/code/skee_skee_skee_march/tools/playtest/r2/shots/t-phone-rooms-4-neon-game.png
+  wallet comps after checkin ["neonLounge",{"credit":0,"nights":1,"room":"neonLounge","tickets":3}]
+  console: clean
