@@ -13,7 +13,7 @@ mod SynthEngine do
 
   doc """Start from a silent synth, as SoundEngine's `Synth()`."""
   fn reset() : () do
-    synth_cell_put(Skee.Synth.new())
+    synth_cell_put(Arcade.Synth.new())
   end
 
   doc """The commands that arrived since the last block, then one quantum of samples."""

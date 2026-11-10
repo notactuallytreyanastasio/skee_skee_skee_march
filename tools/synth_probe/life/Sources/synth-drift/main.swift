@@ -1,7 +1,7 @@
 import SkeeCore
 import SkeeRender
 // Samples of three cues outside the goldens, for checking the worst drift
-// claim in docs/PORT.md ("Skee.Synth"). One Double per line.
+// claim in docs/PORT.md ("Arcade.Synth"). One Double per line.
 for cue in [Cue.tallyChips(200), Cue.tallyMult(80), Cue.combo(40)] {
     var s = Synth()
     s.play(cue)

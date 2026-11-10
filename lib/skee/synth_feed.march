@@ -2,10 +2,10 @@ mod Skee.SynthFeed do
 
   -- What the audio callback runs, on the audio thread or a fallback on the
   -- main thread: the commands that arrived since the last block, in order,
-  -- then one block of Skee.Synth.render. Sound.swift's SoundEngine does the
+  -- then one block of Arcade.Synth.render. Sound.swift's SoundEngine does the
   -- same under its lock: play, setRumble and setDrumRoll change the one
   -- Synth, and the AVAudioSourceNode's callback renders from it. Depends on
-  -- Skee.Synth alone, so the audio worklet's build carries no game.
+  -- Arcade.Synth and Skee.Cues alone, so the audio worklet's build carries no game.
   cap pure
 
   -- One SoundEngine call. CmdPlay is `play(cue)`, CmdRumble `setRumble`,
@@ -19,9 +19,9 @@ mod Skee.SynthFeed do
   doc """One SoundEngine call on the synth."""
   fn obey(s : Synth, cmd : AudioCmd) : Synth needs () do
     match cmd do
-    CmdPlay(snd) -> Skee.Synth.play(s, snd)
-    CmdRumble(level) -> Skee.Synth.set_rumble(s, level)
-    CmdDrum(on_) -> Skee.Synth.set_drum(s, on_)
+    CmdPlay(snd) -> Skee.Cues.play(s, snd)
+    CmdRumble(level) -> Arcade.Synth.set_rumble(s, level)
+    CmdDrum(on_) -> Arcade.Synth.set_drum(s, on_)
     end
   end
 
@@ -37,7 +37,7 @@ mod Skee.SynthFeed do
 
   doc """One audio callback: the commands since the last one, then n samples."""
   fn block(s : Synth, cmds : List(AudioCmd), n : Int) : (List(Float), Synth) needs () do
-    Skee.Synth.render(obey_all(s, cmds), n)
+    Arcade.Synth.render(obey_all(s, cmds), n)
   end
 
   doc """A new synth's levels: no rumble, no drum roll."""

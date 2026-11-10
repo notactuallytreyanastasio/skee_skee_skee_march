@@ -1,6 +1,6 @@
 mod SynthSuite do
 
-  -- Parity of Skee.Synth against the real Swift Synth (Sources/SkeeRender/Synth.swift).
+  -- Parity of Arcade.Synth, playing Skee.Cues, against the real Swift Synth (Sources/SkeeRender/Synth.swift).
   -- test/golden/synth.march holds scripts of ops (play, render, rumble, drum),
   -- the voice count after each, and sample buffers from replaying them in
   -- Swift. Also SynthTests.swift, ported, and the Float arithmetic underneath.
@@ -20,7 +20,7 @@ mod SynthSuite do
   -- The largest |Swift - March| a sample may differ by: 2^-22, four Float
   -- ulps at full scale. Measured worst on the goldens is 2^-24, all from sinf
   -- and expf; other inputs drift by other amounts inside this. See
-  -- docs/PORT.md, "Skee.Synth". Never raise it silently.
+  -- docs/PORT.md, "Arcade.Synth". Never raise it silently.
   fn tolerance() : Float do
     Arcade.Test.GoldenIo.pow2(-22, 1.0)
   end
@@ -90,17 +90,17 @@ mod SynthSuite do
   end
 
   -- ---- The Float arithmetic ----
-  fn fround_row(c : Skee.Synth.SynthConsts, row : List(String)) : Outcome do
+  fn fround_row(c : Arcade.Synth.SynthConsts, row : List(String)) : Outcome do
     match row do
     Cons(x, Cons(want, Nil)) -> do
-      Arcade.Test.GoldenIo.expect_float(Skee.Synth.f32(c, Arcade.Test.GoldenIo.float_of_bits(x)), want, "fround " ++ x)
+      Arcade.Test.GoldenIo.expect_float(Arcade.Synth.f32(c, Arcade.Test.GoldenIo.float_of_bits(x)), want, "fround " ++ x)
     end
     _ -> Mismatch("bad fround row")
     end
   end
 
   -- sinf and expf go through libm: one Float ulp is allowed and reported.
-  fn libm_row(c : Skee.Synth.SynthConsts, f : Skee.Synth.SynthConsts -> Float -> Float, row : List(String)) : Outcome do
+  fn libm_row(c : Arcade.Synth.SynthConsts, f : Arcade.Synth.SynthConsts -> Float -> Float, row : List(String)) : Outcome do
     match row do
     Cons(x, Cons(want, Nil)) -> do
       let got = f(c, Arcade.Test.GoldenIo.float_of_bits(x))
@@ -119,11 +119,11 @@ mod SynthSuite do
     end
   end
 
-  fn powf_row(c : Skee.Synth.SynthConsts, row : List(String)) : Outcome do
+  fn powf_row(c : Arcade.Synth.SynthConsts, row : List(String)) : Outcome do
     match row do
     Cons(base, Cons(e, Cons(want, Nil))) -> do
       let got =
-        Skee.Synth.powf(c, Arcade.Test.GoldenIo.float_of_bits(base), Arcade.Test.GoldenIo.float_of_bits(e))
+        Arcade.Synth.powf(c, Arcade.Test.GoldenIo.float_of_bits(base), Arcade.Test.GoldenIo.float_of_bits(e))
       Arcade.Test.GoldenIo.expect_float(got, want, "powf " ++ base ++ " " ++ e)
     end
     _ -> Mismatch("bad powf row")
@@ -334,20 +334,20 @@ mod SynthSuite do
 
   fn apply_op(s : Synth, op : SynthOp) : (Synth, List(Float)) do
     match op do
-    SynthPlayOp(snd) -> (Skee.Synth.play(s, snd), [])
+    SynthPlayOp(snd) -> (Skee.Cues.play(s, snd), [])
     SynthRenderOp(n) -> do
-      let (out, next) = Skee.Synth.render(s, n)
+      let (out, next) = Arcade.Synth.render(s, n)
       (next, out)
     end
-    SynthRumbleOp(x) -> (Skee.Synth.set_rumble(s, x), [])
-    SynthDrumOp(flag) -> (Skee.Synth.set_drum(s, flag), [])
+    SynthRumbleOp(x) -> (Arcade.Synth.set_rumble(s, x), [])
+    SynthDrumOp(flag) -> (Arcade.Synth.set_drum(s, flag), [])
     end
   end
 
   fn replay_step(name : String, r : SynthReplay, step : SynthStep) : SynthReplay do
     let (next, out) = apply_op(r.synth, step.op)
     let count =
-      Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(next), step.voices_after, name ++ " voices")
+      Arcade.Test.Harness.expect_int(Arcade.Synth.voice_count(next), step.voices_after, name ++ " voices")
     { synth: next, chunks: Cons(out, r.chunks), counts: Cons(count, r.counts) }
   end
 
@@ -418,7 +418,7 @@ mod SynthSuite do
   type SynthResult = { name : String, outcome : Outcome, gap : SynthGap }
 
   fn run_scenario(s : SynthScenario) : SynthResult do
-    let start = { synth: Skee.Synth.new(), chunks: [], counts: [] }
+    let start = { synth: Arcade.Synth.new(), chunks: [], counts: [] }
     let r =
       List.fold_left(s.steps, start, fn (acc, step) -> replay_step(s.name, acc, step))
     let samples = List.concat(List.reverse(r.chunks))
@@ -440,7 +440,7 @@ mod SynthSuite do
   -- which on its own would let the synth slip back to double arithmetic, drop
   -- the Float.pi or -0.0 fixes, or skip a rounding: each of those still passes
   -- sample by sample. So the total is pinned to what was measured (docs/PORT.md,
-  -- "Skee.Synth"): every kept sample compared, at most drift_ceiling() of them
+  -- "Arcade.Synth"): every kept sample compared, at most drift_ceiling() of them
   -- off (a +0/-0 difference counts), none by more than 2^-24 (the worst on
   -- these inputs, not a bound for the synth). Lower it when
   -- parity improves; never raise it without finding the cause.
@@ -503,8 +503,8 @@ mod SynthSuite do
   -- ---- SynthTests.swift ----
   fn render_cues(cues : List(Sound), n : Int) : List(Float) do
     let s =
-      List.fold_left(cues, Skee.Synth.new(), fn (acc, c) -> Skee.Synth.play(acc, c))
-    let (out, _) = Skee.Synth.render(s, n)
+      List.fold_left(cues, Arcade.Synth.new(), fn (acc, c) -> Skee.Cues.play(acc, c))
+    let (out, _) = Arcade.Synth.render(s, n)
     out
   end
 
@@ -540,27 +540,27 @@ mod SynthSuite do
   fn caps_at_max_voices() : Outcome do
     let cues = [SndJackpot, SndBanner("MEGA JACKPOT"), SndHotSpot]
     let s =
-      List.fold_left(cues, Skee.Synth.new(), fn (acc, c) -> Skee.Synth.play(acc, c))
-    Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s), Skee.Synth.max_voices(), "voices after three big cues")
+      List.fold_left(cues, Arcade.Synth.new(), fn (acc, c) -> Skee.Cues.play(acc, c))
+    Arcade.Test.Harness.expect_int(Arcade.Synth.voice_count(s), Arcade.Synth.max_voices(), "voices after three big cues")
   end
 
   fn max_voices_is_48() : Outcome do
-    Arcade.Test.Harness.expect_int(Skee.Synth.max_voices(), 48, "maxVoices")
+    Arcade.Test.Harness.expect_int(Arcade.Synth.max_voices(), 48, "maxVoices")
   end
 
   fn rate_is_44100() : Outcome do
-    expect(Skee.Synth.rate() == 44100.0, "rate")
+    expect(Arcade.Synth.rate() == 44100.0, "rate")
   end
 
   -- Rendering in pieces is the same as rendering at once: the shell asks for
   -- whatever block size the browser wants.
   fn chunking_is_invisible() : Outcome do
     let s =
-      Skee.Synth.play(Skee.Synth.set_drum(Skee.Synth.set_rumble(Skee.Synth.new(), 0.5), true), SndJackpot)
-    let (whole, _) = Skee.Synth.render(s, 3000)
-    let (a, s1) = Skee.Synth.render(s, 128)
-    let (b, s2) = Skee.Synth.render(s1, 1000)
-    let (c, _) = Skee.Synth.render(s2, 1872)
+      Skee.Cues.play(Arcade.Synth.set_drum(Arcade.Synth.set_rumble(Arcade.Synth.new(), 0.5), true), SndJackpot)
+    let (whole, _) = Arcade.Synth.render(s, 3000)
+    let (a, s1) = Arcade.Synth.render(s, 128)
+    let (b, s2) = Arcade.Synth.render(s1, 1000)
+    let (c, _) = Arcade.Synth.render(s2, 1872)
     expect(all_same(whole, List.concat([a, b, c])), "rendering in blocks changed the sound")
   end
 
@@ -570,22 +570,22 @@ mod SynthSuite do
   -- (0x3c20fe0e) lands on it after 2600 samples; the voice counts and samples
   -- are the real Swift Synth's, from tools/synth_probe/life.
   fn voice_lives_through_t_equal_to_life() : Outcome do
-    let c = Skee.Synth.consts()
+    let c = Arcade.Synth.consts()
     let v =
-      Skee.Synth.voice(c, WaveSine, 440.0, 440.0, 0.1, 0.5, f32("3c20fe0e"), 0.0)
-    let s = Skee.Synth.add(Skee.Synth.new(), [v])
-    let (_, s1) = Skee.Synth.render(s, 2599)
-    let (last_alive, s2) = Skee.Synth.render(s1, 1)
-    let (last, s3) = Skee.Synth.render(s2, 1)
-    let (after, s4) = Skee.Synth.render(s3, 1)
-    all([Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Arcade.Test.Harness.expect_int(Skee.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.zip_with(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"], fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
+      Arcade.Synth.voice(c, WaveSine, 440.0, 440.0, 0.1, 0.5, f32("3c20fe0e"), 0.0)
+    let s = Arcade.Synth.add(Arcade.Synth.new(), [v])
+    let (_, s1) = Arcade.Synth.render(s, 2599)
+    let (last_alive, s2) = Arcade.Synth.render(s1, 1)
+    let (last, s3) = Arcade.Synth.render(s2, 1)
+    let (after, s4) = Arcade.Synth.render(s3, 1)
+    all([Arcade.Test.Harness.expect_int(Arcade.Synth.voice_count(s2), 1, "voices after 2600 samples, t == decay * 6"), Arcade.Test.Harness.expect_int(Arcade.Synth.voice_count(s3), 0, "voices after 2601 samples"), all(List.zip_with(List.concat([last_alive, last, after]), ["b9ebbcdc", "b9c4c8b5", "00000000"], fn (got, want) -> sample(got, f32(want), "sample at the end of life")))])
   end
 
   fn cases() : List(Case) do
     let rows = golden()
-    let c = Skee.Synth.consts()
+    let c = Arcade.Synth.consts()
     let results = List.map(scenarios(rows), run_scenario)
-    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("a voice lives through t == decay * 6", fn () -> voice_lives_through_t_equal_to_life()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> Arcade.Test.GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Skee.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
+    List.concat([[case("silent until cued", fn () -> silent_until_cued()), case("a cue sounds and stays in range", fn () -> a_cue_sounds_and_stays_in_range()), case("deterministic", fn () -> deterministic()), case("caps at maxVoices", fn () -> caps_at_max_voices()), case("maxVoices is 48", fn () -> max_voices_is_48()), case("rate is 44100", fn () -> rate_is_44100()), case("chunking is invisible", fn () -> chunking_is_invisible()), case("a voice lives through t == decay * 6", fn () -> voice_lives_through_t_equal_to_life()), case("swift Float rounding", fn () -> all(List.map(kind(rows, "fround"), fn r -> fround_row(c, r)))), case("swift Float.pi", fn () -> Arcade.Test.GoldenIo.expect_float(c.pi, lone_token(kind(rows, "floatpi"), "floatpi"), "Float.pi")), case("swift sinf", fn () -> all(List.map(kind(rows, "sinf"), fn r -> libm_row(c, fn (k, x) -> Arcade.Synth.sinf(k, x), r)))), case("swift expf", fn () -> all(List.map(kind(rows, "expf"), fn r -> libm_row(c, fn (k, x) -> Arcade.Synth.expf(k, x), r)))), case("swift powf", fn () -> all(List.map(kind(rows, "powf"), fn r -> powf_row(c, r)))), case("drift from Swift is pinned", fn () -> drift_is_pinned(results))], List.map(results, scenario_case)])
   end
 
 end

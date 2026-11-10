@@ -55,13 +55,13 @@ foundation: ask before changing it.
 | reducer | `lib/skee/reducer.march` | `Run/Reducer.swift`, `Run/Config.swift`, `Run/RunState.swift`, `Run/Difficulty.swift` | `golden-run` | `make test-reducer` |
 | bots | `lib/skee/bots.march` | `Bots/*` | `golden-bots` | `make test-bots` |
 | meta | `lib/skee/guide.march`, `walkthrough.march`, `save.march` | `Meta/Guide.swift`, `Meta/Walkthrough.swift`, Wallet's decoder, GameModel's `TipStore`/`WalletStore`/`RunStore` and tip bookkeeping | `golden-meta` | `make test-meta` |
-| synth | `lib/skee/synth.march` | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
+| synth | `arcade/lib/arcade/float32.march`, `synth.march` (`Arcade.Float32`, `Arcade.Synth`, tuning `Arcade.Synth.tuning()`); `lib/skee/cues.march` (`Skee.Cues`: `Sound` and `voices_for`) | `SkeeRender/Synth.swift` (Cue as `Sound`) | `golden-synth` (`tools/golden_synth`) | `make test-synth` |
 | presentation | `lib/skee/presentation.march`, `hud_state.march`, `palette.march` (`Skee.Presentation`, `Skee.HudState`, `Skee.Palette`) | `SkeeRender/Presentation.swift`, `Palette.swift`, `ArtStyle.swift`, `SkeeHUD/HUDState.swift` (`make` and what it sets) | `golden-presentation` | `make test-presentation` |
 | scene | `lib/skee/world.march`, `camera.march`, `scene.march`, `scene_cue.march` (`Skee.World`, `Skee.Camera`, `Skee.Scene`, `Skee.SceneCue`) | `SkeeScene/World.swift`, `Cabinet.swift`, `Toon.swift`, `Shapes.swift`, `Textures.swift` (lane, ball, coin, symbols, badge, pit, blob, wave), `Snapshot.swift` (`CameraRig`, `Cabinet.fit`), `ScenePresenter.swift` (placement, flick geometry, guide, lane point), GameModel's `holeOnScreen` and `tapBoard` | `golden-scene` (`tools/golden_scene`) | `make test-scene` |
 | app | `lib/skee/app.march` (`Skee.App`) | `App/Sources/GameModel.swift` (send, touches, HUD actions, walkthrough parking, tips, new games, rooms, refreshHUD, tick's rumble and drum, Haptics), SkeeApp's rebuild, `Sound.swift`'s cue routing, `Meta/Walkthrough.swift`'s `Arrival.beats` | none (no Swift tests; Msg-driven cases) | `make test-app` |
 | painter + platform | `arcade/lib/arcade/canvas.march` (`Arcade.Canvas`) and `arcade/lib/arcade/web/` (`Arcade.Web.Paint`, `Arcade.Web.Canvas2d`); the shell: `shell/game.march`, `glue.march`; `web/` (index.html, style.css, skee_glue.mjs); `tools/serve`, `tools/playtest` | `tools/scene_preview/paint.html`'s Canvas 2D calls as data; SkeeApp's `ThrowPad` and `GameView` plumbing | none (hand-written cases) | `make test-painter`, `make web`, `make playtest` |
 | hud | `lib/skee/hud_view.march` (`Skee.HudView`); `shell/hud.march`; the "HUD" section of `web/style.css`; `tools/playtest/hud_playtest.mjs` | `SkeeHUD/HUDView.swift`, `CounterView`, `BallRack`, `MachineView`, `PrizeShopView`, `GuideView` (with `ArrivalView`, `CoachView`), `HostView`'s `RoomPicker`; `SkeeScene/PrizeArt.swift` as SVG | none (SkeeHUD has no tests; Msg-driven cases against `Skee.App.accepts`) | `make test-hud`, `node tools/playtest/hud_playtest.mjs` |
-| audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Skee.Synth`, which is golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
+| audio | `lib/skee/synth_feed.march`, `sound_out.march` (`Skee.SynthFeed`, `Skee.SoundOut`); `shell/audio.march`, `synth_engine.march`, `synth_worklet.march` (the worklet's entry); `web/skee_audio.mjs`, `skee_synth_cell.mjs`, `skee_worklet.mjs`; `tools/audio_check` | `App/Sources/Sound.swift`'s `SoundEngine` (one Synth under a lock, rendered by the device's callback, mainMixer at 0.8) | none for the feed (it is held to `Arcade.Synth` with `Skee.Cues`, which are golden); the shipped worklet against `golden-synth` | `make test-audio`, `make audio-check` |
 | host | `lib/skee/host.march`, `host_guard.march`, `swift_text.march`, `unicode_data.march` (generated) (`Skee.Host`, `Skee.HostGuard`, `Skee.SwiftText`, `Skee.UnicodeData`) | `Meta/Host.swift` (Host, ChatMessage, HaggleLine, HostReply, Haggle), `Meta/HostGuard.swift`, the Phrasebook's off-topic lines (for the guard's deflection only), `SkeeNet/DeepSeek.swift`'s request, envelope, `parse` and guarded retries, `SkeeHUD/HostView.swift`'s HostState, relay/relay.mjs's limits. Not `ScriptedHost` | `golden-host` (`tools/golden_host`: golden-unicode, golden-host) | `make test-host` |
 
 A piece also owns its `test/suites/<piece>_suite.march`, `test/mains/<piece>_main.march`,
@@ -262,15 +262,21 @@ goldens and 22 re-seeded generators:
 Accepted: a web shot can rarely play differently from the same shot on iPhone.
 Runs replay exactly on one target, not across targets.
 
-### Skee.Synth: Swift's 32-bit Float
+### Arcade.Synth: Swift's 32-bit Float
 
 The synth is Swift `Float` arithmetic. Every Float operation is done in double
-and rounded with `Skee.Synth.f32` (Veltkamp's split for normal values, a
+and rounded with `Arcade.Float32.f32` (Veltkamp's split for normal values, a
 `1.5 * 2^-97` shift for subnormals, infinity from `2^128 - 2^103` up, ties to
 even). A double holds any sum or product of two Floats closely enough that one
 rounding gives Swift's bits: 6031 golden rows of `Float(x)`, ties, subnormals
 and overflow to infinity included, are exact on both targets. Where Swift
 chains operations, round after each one.
+
+The engine half is `Arcade.Float32` (the rounding, `sinf`/`expf`/`powf`,
+Float.pi, `plus_zero`) and `Arcade.Synth` (voices, stealing, render, the
+rumble and drum beds). The numbers that shape the sound are a `SynthTuning`;
+`Arcade.Synth.tuning()` holds Synth.swift's literals and `new()` uses it. The
+cue table (`Sound`, `voices_for`, `play`) is the game's: `Skee.Cues`.
 
 - Swift's `Float.pi` is pi rounded toward zero (`0x40490FDA`), one ulp below
   the nearest Float. Everything that says `.pi` on a Float needs this.
@@ -302,7 +308,7 @@ chains operations, round after each one.
   goldens cannot tell `>` from `>=`. The case "a voice lives through t ==
   decay * 6" uses a decay (`0x3c20fe0e`) that does, with voice counts and
   samples from the real Swift Synth (`tools/synth_probe/life`, `synth-life`).
-  `Skee.Synth.voice` is public for it, as Swift's `v` is.
+  `Arcade.Synth.voice` is public for it, as Swift's `v` is.
 - `test/golden/synth.march` is 3.3 MB (110891 rows: 96450 `s` samples, 6031
   `fround`, 3000 `sinf`, 3000 `expf`, 2164 `op`, 74 `powf`, 57 each of `len`,
   `sumsq` and `peak`, 1 `floatpi`).
@@ -443,7 +449,7 @@ CSS pixels), `MsgPointerCancel`, `MsgTap(Intent)`, `MsgResize`, `MsgVisible`
 and `MsgAutoplay` (LaunchArguments' `-autoplay`). Every HUD button is an
 `Intent` constructor; `Skee.App.accepts` says whether it is on screen and on
 top, so a tap under an overlay does nothing, as in SwiftUI. `Effect` is
-`FxSound(Skee.Synth.Sound)`, `FxRumble`, `FxDrum`, `FxSave(SaveKey, text)` and
+`FxSound(Skee.Cues.Sound)`, `FxRumble`, `FxDrum`, `FxSave(SaveKey, text)` and
 `FxHaptic`. The shell owns the storage key for each `SaveKey` and hands the
 stored strings back at boot as `SavedStrings`. Rumble and drum effects are
 sent only when the level changes; Swift sets them every frame to the same value.
@@ -584,7 +590,7 @@ Deviations from SkeeHUD:
   same per-frame formulas as Swift.
 - Text that SwiftUI shrinks to fit (`minimumScaleFactor`) is clipped or wraps.
 
-### Audio: Skee.Synth in real time
+### Audio: Arcade.Synth in real time
 
 The synth runs in an AudioWorklet, one 128-sample block per render quantum,
 not as pre-rendered per-cue buffers: the synth's state is shared (one noise
@@ -600,7 +606,7 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
 ```
 
 - `make web` builds a second entry, `shell/synth_worklet.march`, into
-  `dist/skee_synth_worklet.mjs` (340 KB: Skee.Synth and Skee.SynthFeed, no
+  `dist/skee_synth_worklet.mjs` (340 KB: Arcade.Synth, Skee.Cues and Skee.SynthFeed, no
   game), which `audioWorklet.addModule` loads. It imports
   `march_runtime.mjs` in the worklet's realm; nothing in the runtime touches
   `window` or `document` at load. Each processor starts from a silent synth
@@ -629,7 +635,7 @@ update -> effects -> Skee.SoundOut.commands -> List(AudioCmd)     main thread
   The same bundle under node with a stand-in worklet scope
   (`tools/audio_check/worklet_node.mjs`) gives the same 1264 and the same
   worst: Chrome's V8 and node's agree, and the drift is libm's (see
-  "Skee.Synth" above).
+  "Arcade.Synth" above).
 - `<html data-audio>` is the context's state (`none` before a gesture),
   `data-audio-path` is `worklet`, `script` or `off`, and
   `window.__skeeAudio.log` keeps the last 400 batches sent (page time, audio
@@ -880,7 +886,7 @@ Each one was hit on this build. `scripts/check_core.py` enforces the ones marked
   march#1173)
 - **`0.0 +. x` is folded to `x`, every target.** Even with `opt.fold` off. When
   `x` is `-0.0` the IEEE answer is `+0.0`, so the sign of a zero is lost. Write
-  `if x == 0.0 do 0.0 else x end` where it matters (`Skee.Synth.plus_zero`).
+  `if x == 0.0 do 0.0 else x end` where it matters (`Arcade.Float32.plus_zero`).
   (`synth/fold_probe.march`)
 - **Let-bound lambdas over records, native.** A `let f = fn ... ->` that captures
   a record and puts an Int argument into a record returns its tagged form

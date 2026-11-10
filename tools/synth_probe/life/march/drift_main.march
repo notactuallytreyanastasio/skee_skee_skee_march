@@ -22,7 +22,7 @@ mod DriftMain do
   end
 
   fn dump(snd : Sound) : () do
-    let (out, _) = Skee.Synth.render(Skee.Synth.play(Skee.Synth.new(), snd), 176400)
+    let (out, _) = Arcade.Synth.render(Skee.Cues.play(Arcade.Synth.new(), snd), 176400)
     List.each(out, fn x -> println(exact(x)))
   end
 

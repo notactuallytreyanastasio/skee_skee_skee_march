@@ -63,7 +63,7 @@ async function parity(browser) {
   }
   await page.close();
   const line = `${list.length} scenarios, ${compared} samples, ${differ} not bit-identical, worst |error| ${worst.toExponential(3)} (tolerance 2^-22 = ${tol.toExponential(3)})`;
-  bad === 0 && list.length > 0 && compared > 0 ? ok("worklet output is Skee.Synth's: " + line) : fail(line);
+  bad === 0 && list.length > 0 && compared > 0 ? ok("worklet output is Arcade.Synth's: " + line) : fail(line);
 }
 
 async function marks(page) {

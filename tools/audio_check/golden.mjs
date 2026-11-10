@@ -17,7 +17,7 @@ const HOLES = { gutter: "Gutter", ring10: "Ring10", ring20: "Ring20", ring30: "R
 const BARE = { launch: "SndLaunch", rail: "SndRail", hump: "SndHump", lip: "SndLip", backwall: "SndBackwall", landed: "SndLanded", gutter: "SndGutter", hop: "SndHop", whoosh: "SndWhoosh", hotSpot: "SndHotSpot", lever: "SndLever", reelTick: "SndReelTick", reelStop: "SndReelStop", frameDone: "SndFrameDone", lineWon: "SndLineWon", jackpot: "SndJackpot", foul: "SndFoul" };
 const WITH_INT = { pullWin: "SndPullWin", combo: "SndCombo", tallyChips: "SndTallyChips", tallyMult: "SndTallyMult" };
 
-// A golden cue as March's JS value of Skee.Synth.Sound.
+// A golden cue as March's JS value of Skee.Cues.Sound.
 function soundOf(tokens) {
   const [name, arg] = tokens;
   if (tokens.length === 1 && BARE[name]) return { $: BARE[name] };

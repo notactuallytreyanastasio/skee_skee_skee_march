@@ -1,5 +1,5 @@
 #!/bin/sh
-# Time Skee.Synth.render on native and under node, and print the measured
+# Time Arcade.Synth.render on native and under node, and print the measured
 # parity with Swift. Writes to dist/bench/synth.
 set -eu
 root=$(cd "$(dirname "$0")/../.." && pwd)

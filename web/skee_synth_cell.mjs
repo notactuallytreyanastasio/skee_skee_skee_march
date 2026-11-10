@@ -7,7 +7,7 @@
 // closures called as f._0(f, args...).
 
 const NIL = { $: "Nil" };
-const RATE = 44100; // Skee.Synth.rate()
+const RATE = 44100; // Arcade.Synth.rate()
 
 let synth = null;
 export function synth_cell_get() { return synth; }

@@ -1,0 +1,409 @@
+mod Arcade.Synth do
+
+  -- A small polyphonic synth as a pure value: voices in, samples out. No
+  -- audio files: a game builds its sounds from voices (`tone`, `glide`,
+  -- `bend`, `arpeggio`, `bell`, or `voice` for the full form) and queues them
+  -- with `add`. The shell owns the clock and the speakers; it calls `add`
+  -- when a sound starts, `set_rumble` and `set_drum` for the two beds, and
+  -- `render` for every block the audio device asks for.
+  --
+  -- It is a port of a Swift synth in 32-bit Float, kept bit for bit: every
+  -- Float operation is done in double and rounded by Arcade.Float32. The
+  -- numbers that shape the sound (rate, voice cap, envelope, the beds) are a
+  -- `SynthTuning`; `tuning()` is the Swift synth's, and `new()` uses it.
+  cap pure
+
+  type SynthWave = WaveSine | WaveSquare | WaveTri | WaveNoise
+
+  -- Every Float field holds a value a Swift Float can hold. `glide_floor` is
+  -- Swift's max(glide, 0.0001) and `life` its decay * 6, both computed once.
+  type SynthVoice = {
+    wave : SynthWave,
+    freq : Float,
+    freq_end : Float,
+    glide_floor : Float,
+    amp : Float,
+    decay : Float,
+    life : Float,
+    delay : Float,
+    t : Float,
+    phase : Float
+  }
+
+  -- The numbers a synth is built from, as written (not yet rounded to Float).
+  -- `rate` is samples per second; `max_voices` the cap past which `add`
+  -- drops the oldest voices; `seed` the noise generator's start. The rumble
+  -- bed is low-passed noise: its loudness follows `set_rumble` by
+  -- `rumble_follow` a sample, the noise is low-passed by `lowpass_follow`, and
+  -- the product is scaled by `rumble_gain`. The drum bed is one noise hit of
+  -- `drum_amp` and `drum_decay` every `drum_step` seconds. `min_glide` floors
+  -- every glide time, `attack_time` is every voice's linear attack,
+  -- `square_level` the square wave's height, and `default_glide` the glide
+  -- time of the short voice forms.
+  type SynthTuning = {
+    rate : Float,
+    max_voices : Int,
+    seed : Int,
+    rumble_follow : Float,
+    lowpass_follow : Float,
+    rumble_gain : Float,
+    drum_step : Float,
+    drum_amp : Float,
+    drum_decay : Float,
+    min_glide : Float,
+    attack_time : Float,
+    square_level : Float,
+    default_glide : Float
+  }
+
+  -- The Float constants of the synth, rounded to Float once. `drum_amp` and
+  -- `drum_decay` stay as written: `voice` rounds them, as it rounds every
+  -- argument.
+  type SynthConsts = {
+    round : F32Consts,
+    dt : Float,
+    pi : Float,
+    rumble_follow : Float,
+    lowpass_follow : Float,
+    rumble_gain : Float,
+    drum_step : Float,
+    drum_amp : Float,
+    drum_decay : Float,
+    min_glide : Float,
+    attack_time : Float,
+    square_level : Float,
+    default_glide : Float,
+    max_voices : Int
+  }
+
+  type Synth = {
+    voices : List(SynthVoice),
+    lowpass : Float,
+    rumble : Float,
+    drum_clock : Float,
+    seed : Int,
+    rumble_target : Float,
+    drum : Bool,
+    c : SynthConsts
+  }
+
+  doc """The Swift synth's tuning: what `new()` and `consts()` use."""
+  fn tuning() : SynthTuning needs () do
+    {
+      rate: 44100.0,
+      max_voices: 48,
+      seed: 22222,
+      rumble_follow: 0.0008,
+      lowpass_follow: 0.035,
+      rumble_gain: 0.9,
+      drum_step: 0.055,
+      drum_amp: 0.13,
+      drum_decay: 0.03,
+      min_glide: 0.0001,
+      attack_time: 0.003,
+      square_level: 0.6,
+      default_glide: 0.1
+    }
+  end
+
+  doc """Samples per second, by the default tuning."""
+  fn rate() : Float needs () do
+    let t = tuning()
+    t.rate
+  end
+
+  doc """The default tuning's voice cap. A sound past it drops the oldest voices."""
+  fn max_voices() : Int needs () do
+    let t = tuning()
+    t.max_voices
+  end
+
+  doc """A tuning's constants, each rounded to Float once. Build once: `new_tuned` does."""
+  fn consts_of(t : SynthTuning) : SynthConsts needs () do
+    let r = Arcade.Float32.consts()
+    let n = Arcade.Numerics.make()
+    {
+      round: r,
+      dt: Arcade.Float32.f32(r, 1.0 /. t.rate),
+      pi: Arcade.Float32.pi_toward_zero(r, n.pi),
+      rumble_follow: Arcade.Float32.f32(r, t.rumble_follow),
+      lowpass_follow: Arcade.Float32.f32(r, t.lowpass_follow),
+      rumble_gain: Arcade.Float32.f32(r, t.rumble_gain),
+      drum_step: Arcade.Float32.f32(r, t.drum_step),
+      drum_amp: t.drum_amp,
+      drum_decay: t.drum_decay,
+      min_glide: Arcade.Float32.f32(r, t.min_glide),
+      attack_time: Arcade.Float32.f32(r, t.attack_time),
+      square_level: Arcade.Float32.f32(r, t.square_level),
+      default_glide: Arcade.Float32.f32(r, t.default_glide),
+      max_voices: t.max_voices
+    }
+  end
+
+  doc """The default tuning's constants."""
+  fn consts() : SynthConsts needs () do
+    consts_of(tuning())
+  end
+
+  doc """Swift's Float(x), with the synth's rounding constants: Arcade.Float32.f32."""
+  fn f32(c : SynthConsts, x : Float) : Float needs () do
+    Arcade.Float32.f32(c.round, x)
+  end
+
+  doc """Swift's sin on a Float: Arcade.Float32.sinf."""
+  fn sinf(c : SynthConsts, x : Float) : Float needs () do
+    Arcade.Float32.sinf(c.round, x)
+  end
+
+  doc """Swift's exp on a Float: Arcade.Float32.expf."""
+  fn expf(c : SynthConsts, x : Float) : Float needs () do
+    Arcade.Float32.expf(c.round, x)
+  end
+
+  doc """Swift's pow on Floats: Arcade.Float32.powf."""
+  fn powf(c : SynthConsts, base : Float, e : Float) : Float needs () do
+    Arcade.Float32.powf(c.round, base, e)
+  end
+
+  doc """A silent synth with this tuning: no voices, no rumble, no drum roll."""
+  fn new_tuned(t : SynthTuning) : Synth needs () do
+    {
+      voices: [],
+      lowpass: 0.0,
+      rumble: 0.0,
+      drum_clock: 0.0,
+      seed: t.seed,
+      rumble_target: 0.0,
+      drum: false,
+      c: consts_of(t)
+    }
+  end
+
+  doc """A silent synth with the default tuning."""
+  fn new() : Synth needs () do
+    new_tuned(tuning())
+  end
+
+  doc """The rumble bed's loudness, approached a little every sample. Swift's `rumbleTarget`."""
+  fn set_rumble(s : Synth, target : Float) : Synth needs () do
+    { s with rumble_target: f32(s.c, target) }
+  end
+
+  doc """The drum bed, a noise hit every drum_step while on. Swift's `drum`."""
+  fn set_drum(s : Synth, drum_on : Bool) : Synth needs () do
+    { s with drum: drum_on }
+  end
+
+  fn voice_count(s : Synth) : Int needs () do
+    List.length(s.voices)
+  end
+
+  -- ---- Voices ----
+  doc """One voice, for `add`. Swift's public v(wave, f, to:, glide:, amp:, decay:, delay:), every argument rounded to Float. The shorter forms below are its defaults: to = f, glide = default_glide, delay = 0."""
+  fn voice(c : SynthConsts, w : SynthWave, f : Float, to : Float, glide : Float, amp : Float, decay : Float, delay : Float) : SynthVoice needs () do
+    let d = f32(c, decay)
+    {
+      wave: w,
+      freq: f32(c, f),
+      freq_end: f32(c, to),
+      glide_floor: Arcade.Num.max_float(f32(c, glide), c.min_glide),
+      amp: f32(c, amp),
+      decay: d,
+      life: f32(c, d *. 6.0),
+      delay: f32(c, delay),
+      t: 0.0,
+      phase: 0.0
+    }
+  end
+
+  doc """A steady note."""
+  fn tone(c : SynthConsts, w : SynthWave, f : Float, amp : Float, decay : Float) : SynthVoice needs () do
+    voice(c, w, f, f, c.default_glide, amp, decay, 0.0)
+  end
+
+  doc """A steady note that starts after delay seconds."""
+  fn tone_at(c : SynthConsts, w : SynthWave, f : Float, amp : Float, decay : Float, delay : Float) : SynthVoice needs () do
+    voice(c, w, f, f, c.default_glide, amp, decay, delay)
+  end
+
+  doc """A note bending from f to `to` over the default glide time."""
+  fn bend(c : SynthConsts, w : SynthWave, f : Float, to : Float, amp : Float, decay : Float) : SynthVoice needs () do
+    voice(c, w, f, to, c.default_glide, amp, decay, 0.0)
+  end
+
+  doc """A note gliding from f to `to` over `time` seconds."""
+  fn glide(c : SynthConsts, w : SynthWave, f : Float, to : Float, time : Float, amp : Float, decay : Float) : SynthVoice needs () do
+    voice(c, w, f, to, time, amp, decay, 0.0)
+  end
+
+  doc """Float(i) * x, in Float."""
+  fn times(c : SynthConsts, i : Int, x : Float) : Float needs () do
+    f32(c, int_to_float(i) *. f32(c, x))
+  end
+
+  doc """start + Float(i) * step, in Float."""
+  fn after(c : SynthConsts, start : Float, i : Int, step : Float) : Float needs () do
+    f32(c, f32(c, start) +. times(c, i, step))
+  end
+
+  pfn arpeggio_from(c : SynthConsts, notes : List(Float), i : Int, step : Float, amp : Float, decay : Float, w : SynthWave, acc : List(SynthVoice)) : List(SynthVoice) needs () do
+    match notes do
+    Nil -> List.reverse(acc)
+    Cons(f, rest) -> do
+      arpeggio_from(c, rest, i + 1, step, amp, decay, w, Cons(tone_at(c, w, f, amp, decay, times(c, i, step)), acc))
+    end
+    end
+  end
+
+  doc """The notes one after another, `step` seconds apart."""
+  fn arpeggio(c : SynthConsts, notes : List(Float), step : Float, amp : Float, decay : Float, w : SynthWave) : List(SynthVoice) needs () do
+    arpeggio_from(c, notes, 0, step, amp, decay, w, [])
+  end
+
+  doc """Bell partials, like a struck chime."""
+  fn bell(c : SynthConsts, pitch : Float, loudness : Float, delay : Float) : List(SynthVoice) needs () do
+    let f = f32(c, pitch)
+    let amp = f32(c, loudness)
+    [
+      tone_at(c, WaveSine, f, amp, 0.5, delay),
+      tone_at(c, WaveSine, f *. f32(c, 2.76), amp *. f32(c, 0.35), 0.25, delay),
+      tone_at(c, WaveSine, f *. f32(c, 5.4), amp *. f32(c, 0.15), 0.12, delay)
+    ]
+  end
+
+  doc """(0..<n).map(f): Swift's range of voices."""
+  fn upto(n : Int, f : Int -> SynthVoice) : List(SynthVoice) needs () do
+    upto_from(0, n, f, [])
+  end
+
+  pfn upto_from(i : Int, n : Int, f : Int -> SynthVoice, acc : List(SynthVoice)) : List(SynthVoice) needs () do
+    if i < n do
+      upto_from(i + 1, n, f, Cons(f(i), acc))
+    else
+      List.reverse(acc)
+    end
+  end
+
+  doc """Queue voices; past max_voices the oldest go. Swift's `add`."""
+  fn add(s : Synth, vs : List(SynthVoice)) : Synth needs () do
+    let all_voices = List.append(s.voices, vs)
+    let over = List.length(all_voices) - s.c.max_voices
+    { s with voices: if over > 0 do List.drop(all_voices, over) else all_voices end }
+  end
+
+  -- ---- Rendering ----
+  -- Swift's LCG, UInt32 wrapping. seed < 2^32, so seed * 1664525 + 1013904223
+  -- stays below 2^53 and is exact on JS.
+  pfn next_seed(seed : Int) : Int needs () do
+    (seed * 1664525 + 1013904223) % 4294967296
+  end
+
+  -- Float(seed >> 9) / 2^23 * 2 - 1: exact in Float and in double.
+  pfn noise_of(seed : Int) : Float needs () do
+    int_to_float(seed / 512) /. 8388608.0 *. 2.0 -. 1.0
+  end
+
+  type Mix = { level : Float, mix_seed : Int, kept : List(SynthVoice) }
+
+  pfn oscillate(c : SynthConsts, w : SynthWave, phase : Float, seed : Int) : (Float, Int) needs () do
+    match w do
+    WaveSine -> (sinf(c, f32(c, phase *. 2.0 *. c.pi)), seed)
+    WaveSquare -> (if phase < 0.5 do c.square_level else 0.0 -. c.square_level end, seed)
+    WaveTri -> do
+      let centred = f32(c, phase -. 0.5)
+      let folded = if centred < 0.0 do 0.0 -. centred else centred end
+      (f32(c, f32(c, 4.0 *. folded) -. 1.0), seed)
+    end
+    WaveNoise -> do
+      let next = next_seed(seed)
+      (noise_of(next), next)
+    end
+    end
+  end
+
+  -- One voice for one sample, in Swift's order of operations.
+  pfn sound_voice(c : SynthConsts, v : SynthVoice, m : Mix) : Mix needs () do
+    let f =
+      f32(c, v.freq +. f32(c, f32(c, v.freq_end -. v.freq) *. Arcade.Num.min_float(1.0, f32(c, v.t /. v.glide_floor))))
+    let stepped = f32(c, v.phase +. f32(c, f *. c.dt))
+    let phase = if stepped > 1.0 do f32(c, stepped -. 1.0) else stepped end
+    let (osc, seed) = oscillate(c, v.wave, phase, m.mix_seed)
+    let attack = Arcade.Num.min_float(1.0, f32(c, v.t /. c.attack_time))
+    let envelope = expf(c, f32(c, (0.0 -. v.t) /. v.decay))
+    let level =
+      f32(c, m.level +. f32(c, f32(c, f32(c, osc *. v.amp) *. attack) *. envelope))
+    let t = f32(c, v.t +. c.dt)
+    let kept =
+      if t > v.life do
+        m.kept
+      else
+        Cons({ v with t: t, phase: phase }, m.kept)
+      end
+    { level: level, mix_seed: seed, kept: kept }
+  end
+
+  pfn mix_voices(c : SynthConsts, vs : List(SynthVoice), m : Mix) : Mix needs () do
+    match vs do
+    Nil -> m
+    Cons(v, rest) -> do
+      if v.delay > 0.0 do
+        mix_voices(c, rest, { m with kept: Cons({ v with delay: f32(c, v.delay -. c.dt) }, m.kept) })
+      else
+        mix_voices(c, rest, sound_voice(c, v, m))
+      end
+    end
+    end
+  end
+
+  -- One drum hit every drum_step while the roll is on. Appended past
+  -- max_voices, as Swift's render appends without add.
+  pfn drum_roll(s : Synth) : Synth needs () do
+    if s.drum do
+      do
+        let c = s.c
+        let clock = f32(c, s.drum_clock +. c.dt)
+        if clock > c.drum_step do
+          { s with drum_clock: 0.0, voices: List.append(s.voices, [voice(c, WaveNoise, 0.0, 0.0, 1.0, c.drum_amp, c.drum_decay, 0.0)]) }
+        else
+          { s with drum_clock: clock }
+        end
+      end
+    else
+      s
+    end
+  end
+
+  -- One sample: first the rumble bed, low-passed noise that follows
+  -- set_rumble; then the drum bed; then every voice, oldest first.
+  pfn next_sample(s : Synth) : (Float, Synth) needs () do
+    let c = s.c
+    let rumble =
+      f32(c, s.rumble +. f32(c, f32(c, s.rumble_target -. s.rumble) *. c.rumble_follow))
+    let seed = next_seed(s.seed)
+    let lowpass =
+      f32(c, s.lowpass +. f32(c, f32(c, noise_of(seed) -. s.lowpass) *. c.lowpass_follow))
+    let level =
+      Arcade.Float32.plus_zero(f32(c, f32(c, lowpass *. rumble) *. c.rumble_gain))
+    let drummed = drum_roll({ s with rumble: rumble, lowpass: lowpass, seed: seed })
+    let m = mix_voices(c, drummed.voices, { level: level, mix_seed: seed, kept: [] })
+    let out = Arcade.Num.max_float(-1.0, Arcade.Num.min_float(1.0, m.level))
+    (out, { drummed with seed: m.mix_seed, voices: List.reverse(m.kept) })
+  end
+
+  pfn render_into(s : Synth, n : Int, acc : List(Float)) : (List(Float), Synth) needs () do
+    if n > 0 do
+      do
+        let (x, next) = next_sample(s)
+        render_into(next, n - 1, Cons(x, acc))
+      end
+    else
+      (List.reverse(acc), s)
+    end
+  end
+
+  doc """The next n samples, each in [-1, 1], and the synth after them. Swift's `render`."""
+  fn render(s : Synth, n : Int) : (List(Float), Synth) needs () do
+    render_into(s, n, [])
+  end
+
+end

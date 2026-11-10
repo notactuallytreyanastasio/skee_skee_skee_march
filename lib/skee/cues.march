@@ -1,0 +1,225 @@
+mod Skee.Cues do
+
+  -- The game's sounds as voices for Arcade.Synth, ported from the cue table
+  -- of Sources/SkeeRender/Synth.swift: one Sound per Swift Cue, and the
+  -- voices each starts, in Swift's order. The synth itself (voices, stealing,
+  -- rendering, the rumble and drum beds) is the engine's.
+  cap pure
+
+  import Arcade.Synth
+
+  -- One per Swift Cue, one to one; the app maps Cue to Sound. Named Snd* so
+  -- they cannot clash with Cue's constructors or Hole's Gutter.
+  type Sound =
+    SndLaunch
+    | SndRail
+    | SndHump
+    | SndLip
+    | SndBackwall
+    | SndLanded
+    | SndDrop(Hole)
+    | SndGutter
+    | SndHop
+    | SndWhoosh
+    | SndHotSpot
+    | SndLever
+    | SndPullWin(Int)
+    | SndReelTick
+    | SndReelStop
+    | SndCombo(Int)
+    | SndTallyChips(Int)
+    | SndTallyMult(Int)
+    | SndFrameDone
+    | SndLineWon
+    | SndJackpot
+    | SndBanner(String)
+    | SndFoul
+
+  -- A dropped ball's bell, and whether the hole pays 50 or more (Hole.faceValue >= 50).
+  pfn drop_bell(h : Hole) : (Float, Bool) needs () do
+    match h do
+    Ring10 -> (523.0, false)
+    Ring20 -> (587.0, false)
+    Ring30 -> (659.0, false)
+    Ring40 -> (784.0, false)
+    Ring50 -> (1046.0, true)
+    PocketLeft -> (1318.0, true)
+    PocketRight -> (1318.0, true)
+    Gutter -> (220.0, false)
+    end
+  end
+
+  pfn drop_voices(c : SynthConsts, h : Hole) : List(SynthVoice) needs () do
+    let (pitch, big) = drop_bell(h)
+    let thud = glide(c, WaveSine, 120.0, 50.0, 0.25, 0.6, 0.2)
+    let ring = Cons(thud, bell(c, pitch, 0.3, 0.04))
+    if big do List.append(ring, bell(c, pitch *. 1.5, 0.2, 0.12)) else ring end
+  end
+
+  -- Swift's Int division truncates toward zero.
+  pfn div_trunc(a : Int, b : Int) : Int needs () do
+    if a < 0 do 0 - (0 - a) / b else a / b end
+  end
+
+  -- A rising two-note chime, higher each link of the chain.
+  pfn combo_voices(c : SynthConsts, n : Int) : List(SynthVoice) needs () do
+    let k = powf(c, f32(c, 1.0595), int_to_float(2 * Math.min_int(n, 6)))
+    List.append([tone(c, WaveSquare, 659.0 *. k, 0.1, 0.08), tone_at(c, WaveSquare, 988.0 *. k, 0.1, 0.14, 0.07)], bell(c, 1318.0 *. k, 0.15, 0.14))
+  end
+
+  -- pow(1.06, Float(i)): each tally tick a step higher.
+  pfn tally_step(c : SynthConsts, i : Int) : Float needs () do
+    powf(c, f32(c, 1.06), int_to_float(i))
+  end
+
+  pfn hot_spot_voices(c : SynthConsts) : List(SynthVoice) needs () do
+    let sparkle =
+      upto(14, fn i -> tone_at(c, WaveTri, int_to_float(2600 + i * 7 % 5 * 300), 0.06, 0.025, after(c, 0.25, i, 0.04)))
+    List.concat([arpeggio(c, [1046.0, 1318.0, 1568.0, 2093.0], 0.05, 0.2, 0.3, WaveTri), bell(c, 2093.0, 0.22, 0.2), sparkle])
+  end
+
+  pfn jackpot_voices(c : SynthConsts) : List(SynthVoice) needs () do
+    let sparkle =
+      upto(20, fn i -> tone_at(c, WaveTri, int_to_float(3000 + i % 5 * 400), 0.05, 0.03, after(c, 0.4, i, 0.04)))
+    List.concat([arpeggio(c, [523.0, 659.0, 784.0, 1046.0, 1318.0, 1568.0, 2093.0], 0.055, 0.25, 0.3, WaveTri), bell(c, 1046.0, 0.35, 0.4), bell(c, 1568.0, 0.25, 0.45), sparkle])
+  end
+
+  -- Ratchet down, then the clunk of the reels letting go.
+  pfn lever_voices(c : SynthConsts) : List(SynthVoice) needs () do
+    let ratchet =
+      upto(6, fn i -> tone_at(c, WaveTri, int_to_float(1200 - i * 60), 0.1, 0.012, times(c, i, 0.025)))
+    List.append(ratchet, [voice(c, WaveSine, 90.0, 60.0, 0.1, 0.45, 0.12, 0.16), tone_at(c, WaveNoise, 0.0, 0.08, 0.05, 0.16)])
+  end
+
+  -- A coin rattle that runs longer the more it paid.
+  pfn pull_win_voices(c : SynthConsts, chips : Int) : List(SynthVoice) needs () do
+    let n = Math.min_int(30, 6 + div_trunc(chips, 15))
+    let rattle =
+      upto(n, fn i -> tone_at(c, WaveTri, int_to_float(2400 + i * 7 % 5 * 300), 0.06, 0.02, after(c, 0.2, i, 0.035)))
+    List.append(arpeggio(c, [784.0, 988.0, 1175.0], 0.07, 0.2, 0.12, WaveSine), rattle)
+  end
+
+  pfn banner_voices(c : SynthConsts, text : String) : List(SynthVoice) needs () do
+    if text == "CLEARED" do
+      do
+        let ticks =
+          upto(16, fn i -> tone_at(c, WaveTri, 1800.0, 0.08, 0.012, after(c, 0.5, i, 0.045)))
+        List.append(arpeggio(c, [392.0, 523.0, 659.0, 784.0, 1046.0], 0.08, 0.22, 0.25, WaveSine), ticks)
+      end
+    else
+      if text == "FREE GAMES" do
+        arpeggio(c, [523.0, 659.0, 784.0, 1046.0, 784.0, 1046.0, 1318.0, 1568.0], 0.07, 0.22, 0.2, WaveSquare)
+      else
+        if String.ends_with(text, "JACKPOT") do
+          do
+            let shower =
+              upto(40, fn i -> tone_at(c, WaveTri, int_to_float(2600 + i % 6 * 350), 0.05, 0.03, after(c, 0.5, i, 0.04)))
+            List.append(arpeggio(c, [523.0, 659.0, 784.0, 1046.0, 1318.0, 1568.0, 2093.0, 2637.0], 0.06, 0.25, 0.35, WaveTri), shower)
+          end
+        else
+          if text == "GAME OVER" do
+            arpeggio(c, [392.0, 370.0, 349.0, 294.0], 0.3, 0.15, 0.4, WaveSquare)
+          else
+            if text == "FEVER" do
+              Cons(glide(c, WaveSquare, 300.0, 1200.0, 0.5, 0.1, 0.4), bell(c, 1568.0, 0.2, 0.5))
+            else
+              bell(c, 784.0, 0.18, 0.0)
+            end
+          end
+        end
+      end
+    end
+  end
+
+  -- Boing: a pitch that jumps up and falls back.
+  pfn hop_voices(c : SynthConsts) : List(SynthVoice) needs () do
+    [
+      glide(c, WaveSine, 220.0, 780.0, 0.09, 0.3, 0.12),
+      glide(c, WaveTri, 440.0, 1100.0, 0.09, 0.1, 0.08)
+    ]
+  end
+
+  -- Wood knock over the ramp.
+  pfn hump_voices(c : SynthConsts) : List(SynthVoice) needs () do
+    [
+      glide(c, WaveSine, 170.0, 120.0, 0.08, 0.55, 0.07),
+      tone(c, WaveTri, 950.0, 0.18, 0.015),
+      tone(c, WaveNoise, 0.0, 0.08, 0.02)
+    ]
+  end
+
+  doc """The voices a sound starts, in Swift's order."""
+  fn voices_for(c : SynthConsts, snd : Sound) : List(SynthVoice) needs () do
+    match snd do
+    SndLaunch -> do
+      [
+        tone(c, WaveNoise, 0.0, 0.12, 0.08),
+        glide(c, WaveSine, 180.0, 320.0, 0.12, 0.15, 0.08)
+      ]
+    end
+    SndWhoosh -> do
+      [
+        tone(c, WaveNoise, 0.0, 0.16, 0.3),
+        glide(c, WaveSine, 900.0, 180.0, 0.5, 0.2, 0.3)
+      ]
+    end
+    SndHotSpot -> hot_spot_voices(c)
+    SndHop -> hop_voices(c)
+    SndRail -> [tone(c, WaveTri, 900.0, 0.15, 0.03)]
+    SndHump -> hump_voices(c)
+    SndLip -> do
+      [
+        tone(c, WaveTri, 1900.0, 0.2, 0.02),
+        tone_at(c, WaveTri, 2300.0, 0.16, 0.02, 0.035)
+      ]
+    end
+    SndBackwall -> do
+      [
+        bend(c, WaveSine, 110.0, 80.0, 0.4, 0.12),
+        tone(c, WaveNoise, 0.0, 0.06, 0.04)
+      ]
+    end
+    SndLanded -> [bend(c, WaveSine, 140.0, 100.0, 0.3, 0.06)]
+    SndDrop(h) -> drop_voices(c, h)
+    SndGutter -> do
+      [
+        glide(c, WaveSine, 220.0, 70.0, 0.45, 0.35, 0.35),
+        tone(c, WaveNoise, 0.0, 0.05, 0.1)
+      ]
+    end
+    SndReelTick -> [tone(c, WaveTri, 2600.0, 0.07, 0.012)]
+    SndReelStop -> do
+      [
+        tone(c, WaveTri, 1500.0, 0.18, 0.05),
+        tone(c, WaveSine, 750.0, 0.12, 0.08)
+      ]
+    end
+    SndCombo(n) -> combo_voices(c, n)
+    SndTallyChips(i) -> [tone(c, WaveSine, 440.0 *. tally_step(c, i), 0.22, 0.07)]
+    SndTallyMult(i) -> do
+      [
+        tone(c, WaveSquare, 587.0 *. tally_step(c, i), 0.1, 0.09),
+        tone(c, WaveSine, 1174.0 *. tally_step(c, i), 0.08, 0.06)
+      ]
+    end
+    SndFrameDone -> [tone(c, WaveSine, 392.0, 0.2, 0.15)]
+    SndLineWon -> arpeggio(c, [523.0, 659.0, 784.0, 1046.0], 0.06, 0.22, 0.18, WaveSine)
+    SndJackpot -> jackpot_voices(c)
+    SndBanner(text) -> banner_voices(c, text)
+    SndLever -> lever_voices(c)
+    SndPullWin(chips) -> pull_win_voices(c, chips)
+    SndFoul -> do
+      [
+        tone(c, WaveSquare, 110.0, 0.25, 0.3),
+        tone(c, WaveSquare, 104.0, 0.2, 0.3)
+      ]
+    end
+    end
+  end
+
+  doc """Start a sound. Swift's `play(_ cue:)`."""
+  fn play(s : Synth, snd : Sound) : Synth needs () do
+    Arcade.Synth.add(s, voices_for(s.c, snd))
+  end
+
+end

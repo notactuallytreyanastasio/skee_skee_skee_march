@@ -89,7 +89,7 @@ golden-%:
 MARCH := $(HOME)/.march/bin/march
 SHELL_LIB := $(ARCADE_LIB):lib:shell
 WEB_FILES := web/index.html web/style.css web/skee_glue.mjs web/skee_audio.mjs web/skee_synth_cell.mjs web/skee_worklet.mjs
-# The audio worklet's own build: Skee.Synth alone, loaded by AudioWorklet.addModule.
+# The audio worklet's own build: Arcade.Synth and Skee.Cues alone, loaded by AudioWorklet.addModule.
 WORKLET := shell/synth_worklet.march
 PORT ?= 8137
 

@@ -97,7 +97,7 @@ mod Skee.App do
     | HapticBuzzStop
 
   type Effect =
-    FxSound(Skee.Synth.Sound)
+    FxSound(Skee.Cues.Sound)
     | FxRumble(Float)
     | FxDrum(Bool)
     | FxSave(SaveKey, String)
@@ -258,7 +258,7 @@ mod Skee.App do
 
   -- ---- Cue to sound, and to touch ----
   doc """SoundEngine.play: every presentation cue is the synth cue of the same name."""
-  fn sound_of(c : Cue) : Skee.Synth.Sound needs () do
+  fn sound_of(c : Cue) : Skee.Cues.Sound needs () do
     match c do
     CueLaunch -> SndLaunch
     CueRail -> SndRail

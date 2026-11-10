@@ -1,0 +1,94 @@
+mod Arcade.Float32 do
+
+  -- Swift's 32-bit Float, emulated on doubles. March has only doubles, so
+  -- every Float operation is done in double and rounded to the nearest Float
+  -- by `f32`, which gives Swift's result bit for bit (a double holds any
+  -- product of two Floats exactly, and one rounding of an exact value is
+  -- correct). The libm calls (sinf, expf, powf) are rounded double libm, not
+  -- Float libm: see docs/PORT.md, "Arcade.Synth", for the measured difference.
+  cap pure
+
+  -- The constants of the rounding, all exact doubles. Build once with `consts`.
+  type F32Consts = {
+    split : Float,
+    tiny : Float,
+    subnormal_shift : Float,
+    overflow : Float,
+    infinity : Float
+  }
+
+  pfn pow2(e : Int, acc : Float) : Float needs () do
+    if e > 0 do
+      pow2(e - 1, acc *. 2.0)
+    else
+      if e < 0 do pow2(e + 1, acc *. 0.5) else acc end
+    end
+  end
+
+  doc """The rounding's constants, built from exact doubles. Build once and pass the record."""
+  fn consts() : F32Consts needs () do
+    {
+      split: 536870913.0,
+      tiny: pow2(-126, 1.0),
+      subnormal_shift: pow2(-97, 1.5),
+      overflow: pow2(128, 1.0) -. pow2(103, 1.0),
+      infinity: pow2(1023, 1.0) *. 2.0
+    }
+  end
+
+  doc """
+  Swift's Float(x): the nearest Float, ties to even, subnormals and overflow
+  included. Veltkamp's split keeps the top 24 bits of a normal double; below
+  Float's normal range, adding and removing 1.5 * 2^-97 rounds to a multiple
+  of 2^-149; from 2^128 - 2^103 (halfway past Float's largest) up, the answer
+  is infinity. NaN stays NaN.
+  """
+  fn f32(c : F32Consts, x : Float) : Float needs () do
+    let ax = if x < 0.0 do 0.0 -. x else x end
+    if ax >= c.overflow do
+      if x < 0.0 do 0.0 -. c.infinity else c.infinity end
+    else
+      if ax < c.tiny do
+        do
+          let r = x +. c.subnormal_shift -. c.subnormal_shift
+          if r == 0.0 do x *. 0.0 else r end
+        end
+      else
+        do
+          let p = x *. c.split
+          p -. (p -. x)
+        end
+      end
+    end
+  end
+
+  doc """Swift's sin on a Float: double sin, rounded."""
+  fn sinf(c : F32Consts, x : Float) : Float needs () do
+    f32(c, Math.sin(x))
+  end
+
+  doc """Swift's exp on a Float: double exp, rounded."""
+  fn expf(c : F32Consts, x : Float) : Float needs () do
+    f32(c, Math.exp(x))
+  end
+
+  doc """Swift's pow on Floats: double pow, rounded."""
+  fn powf(c : F32Consts, base : Float, e : Float) : Float needs () do
+    f32(c, Math.pow(base, e))
+  end
+
+  doc """Swift's Float.pi, given the double pi: pi rounded toward zero
+  (0x40490FDA), one ulp below the nearest Float. Float ulps between 2 and 4
+  are 2^-22."""
+  fn pi_toward_zero(c : F32Consts, pi : Float) : Float needs () do
+    let nearest = f32(c, pi)
+    if nearest > pi do nearest -. pow2(-22, 1.0) else nearest end
+  end
+
+  doc """Swift's `0 + x`: +0 when x is -0. March folds `0.0 +. x` to x on
+  every target, losing that (tools/repros/synth/fold_probe.march)."""
+  fn plus_zero(x : Float) : Float needs () do
+    if x == 0.0 do 0.0 else x end
+  end
+
+end

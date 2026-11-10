@@ -111,7 +111,7 @@ mod AppSuite do
     }
   end
 
-  fn sound_name(s : Skee.Synth.Sound) : String do
+  fn sound_name(s : Skee.Cues.Sound) : String do
     match s do
     SndLaunch -> "SndLaunch"
     SndRail -> "SndRail"
